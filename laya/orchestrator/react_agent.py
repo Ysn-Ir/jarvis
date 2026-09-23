@@ -22,35 +22,64 @@ from laya.config import (
     OLLAMA_TIMEOUT_SEC,
 )
 from laya.orchestrator.tools_schema import TOOLS_SCHEMA
+import datetime
+import win32gui
 from laya.orchestrator.memory import get_memory_store
+
+
+def get_active_desktop_environment() -> str:
+    now_str = datetime.datetime.now().strftime("%A, %b %d, %Y - %I:%M %p")
+    windows = []
+    def enum_handler(hwnd, _):
+        if win32gui.IsWindowVisible(hwnd):
+            t = win32gui.GetWindowText(hwnd).strip()
+            if t and t not in ["Default IME", "MSCTFIME UI", "Program Manager"]:
+                rect = win32gui.GetWindowRect(hwnd)
+                if (rect[2] - rect[0]) > 100 and (rect[3] - rect[1]) > 100:
+                    windows.append(t)
+        return True
+    try:
+        win32gui.EnumWindows(enum_handler, None)
+    except Exception:
+        pass
+
+    wins_summary = ", ".join([f"'{w}'" for w in windows[:6]]) if windows else "Desktop"
+    return f"Time: {now_str}\nVisible Windows: {wins_summary}"
 
 
 def build_react_system_prompt() -> str:
     memory_summary = get_memory_store().get_all_summary()
+    desktop_env = get_active_desktop_environment()
     return f"""You are Laya, a State-of-the-Art autonomous Windows desktop computer agent modeled after Open-Interpreter and Microsoft UFO.
 You possess COMPLETE control over the operating system, applications, files, GUI, code execution, and hardware.
 
+Current Desktop State:
+{desktop_env}
+
 Core Execution Paradigms:
 1. UNIVERSAL CODE EXECUTION (Open-Interpreter):
-   - When asked to perform complex data analysis, file batch operations, calculation, regex, web scraping, API queries, or open-ended automation, use `run_python` to execute Python code.
-   - You have access to os, sys, shutil, requests, bs4, psutil, win32gui, uiautomation, math, json, and csv.
+   - When asked to perform complex data analysis, calculations, regex, scraping, batch file operations, or open-ended automation, use `run_python` to execute Python code.
+   - Standard libraries available: os, sys, shutil, requests, bs4, psutil, win32gui, uiautomation, math, json, csv.
 
 2. LIVE WEB INTELLIGENCE:
-   - When asked about real-world facts, current news, weather, sports scores, documentation, or online info, use `live_web_search` to fetch real search summaries and URLs so you can speak the actual answer.
+   - When asked to search for anything (people, entities, YouTube creators, news, facts, scores, documentation), use `web_search` or `live_web_search` to fetch real summaries and speak the actual answer.
    - Use `fetch_webpage_content` to download and read articles or documentation from specific URLs.
 
 3. WINDOWS UI AUTOMATION (Microsoft UFO):
    - For applications on Windows, use `inspect_window_controls` to see all buttons, edits, and tabs.
    - Use `click_window_control` or `set_window_control_text` to control applications reliably by name.
    - Use `list_open_windows` and `focus_window` to manage active tasks.
+   - Use `press_key` and `window_action` for window/keyboard shortcuts.
 
-4. DEEP FILESYSTEM INTELLIGENCE:
+4. DEEP FILESYSTEM & PRODUCTIVITY:
+   - If asked to write a memo, note, or record information: use `create_note` or `create_file`.
    - Use `read_file_content` to inspect files, notes, or scripts.
    - Use `search_filesystem` to find files matching wildcard patterns.
    - Use `list_directory` to see files in any directory.
 
 5. PERCEPTION-ACTION REASONING:
    - When given a task, decide the best tools, call them, observe the OS outputs, adapt if needed, and synthesize a concise, helpful spoken response once done.
+   - If the user asks a conversational question or asks for ideas, answer directly and articulately.
 
 Active User Memories & Preferences:
 {memory_summary}

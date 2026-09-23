@@ -113,6 +113,42 @@ class ComputerUseTools:
         except Exception as e:
             return f"Failed reading clipboard: {e}"
 
+    def press_key(self, key: str) -> str:
+        """Press a single keyboard key (e.g. 'enter', 'esc', 'tab', 'space', 'backspace', 'f5')."""
+        try:
+            clean_key = str(key).lower().strip()
+            pyautogui.press(clean_key)
+            return f"Pressed key '{clean_key}'."
+        except Exception as e:
+            return f"Failed pressing key '{key}': {e}"
+
+    def window_action(self, action: str) -> str:
+        """Perform a quick window action: 'maximize', 'minimize', 'restore', 'snap_left', 'snap_right', 'show_desktop'."""
+        try:
+            act = action.lower().strip()
+            if act in ["maximize", "max"]:
+                pyautogui.hotkey("win", "up")
+                return "Maximized active window."
+            elif act in ["minimize", "min"]:
+                pyautogui.hotkey("win", "down")
+                return "Minimized active window."
+            elif act in ["snap_left", "left"]:
+                pyautogui.hotkey("win", "left")
+                return "Snapped window to the left."
+            elif act in ["snap_right", "right"]:
+                pyautogui.hotkey("win", "right")
+                return "Snapped window to the right."
+            elif act in ["show_desktop", "desktop"]:
+                pyautogui.hotkey("win", "d")
+                return "Toggled desktop view."
+            elif act in ["close", "close_tab"]:
+                pyautogui.hotkey("ctrl", "w")
+                return "Closed active tab."
+            else:
+                return f"Unknown window action: '{action}'."
+        except Exception as e:
+            return f"Window action failed: {e}"
+
     def get_mouse_position(self) -> str:
         """Get cursor position and primary screen resolution."""
         pos = pyautogui.position()
@@ -122,3 +158,4 @@ class ComputerUseTools:
 
 def get_computer_use_tools() -> ComputerUseTools:
     return ComputerUseTools.get_instance()
+

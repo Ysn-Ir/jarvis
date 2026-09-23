@@ -246,6 +246,10 @@ class OrchestratorEngine:
                 if isinstance(keys, str):
                     keys = [k.strip() for k in keys.split("+")]
                 return self.computer_use.keyboard_hotkey(keys=keys)
+            elif tool == "press_key":
+                return self.computer_use.press_key(key=args.get("key", "enter"))
+            elif tool == "window_action":
+                return self.computer_use.window_action(action=args.get("action", "maximize"))
             elif tool == "clipboard_copy":
                 return self.computer_use.clipboard_copy(text=args.get("text", ""))
             elif tool == "clipboard_read":

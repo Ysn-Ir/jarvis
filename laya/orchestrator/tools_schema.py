@@ -353,6 +353,38 @@ TOOLS_SCHEMA: List[Dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "press_key",
+            "description": "Press a single keyboard key (e.g. 'enter', 'esc', 'tab', 'space', 'backspace', 'f5', 'up', 'down', 'left', 'right', 'pageup', 'pagedown').",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "key": {"type": "string", "description": "Key name to press (e.g. 'enter', 'space', 'esc', 'tab')"}
+                },
+                "required": ["key"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "window_action",
+            "description": "Perform window state manipulation: 'maximize', 'minimize', 'restore', 'snap_left', 'snap_right', 'show_desktop', 'close_tab'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["maximize", "minimize", "restore", "snap_left", "snap_right", "show_desktop", "close_tab"],
+                        "description": "Window action to perform"
+                    }
+                },
+                "required": ["action"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "clipboard_copy",
             "description": "Copy arbitrary text to the Windows system clipboard.",
             "parameters": {

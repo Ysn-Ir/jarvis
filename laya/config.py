@@ -26,7 +26,7 @@ GROQ_TIMEOUT_SEC = 10.0
 
 OLLAMA_BASE_URL = "http://localhost:11434/v1"
 OLLAMA_MODEL = "mistral:7b"
-OLLAMA_TIMEOUT_SEC = 15.0
+OLLAMA_TIMEOUT_SEC = 35.0
 
 
 # Audio Pipeline Settings
@@ -40,7 +40,7 @@ VAD_SILENCE_LIMIT_SEC = 0.75      # Silence window to consider speech finished
 VAD_MIN_SPEECH_SEC = 0.35         # Minimum speech length to avoid noise spikes
 
 # Speech-to-Text (STT) Settings
-WHISPER_MODEL_NAME = "base.en"
+WHISPER_MODEL_NAME = os.getenv("WHISPER_MODEL", "small.en")
 WHISPER_DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 WHISPER_COMPUTE_TYPE = "float16" if torch.cuda.is_available() else "int8"
 
