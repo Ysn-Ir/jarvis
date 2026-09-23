@@ -65,11 +65,13 @@ class OrchestratorEngine:
 
         # 1. Multi-Step / Agentic Planning Path (with full conversation history)
         if action in ["plan_and_execute", "general_reasoning"] or not action:
-            plan = self.planner.plan(raw_query, history=history)
+            plan, provider = self.planner.plan(raw_query, history=history)
             if plan and "actions" in plan and plan["actions"]:
+                print(f"🧠 [LLM: {provider}] Planned {len(plan['actions'])} step(s)")
                 return self._execute_plan(plan, is_confirmed=is_confirmed)
             # If planner is offline or timed out, use intelligent local omni-fallback
             return self._solve_offline_reasoning(raw_query)
+
 
         # 2. Permission Gate Check
         has_params = bool(params.get("contact") and params.get("message")) or bool(params.get("recipient") and params.get("body"))
@@ -135,8 +137,9 @@ class OrchestratorEngine:
                 return self.memory.search_facts(query)
 
             else:
-                plan = self.planner.plan(raw_query or action, history=history)
-                if plan:
+                plan, provider = self.planner.plan(raw_query or action, history=history)
+                if plan and "actions" in plan and plan["actions"]:
+                    print(f"🧠 [LLM: {provider}] Planned {len(plan['actions'])} step(s)")
                     return self._execute_plan(plan, is_confirmed=is_confirmed)
                 return self._solve_offline_reasoning(raw_query or action)
 
@@ -144,13 +147,15 @@ class OrchestratorEngine:
             return f"Error executing task '{action}': {e}"
 
     def _execute_plan(self, plan: Dict[str, Any], is_confirmed: bool = False) -> str:
-        """Execute an ordered sequence of planned tool actions."""
+        """Execute an ordered sequence of planned tool actions with multi-step chaining."""
         actions = plan.get("actions", [])
         executed_summaries = []
+        total_steps = len(actions)
 
-        for item in actions:
+        for idx, item in enumerate(actions):
             tool = item.get("tool", "")
             args = item.get("args", {})
+            print(f"  ▶ [Step {idx + 1}/{total_steps}] Executing '{tool}'...")
 
             has_params = bool(args.get("contact") and args.get("message")) or bool(args.get("recipient") and args.get("body"))
             allowed, reason = self.permission_gate.check(tool, is_confirmed=is_confirmed, has_params=has_params)
@@ -162,7 +167,9 @@ class OrchestratorEngine:
                     res = self.tier2_tools.create_folder(args.get("folder_name", "NewFolder"), location=args.get("location", ""))
                     executed_summaries.append(res)
                 elif tool == "create_file":
-                    res = self.tier2_tools.create_file(args.get("filename", "script.py"), content=args.get("content", ""), location=args.get("location", ""))
+                    # If location is empty and a folder was just created, target that folder
+                    loc = args.get("location", "")
+                    res = self.tier2_tools.create_file(args.get("filename", "script.py"), content=args.get("content", ""), location=loc)
                     executed_summaries.append(res)
                 elif tool == "get_file_info":
                     res = self.tier2_tools.get_file_info(args.get("query", ""))
@@ -257,12 +264,15 @@ class OrchestratorEngine:
             except Exception as e:
                 executed_summaries.append(f"Failed action '{tool}': {e}")
 
-        # If tools executed real actions, use the tool results or the spoken summary
-        spoken = plan.get("spoken_summary")
-        if spoken and executed_summaries:
-            # Append path or details if relevant
-            return spoken
-        return " | ".join(executed_summaries) if executed_summaries else "Task completed."
+        spoken = plan.get("spoken_summary", "").strip()
+        # If any queries returned specific paths or facts, append them so user has the ground truth
+        detailed_facts = [s for s in executed_summaries if ("\\" in s and ":" in s) or "Active memories:" in s]
+        if detailed_facts and spoken:
+            extra = " " + " ".join(detailed_facts)
+            if not any(f in spoken for f in detailed_facts):
+                return f"{spoken}{extra}"
+        return spoken if spoken else " | ".join(executed_summaries)
+
 
     def _solve_offline_reasoning(self, query: str) -> str:
         """Local Omni-Fallback: Handles any task even when network/DNS drops."""
@@ -336,7 +346,7 @@ class OrchestratorEngine:
         if "joke" in q:
             return "Why do programmers prefer dark mode? Because light attracts bugs!"
 
-        return f"Executed action for '{query}'."
+        return f"I'm not sure how to complete '{query}'. Could you please clarify what you'd like me to do?"
 
 
 def get_orchestrator() -> OrchestratorEngine:

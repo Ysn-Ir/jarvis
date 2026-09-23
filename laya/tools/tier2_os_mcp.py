@@ -143,24 +143,44 @@ class Tier2OSAutomationTools:
                 return Path(self.last_created_dir)
             return Path.home() / "Desktop"
 
-        loc = location_hint.lower().strip()
-        if "desktop" in loc:
+        loc = location_hint.strip()
+        loc_lower = loc.lower().replace("\\", "/")
+        
+        # Check sub-paths under desktop/documents/downloads
+        if loc_lower.startswith("desktop/"):
+            sub = loc[len("desktop/"):]
+            return (Path.home() / "Desktop" / sub)
+        elif loc_lower == "desktop":
             return Path.home() / "Desktop"
-        if "download" in loc:
+
+        if loc_lower.startswith("downloads/"):
+            sub = loc[len("downloads/"):]
+            return (Path.home() / "Downloads" / sub)
+        elif "download" in loc_lower:
             return Path.home() / "Downloads"
-        if "document" in loc or "docs" in loc:
+
+        if loc_lower.startswith("documents/") or loc_lower.startswith("docs/"):
+            prefix = "documents/" if loc_lower.startswith("documents/") else "docs/"
+            sub = loc[len(prefix):]
+            return (DOCS_DIR / sub)
+        elif "document" in loc_lower or "docs" in loc_lower:
             return DOCS_DIR
 
         # Check if it's an existing folder name on desktop or in last_created_dir
-        check_desktop = Path.home() / "Desktop" / location_hint
+        check_desktop = Path.home() / "Desktop" / loc
         if check_desktop.exists():
             return check_desktop
 
-        check_direct = Path(location_hint)
+        check_last = Path(self.last_created_dir) / loc
+        if check_last.exists():
+            return check_last
+
+        check_direct = Path(loc)
         if check_direct.exists():
             return check_direct
 
         return Path.home() / "Desktop"
+
 
     def create_folder(self, folder_name: str, location: Optional[str] = None) -> str:
         base = self._resolve_base_dir(location)

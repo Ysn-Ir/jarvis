@@ -1,18 +1,27 @@
 """
 Laya Autonomous Multi-Turn Agentic Planner
-Uses Groq Qwen/Qwen3.8-27B to decompose ANY natural language instruction into
-a sequence of executable tool actions with full conversational history and durable memory.
+Dual-Engine Intelligence:
+1. Primary: Cloud Ultra-Fast Groq (openai/gpt-oss-20b) (~1.0s latency)
+2. Secondary / Offline: Local Private Ollama (mistral:7b) via http://localhost:11434/v1
+Decomposes ANY complex or multi-step natural language instruction into executable tool actions.
 """
 
 import os
 import json
 import re
-from typing import Dict, Any, List, Optional
-import dotenv
+import urllib.request
+import urllib.error
+from typing import Dict, Any, List, Optional, Tuple
 
+from laya.config import (
+    GROQ_API_KEY,
+    GROQ_MODEL,
+    GROQ_TIMEOUT_SEC,
+    OLLAMA_BASE_URL,
+    OLLAMA_MODEL,
+    OLLAMA_TIMEOUT_SEC,
+)
 from laya.orchestrator.memory import get_memory_store
-
-dotenv.load_dotenv()
 
 
 def build_system_prompt() -> str:
@@ -27,7 +36,7 @@ Current System Memory:
 
 Available Tools:
 - create_folder(folder_name: str, location: str = ""): Create a directory. Location can be 'desktop', 'documents', 'downloads', a specific folder name, or empty for current folder.
-- create_file(filename: str, content: str = "", location: str = ""): Create ANY file (.py, .txt, .html, .json, etc.) with custom content in current folder or at location ('desktop', etc.).
+- create_file(filename: str, content: str = "", location: str = ""): Create ANY file (.py, .txt, .html, .json, etc.) with custom content in current folder or at location ('desktop', 'desktop/<folder>', etc.).
 - get_file_info(query: str = ""): Get the exact full path, size, and location of the last created or referenced file/folder.
 - open_app(name: str): Launch any application, game, or utility (e.g., 'chrome', 'spotify', 'notepad', 'word', 'whatsapp', 'calc', steam games).
 - close_app(name: str): Close application or window.
@@ -53,9 +62,10 @@ Available Tools:
 - run_powershell(command: str): Run arbitrary PowerShell commands for system tasks.
 - answer_question(text: str): Speak back direct answers to questions, date/time, jokes, or conversational responses.
 
-CRITICAL RULES:
-1. When asked to create a folder on Desktop, use create_folder with location='desktop'.
-2. When asked to create a file 'in this folder', use create_file with location=''.
+CRITICAL RULES FOR MULTI-STEP TASKS:
+1. When asked to perform MULTIPLE steps (e.g. "create folder X on desktop, and create a python file inside it, and open it in notepad"):
+   Output ALL steps in chronological order in the "actions" array!
+2. When creating a file inside a new folder, specify the location as the created folder or 'desktop/<folder_name>'.
 3. When asked where a file or folder is located, use get_file_info.
 4. When told 'remember X', call add_memory(fact='X').
 5. When asked 'what did I ask you to remember?', call query_memory(query='all').
@@ -73,14 +83,13 @@ class AgentPlanner:
     _instance: Optional["AgentPlanner"] = None
 
     def __init__(self):
-        self.api_key = os.getenv("GROQ_API_KEY")
-        self.client = None
-        if self.api_key:
+        self.groq_client = None
+        if GROQ_API_KEY:
             try:
                 from groq import Groq
-                self.client = Groq(api_key=self.api_key)
-            except Exception:
-                self.client = None
+                self.groq_client = Groq(api_key=GROQ_API_KEY)
+            except Exception as e:
+                print(f"[Planner] Groq SDK initialization note: {e}")
 
     @classmethod
     def get_instance(cls) -> "AgentPlanner":
@@ -88,16 +97,15 @@ class AgentPlanner:
             cls._instance = cls()
         return cls._instance
 
-    def plan(self, utterance: str, history: Optional[List[Dict[str, str]]] = None) -> Optional[Dict[str, Any]]:
-        """Decompose arbitrary instruction into structured action plan with multi-turn context."""
-        if not self.client:
-            return None
-
-        # Build messages payload with conversation history
+    def plan(self, utterance: str, history: Optional[List[Dict[str, str]]] = None) -> Tuple[Optional[Dict[str, Any]], str]:
+        """
+        Decompose instruction into structured multi-step actions.
+        Cascades: Groq (cloud ultra-fast) -> Ollama (local offline) -> None.
+        Returns: (plan_dict, provider_name)
+        """
         messages = [{"role": "system", "content": build_system_prompt()}]
 
         if history:
-            # Include the last 6 turns for context
             for msg in history[-6:]:
                 role = msg.get("role", "user")
                 content = msg.get("content", "")
@@ -106,40 +114,118 @@ class AgentPlanner:
 
         messages.append({"role": "user", "content": utterance})
 
-        try:
-            resp = self.client.chat.completions.create(
-                model="qwen/qwen3.8-27b",
-                messages=messages,
-                response_format={"type": "json_object"},
-                temperature=0.1,
-                timeout=3.0,
-            )
-            raw = resp.choices[0].message.content
-            plan_data = json.loads(raw)
-            if "actions" in plan_data and isinstance(plan_data["actions"], list):
-                return plan_data
-        except Exception as e:
-            # If JSON formatting fails (e.g. conversational prompt), try without forced json_object
+        # 1. Try Primary: Groq Cloud LLM (Ultra-Fast)
+        if self.groq_client:
             try:
-                resp = self.client.chat.completions.create(
-                    model="qwen/qwen3.8-27b",
+                resp = self.groq_client.chat.completions.create(
+                    model=GROQ_MODEL,
                     messages=messages,
-                    temperature=0.2,
-                    timeout=2.0,
+                    response_format={"type": "json_object"},
+                    temperature=0.1,
+                    timeout=GROQ_TIMEOUT_SEC,
                 )
-                raw_text = resp.choices[0].message.content.strip()
-                # Try to extract JSON block
-                json_match = re.search(r"\{[\s\S]*\}", raw_text)
-                if json_match:
-                    plan_data = json.loads(json_match.group(0))
-                    if "actions" in plan_data:
-                        return plan_data
+                raw = resp.choices[0].message.content
+                plan_data = self._clean_and_parse_json(raw)
+                if plan_data and "actions" in plan_data and isinstance(plan_data["actions"], list):
+                    return plan_data, f"Groq ({GROQ_MODEL})"
+            except Exception as e:
+                # Check if Groq returned failed_generation containing the tool arguments
+                e_str = str(e)
+                if "failed_generation" in e_str:
+                    try:
+                        fg_match = re.search(r"['\"]failed_generation['\"]\s*:\s*['\"](\{.*?\})['\"]", e_str)
+                        if fg_match:
+                            raw_fg = fg_match.group(1).replace('\\"', '"')
+                            fg_data = json.loads(raw_fg)
+                            if "name" in fg_data and "arguments" in fg_data:
+                                return {
+                                    "actions": [{"tool": fg_data["name"], "args": fg_data["arguments"]}],
+                                    "spoken_summary": f"Executed action for {fg_data['name']}."
+                                }, f"Groq ({GROQ_MODEL})"
+                    except Exception:
+                        pass
+
+                # If json_object mode fails on conversational utterance, retry without forced json mode
+                try:
+                    resp = self.groq_client.chat.completions.create(
+                        model=GROQ_MODEL,
+                        messages=messages,
+                        temperature=0.2,
+                        timeout=5.0,
+                    )
+                    raw_text = resp.choices[0].message.content.strip()
+                    plan_data = self._clean_and_parse_json(raw_text)
+                    if plan_data and "actions" in plan_data:
+                        return plan_data, f"Groq ({GROQ_MODEL})"
+                    return {
+                        "actions": [{"tool": "answer_question", "args": {"text": raw_text}}],
+                        "spoken_summary": raw_text,
+                    }, f"Groq ({GROQ_MODEL})"
+                except Exception as ex_groq:
+                    print(f"[Planner] Groq cloud inference unavailable ({ex_groq}), switching to local Ollama...")
+
+
+        # 2. Try Secondary: Local Private Ollama (Local Offline Fallback)
+        ollama_plan = self._call_ollama(messages)
+        if ollama_plan:
+            return ollama_plan, f"Local Ollama ({OLLAMA_MODEL})"
+
+        return None, "Offline Rule Engine"
+
+    def _call_ollama(self, messages: List[Dict[str, str]]) -> Optional[Dict[str, Any]]:
+        """Call local Ollama server at http://localhost:11434/v1."""
+        try:
+            payload = {
+                "model": OLLAMA_MODEL,
+                "messages": messages,
+                "stream": False,
+                "temperature": 0.1,
+            }
+            req = urllib.request.Request(
+                f"{OLLAMA_BASE_URL}/chat/completions",
+                data=json.dumps(payload).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=OLLAMA_TIMEOUT_SEC) as response:
+                res = json.loads(response.read().decode("utf-8"))
+                raw = res["choices"][0]["message"]["content"]
+                plan_data = self._clean_and_parse_json(raw)
+                if plan_data and "actions" in plan_data:
+                    return plan_data
                 return {
-                    "actions": [{"tool": "answer_question", "args": {"text": raw_text}}],
-                    "spoken_summary": raw_text,
+                    "actions": [{"tool": "answer_question", "args": {"text": raw.strip()}}],
+                    "spoken_summary": raw.strip(),
                 }
-            except Exception as ex2:
-                print(f"[Planner Warning] LLM planning failed: {ex2}")
+        except Exception as e:
+            print(f"[Planner] Local Ollama unavailable: {e}")
+            return None
+
+    def _clean_and_parse_json(self, text: str) -> Optional[Dict[str, Any]]:
+        """Extract and parse JSON safely from LLM output."""
+        if not text:
+            return None
+        text = text.strip()
+        # Direct parse
+        try:
+            return json.loads(text)
+        except Exception:
+            pass
+
+        # Strip markdown ```json ... ``` blocks
+        block_match = re.search(r"```(?:json)?\s*(\{[\s\S]*?\})\s*```", text)
+        if block_match:
+            try:
+                return json.loads(block_match.group(1))
+            except Exception:
+                pass
+
+        # Regex scan for outermost { ... }
+        match = re.search(r"\{[\s\S]*\}", text)
+        if match:
+            try:
+                return json.loads(match.group(0))
+            except Exception:
+                pass
 
         return None
 
