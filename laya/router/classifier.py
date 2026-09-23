@@ -98,8 +98,13 @@ class IntentRouter:
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="check_battery")
 
         if (any(w in text for w in ["check ram", "ram usage", "how much ram", "memory usage", "check memory"]) or re.search(r"\bram\b", text)):
-            if not any(ign in text for ign in ["telegram", "program", "diagram", "instagram"]):
+            if not any(ign in text for ign in ["process", "processes", "task", "telegram", "program", "diagram", "instagram"]):
                 return RouteDecision(path=ExecutionPath.FAST_PATH, action="check_ram")
+
+        if any(w in text for w in ["process", "processes"]) and any(w in text for w in ["list", "top", "show", "check", "what", "which"]):
+            sort_metric = "cpu" if "cpu" in text else "memory"
+            return RouteDecision(path=ExecutionPath.REASONING_PATH, action="list_processes", params={"sort_by": sort_metric})
+
 
 
         if any(w in text for w in ["check cpu", "cpu usage", "cpu utilization", "processor usage"]):

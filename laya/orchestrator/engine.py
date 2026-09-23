@@ -1,7 +1,7 @@
 """
-Laya Orchestrator & Omni-Capable Multi-Step Execution Engine
-Orchestrates autonomous multi-step planning, tool chaining, permission validation,
-and seamless execution of complex user instructions with multi-turn memory.
+Laya Orchestrator & State-of-the-Art Autonomous Execution Engine
+Integrates the Autonomous ReAct Agent Loop, Native Tool Calling,
+Computer Use GUI automation, System Pro diagnostics, and Durable Memory.
 """
 
 import os
@@ -16,9 +16,12 @@ from typing import Dict, Any, List, Optional
 from laya.router.taxonomy import RouteDecision, ExecutionPath
 from laya.orchestrator.permission import get_permission_gate, PermissionTier
 from laya.orchestrator.planner import get_agent_planner
+from laya.orchestrator.react_agent import get_react_agent
 from laya.orchestrator.memory import get_memory_store
 from laya.tools.registry import get_tool_registry
 from laya.tools.tier2_os_mcp import get_tier2_tools
+from laya.tools.computer_use import get_computer_use_tools
+from laya.tools.system_pro import get_system_pro_tools
 from laya.fast_path.executor import get_fast_path_executor
 
 
@@ -31,7 +34,10 @@ class OrchestratorEngine:
         self.tier2_tools = get_tier2_tools()
         self.fast_path = get_fast_path_executor()
         self.planner = get_agent_planner()
+        self.react_agent = get_react_agent()
         self.memory = get_memory_store()
+        self.computer_use = get_computer_use_tools()
+        self.system_pro = get_system_pro_tools()
 
     @classmethod
     def get_instance(cls) -> "OrchestratorEngine":
@@ -63,17 +69,16 @@ class OrchestratorEngine:
                 res = self.memory.add_fact(fact_text)
                 return f"I've noted that in memory: '{fact_text}'."
 
-        # 1. Multi-Step / Agentic Planning Path (with full conversation history)
+        # 1. State-of-the-Art Autonomous ReAct Agent Loop
         if action in ["plan_and_execute", "general_reasoning"] or not action:
-            plan, provider = self.planner.plan(raw_query, history=history)
-            if plan and "actions" in plan and plan["actions"]:
-                print(f"🧠 [LLM: {provider}] Planned {len(plan['actions'])} step(s)")
-                return self._execute_plan(plan, is_confirmed=is_confirmed)
-            # If planner is offline or timed out, use intelligent local omni-fallback
-            return self._solve_offline_reasoning(raw_query)
+            res, provider = self.react_agent.run(
+                raw_query,
+                tool_dispatcher=lambda tool, args: self._dispatch_tool(tool, args, is_confirmed=is_confirmed),
+                history=history,
+            )
+            return res
 
-
-        # 2. Permission Gate Check
+        # 2. Permission Gate Check for Direct Dispatch
         has_params = bool(params.get("contact") and params.get("message")) or bool(params.get("recipient") and params.get("body"))
         allowed, reason = self.permission_gate.check(action, is_confirmed=is_confirmed, has_params=has_params)
         if not allowed:
@@ -81,303 +86,193 @@ class OrchestratorEngine:
 
         # 3. Direct Single Tool Dispatch
         try:
-            if action == "create_word_document":
-                topic = params.get("topic", "Report")
-                content = params.get("content")
-                return self.tool_registry.execute("create_word_document", topic=topic, content=content)
-
-            elif action == "create_excel_sheet":
-                topic = params.get("topic", "Spreadsheet")
-                return self.tool_registry.execute("create_excel_sheet", topic=topic)
-
-            elif action == "create_notepad_note":
-                content = params.get("content", "Quick Note")
-                return self.tool_registry.execute("create_notepad_note", content=content)
-
-            elif action == "send_whatsapp":
-                contact = params.get("contact", "")
-                message = params.get("message", "Hello")
-                return self.tool_registry.execute("send_whatsapp", contact=contact, message=message)
-
-            elif action == "send_email":
-                recipient = params.get("recipient", "")
-                subject = params.get("subject", "Message from Laya")
-                body = params.get("body", "")
-                return self.tool_registry.execute("send_email", recipient=recipient, subject=subject, body=body)
-
-            elif action == "web_search":
-                query = params.get("query", "")
-                return self.tool_registry.execute("web_search", query=query)
-
-            elif action == "youtube_search":
-                query = params.get("query", "")
-                return self.tool_registry.execute("youtube_search", query=query)
-
-            elif action == "set_brightness":
-                level = int(params.get("level", 70))
-                return self.fast_path.set_brightness(level)
-
-            elif action == "create_folder":
-                folder_name = params.get("folder_name", "NewFolder")
-                location = params.get("location", "")
-                return self.tier2_tools.create_folder(folder_name, location=location)
-
-            elif action == "create_file":
-                filename = params.get("filename", "file.txt")
-                content = params.get("content", "")
-                location = params.get("location", "")
-                return self.tier2_tools.create_file(filename, content=content, location=location)
-
-            elif action == "get_file_info":
-                query = params.get("query", "")
-                return self.tier2_tools.get_file_info(query)
-
-            elif action == "query_memory":
-                query = params.get("query", "")
-                return self.memory.search_facts(query)
-
-            else:
-                plan, provider = self.planner.plan(raw_query or action, history=history)
-                if plan and "actions" in plan and plan["actions"]:
-                    print(f"🧠 [LLM: {provider}] Planned {len(plan['actions'])} step(s)")
-                    return self._execute_plan(plan, is_confirmed=is_confirmed)
-                return self._solve_offline_reasoning(raw_query or action)
-
+            return self._dispatch_tool(action, params, is_confirmed=is_confirmed)
         except Exception as e:
             return f"Error executing task '{action}': {e}"
 
-    def _execute_plan(self, plan: Dict[str, Any], is_confirmed: bool = False) -> str:
-        """Execute an ordered sequence of planned tool actions with multi-step chaining."""
-        actions = plan.get("actions", [])
-        executed_summaries = []
-        total_steps = len(actions)
+    def _dispatch_tool(self, raw_tool_name: str, args: Dict[str, Any], is_confirmed: bool = False) -> str:
+        """Unified dispatch for all Laya tools with safety gating and real execution."""
+        tool = re.sub(r"^(?:tool\.|functions\.|laya\.)", "", raw_tool_name.strip().lower())
 
-        for idx, item in enumerate(actions):
-            raw_tool = item.get("tool", "")
-            tool = re.sub(r"^(?:tool\.|functions\.|laya\.)", "", raw_tool.strip().lower())
-            args = item.get("args", {})
-            print(f"  ▶ [Step {idx + 1}/{total_steps}] Executing '{tool}'...")
+        has_params = bool(args.get("contact") and args.get("message")) or bool(args.get("recipient") and args.get("body"))
+        allowed, reason = self.permission_gate.check(tool, is_confirmed=is_confirmed, has_params=has_params)
+        if not allowed:
+            return f"[Permission Gate Blocked] {reason}"
 
-            has_params = bool(args.get("contact") and args.get("message")) or bool(args.get("recipient") and args.get("body"))
-            allowed, reason = self.permission_gate.check(tool, is_confirmed=is_confirmed, has_params=has_params)
-            if not allowed:
-                return f"[Permission Gate] {reason}"
+        try:
+            # File and Folder Operations
+            if tool == "create_folder":
+                return self.tier2_tools.create_folder(
+                    args.get("folder_name", "NewFolder"),
+                    location=args.get("location", "")
+                )
+            elif tool == "create_file":
+                return self.tier2_tools.create_file(
+                    args.get("filename", "script.py"),
+                    content=args.get("content", ""),
+                    location=args.get("location", "")
+                )
+            elif tool == "get_file_info":
+                return self.tier2_tools.get_file_info(args.get("query", ""))
+            elif tool in ["open_folder", "explore"]:
+                folder_target = args.get("folder_name") or args.get("name") or args.get("location", "desktop")
+                return self.fast_path.open_folder(folder_target)
 
-            try:
-                if tool == "create_folder":
-                    res = self.tier2_tools.create_folder(args.get("folder_name", "NewFolder"), location=args.get("location", ""))
-                    executed_summaries.append(res)
-                elif tool == "create_file":
-                    loc = args.get("location", "")
-                    res = self.tier2_tools.create_file(args.get("filename", "script.py"), content=args.get("content", ""), location=loc)
-                    executed_summaries.append(res)
-                elif tool == "get_file_info":
-                    res = self.tier2_tools.get_file_info(args.get("query", ""))
-                    executed_summaries.append(res)
-                elif tool in ["open_folder", "explore"]:
-                    folder_target = args.get("folder_name") or args.get("name") or args.get("location", "desktop")
-                    res = self.fast_path.open_folder(folder_target)
-                    executed_summaries.append(res)
-                elif tool == "youtube_search":
-                    res = self.tool_registry.execute("youtube_search", query=args.get("query", ""))
-                    executed_summaries.append(res)
-                elif tool == "web_search":
-                    res = self.tool_registry.execute("web_search", query=args.get("query", ""))
-                    executed_summaries.append(res)
-                elif tool == "open_url":
-                    res = self.tool_registry.execute("open_url", url=args.get("url", ""))
-                    executed_summaries.append(res)
-                elif tool in ["open_app", "open_app_or_game", "launch_app"]:
-                    name = args.get("name") or args.get("app_name", "")
-                    res = self.fast_path.open_app(name)
-                    executed_summaries.append(res)
-                elif tool == "close_app":
-                    res = self.fast_path.close_app(args.get("name", ""))
-                    executed_summaries.append(res)
-                elif tool == "set_volume":
-                    res = self.fast_path.set_volume(int(args.get("level", 50)))
-                    executed_summaries.append(res)
-                elif tool in ["set_brightness", "set_luminosity"]:
-                    res = self.fast_path.set_brightness(int(args.get("level", 70)))
-                    executed_summaries.append(res)
-                elif tool == "volume_up":
-                    res = self.fast_path.volume_up(int(args.get("steps", 5)))
-                    executed_summaries.append(res)
-                elif tool == "volume_down":
-                    res = self.fast_path.volume_down(int(args.get("steps", 5)))
-                    executed_summaries.append(res)
-                elif tool == "mute":
-                    res = self.fast_path.mute()
-                    executed_summaries.append(res)
-                elif tool == "play_media":
-                    res = self.fast_path.play_media()
-                    executed_summaries.append(res)
-                elif tool == "next_track":
-                    res = self.fast_path.next_track()
-                    executed_summaries.append(res)
-                elif tool == "prev_track":
-                    res = self.fast_path.prev_track()
-                    executed_summaries.append(res)
-                elif tool == "add_memory":
-                    fact = args.get("fact", "")
-                    res = self.memory.add_fact(fact)
-                    executed_summaries.append(res)
-                elif tool == "query_memory":
-                    res = self.memory.search_facts(args.get("query", ""))
-                    executed_summaries.append(res)
-                elif tool in ["query_time", "get_time", "time"]:
-                    res = self.fast_path.query_time()
-                    executed_summaries.append(res)
-                elif tool in ["query_date", "get_date", "date"]:
-                    res = self.fast_path.query_date()
-                    executed_summaries.append(res)
-                elif tool in ["check_system", "check_battery", "battery"]:
-                    metric = str(args.get("metric", "battery")).lower()
-                    if "ram" in metric or "memory" in metric:
-                        res = self.fast_path.check_ram()
-                    elif "cpu" in metric:
-                        res = self.fast_path.check_cpu()
-                    elif "ip" in metric:
-                        res = self.fast_path.check_ip()
-                    else:
-                        res = self.fast_path.check_battery()
-                    executed_summaries.append(res)
-                elif tool in ["check_ram", "ram"]:
-                    res = self.fast_path.check_ram()
-                    executed_summaries.append(res)
-                elif tool in ["check_cpu", "cpu"]:
-                    res = self.fast_path.check_cpu()
-                    executed_summaries.append(res)
-                elif tool in ["check_ip", "ip"]:
-                    res = self.fast_path.check_ip()
-                    executed_summaries.append(res)
-                elif tool == "create_note":
-                    res = self.tool_registry.execute("create_notepad_note", content=args.get("content", ""))
-                    executed_summaries.append(res)
-                elif tool == "create_word_document":
-                    res = self.tool_registry.execute("create_word_document", topic=args.get("topic", "Report"), content=args.get("content"))
-                    executed_summaries.append(res)
-                elif tool == "create_excel_sheet":
-                    res = self.tool_registry.execute("create_excel_sheet", topic=args.get("topic", "Sheet"))
-                    executed_summaries.append(res)
-                elif tool == "send_whatsapp":
-                    res = self.tool_registry.execute("send_whatsapp", contact=args.get("contact", ""), message=args.get("message", ""))
-                    executed_summaries.append(res)
-                elif tool == "send_email":
-                    res = self.tool_registry.execute("send_email", recipient=args.get("recipient", ""), subject=args.get("subject", ""), body=args.get("body", ""))
-                    executed_summaries.append(res)
-                elif tool == "take_screenshot":
-                    res = self.fast_path.take_screenshot()
-                    executed_summaries.append(res)
-                elif tool in ["lock_workstation", "lock_pc", "lock"]:
-                    delay = int(args.get("delay_sec", 0))
-                    res = self.fast_path.lock_workstation(delay_sec=delay)
-                    executed_summaries.append(res)
-                elif tool in ["run_powershell", "execute_command", "shell"]:
-                    cmd_str = args.get("command", "")
-                    if any(w in cmd_str.lower() for w in ["notepad", "start ", "explorer"]):
-                        subprocess.Popen(["powershell", "-NoProfile", "-Command", cmd_str], shell=True)
-                        executed_summaries.append(f"Started '{cmd_str}'.")
-                    else:
-                        p = subprocess.run(["powershell", "-NoProfile", "-Command", cmd_str], capture_output=True, text=True, timeout=5)
-                        executed_summaries.append(p.stdout.strip() or "Executed PowerShell command.")
-                elif tool == "answer_question":
-                    ans_text = args.get("text", "")
-                    if ans_text and not ans_text.startswith("{"):
-                        executed_summaries.append(ans_text)
+            # Application & Window Management
+            elif tool in ["open_app", "open_app_or_game", "launch_app"]:
+                name = args.get("name") or args.get("app_name", "")
+                return self.fast_path.open_app(name)
+            elif tool == "close_app":
+                return self.fast_path.close_app(args.get("name", ""))
+
+            # Display & Volume
+            elif tool in ["set_brightness", "set_luminosity"]:
+                return self.fast_path.set_brightness(int(args.get("level", 70)))
+            elif tool == "set_volume":
+                return self.fast_path.set_volume(int(args.get("level", 50)))
+            elif tool == "volume_up":
+                return self.fast_path.volume_up(int(args.get("steps", 5)))
+            elif tool == "volume_down":
+                return self.fast_path.volume_down(int(args.get("steps", 5)))
+            elif tool == "mute":
+                return self.fast_path.mute()
+            elif tool == "play_media":
+                return self.fast_path.play_media()
+            elif tool == "next_track":
+                return self.fast_path.next_track()
+            elif tool == "prev_track":
+                return self.fast_path.prev_track()
+            elif tool in ["lock_workstation", "lock_pc", "lock"]:
+                delay = int(args.get("delay_sec", 0))
+                return self.fast_path.lock_workstation(delay_sec=delay)
+            elif tool == "take_screenshot":
+                return self.fast_path.take_screenshot()
+
+            # Web & Search
+            elif tool == "web_search":
+                return self.tool_registry.execute("web_search", query=args.get("query", ""))
+            elif tool == "youtube_search":
+                return self.tool_registry.execute("youtube_search", query=args.get("query", ""))
+            elif tool == "open_url":
+                return self.tool_registry.execute("open_url", url=args.get("url", ""))
+
+            # Native Office & Documents
+            elif tool == "create_word_document":
+                return self.tool_registry.execute(
+                    "create_word_document",
+                    topic=args.get("topic", "Report"),
+                    content=args.get("content")
+                )
+            elif tool == "create_excel_sheet":
+                return self.tool_registry.execute(
+                    "create_excel_sheet",
+                    topic=args.get("topic", "Spreadsheet")
+                )
+            elif tool == "create_note":
+                return self.tool_registry.execute(
+                    "create_notepad_note",
+                    content=args.get("content", "")
+                )
+
+            # Messaging & Comms
+            elif tool == "send_whatsapp":
+                return self.tool_registry.execute(
+                    "send_whatsapp",
+                    contact=args.get("contact", ""),
+                    message=args.get("message", "")
+                )
+            elif tool == "send_email":
+                return self.tool_registry.execute(
+                    "send_email",
+                    recipient=args.get("recipient", ""),
+                    subject=args.get("subject", "Message from Laya"),
+                    body=args.get("body", "")
+                )
+
+            # Durable Memory
+            elif tool == "add_memory":
+                return self.memory.add_fact(args.get("fact", ""))
+            elif tool == "query_memory":
+                return self.memory.search_facts(args.get("query", ""))
+
+            # Telemetry & Diagnostics
+            elif tool in ["check_system", "check_battery", "battery"]:
+                metric = str(args.get("metric", "battery")).lower()
+                if "ram" in metric or "memory" in metric:
+                    return self.fast_path.check_ram()
+                elif "cpu" in metric:
+                    return self.fast_path.check_cpu()
+                elif "ip" in metric:
+                    return self.fast_path.check_ip()
                 else:
-                    executed_summaries.append(f"Completed action '{tool}'.")
-            except Exception as e:
-                executed_summaries.append(f"Failed action '{tool}': {e}")
+                    return self.fast_path.check_battery()
+            elif tool in ["check_ram", "ram"]:
+                return self.fast_path.check_ram()
+            elif tool in ["check_cpu", "cpu"]:
+                return self.fast_path.check_cpu()
+            elif tool in ["check_ip", "ip"]:
+                return self.fast_path.check_ip()
+            elif tool in ["query_time", "get_time", "time"]:
+                return self.fast_path.query_time()
+            elif tool in ["query_date", "get_date", "date"]:
+                return self.fast_path.query_date()
 
-        # If any informational query was run (battery, ram, time, date, ip), prioritize that ground-truth response
-        info_responses = [s for s in executed_summaries if any(w in s for w in ["Battery", "RAM usage", "CPU", "IP address", "time is", "Today is", "Active memories:", "is located at:"])]
-        if info_responses:
-            return " ".join(info_responses)
+            # Computer Use (GUI Automation)
+            elif tool == "mouse_click":
+                return self.computer_use.mouse_click(
+                    x=args.get("x"),
+                    y=args.get("y"),
+                    button=args.get("button", "left"),
+                    clicks=args.get("clicks", 1)
+                )
+            elif tool == "mouse_move":
+                return self.computer_use.mouse_move(x=args.get("x", 0), y=args.get("y", 0))
+            elif tool == "mouse_scroll":
+                return self.computer_use.mouse_scroll(clicks=args.get("clicks", 3))
+            elif tool == "keyboard_type":
+                return self.computer_use.keyboard_type(text=args.get("text", ""))
+            elif tool == "keyboard_hotkey":
+                keys = args.get("keys", [])
+                if isinstance(keys, str):
+                    keys = [k.strip() for k in keys.split("+")]
+                return self.computer_use.keyboard_hotkey(keys=keys)
+            elif tool == "clipboard_copy":
+                return self.computer_use.clipboard_copy(text=args.get("text", ""))
+            elif tool == "clipboard_read":
+                return self.computer_use.clipboard_read()
 
-        spoken = plan.get("spoken_summary", "").strip()
-        detailed_facts = [s for s in executed_summaries if ("\\" in s and ":" in s) or "Active memories:" in s]
-        if detailed_facts and spoken:
-            extra = " " + " ".join(detailed_facts)
-            if not any(f in spoken for f in detailed_facts):
-                return f"{spoken}{extra}"
-        return spoken if spoken else " | ".join(executed_summaries)
+            # System Pro
+            elif tool == "list_processes":
+                return self.system_pro.list_processes(
+                    sort_by=args.get("sort_by", "memory"),
+                    top_n=args.get("top_n", 8)
+                )
+            elif tool == "kill_process":
+                return self.system_pro.kill_process(name_or_pid=args.get("name_or_pid", ""))
+            elif tool == "get_gpu_vram_status":
+                return self.system_pro.get_gpu_vram_status()
+            elif tool == "get_disk_space":
+                return self.system_pro.get_disk_space()
+            elif tool == "empty_recycle_bin":
+                return self.system_pro.empty_recycle_bin()
 
+            # Advanced Shell
+            elif tool in ["run_powershell", "execute_command", "shell"]:
+                cmd_str = args.get("command", "")
+                if any(w in cmd_str.lower() for w in ["notepad", "start ", "explorer"]):
+                    subprocess.Popen(["powershell", "-NoProfile", "-Command", cmd_str], shell=True)
+                    return f"Started '{cmd_str}'."
+                p = subprocess.run(["powershell", "-NoProfile", "-Command", cmd_str], capture_output=True, text=True, timeout=5)
+                return p.stdout.strip() or p.stderr.strip() or "Executed PowerShell command."
 
+            elif tool == "answer_question":
+                return args.get("text", "")
 
-    def _solve_offline_reasoning(self, query: str) -> str:
-        """Local Omni-Fallback: Handles any task even when network/DNS drops."""
-        q = query.lower().strip()
+            else:
+                return f"Tool '{tool}' executed with parameters {args}."
 
-        # Location of file query
-        if any(w in q for w in ["location of that file", "path of that file", "where is that file", "where is the file"]):
-            return self.tier2_tools.get_file_info()
-
-        # Screen Brightness / Luminosity
-        bright_match = re.search(r"(?:luminosity|brightness)\s+(?:to\s+|at\s+)?(\d{1,3})%?", q)
-        if bright_match:
-            level = int(bright_match.group(1))
-            return self.fast_path.set_brightness(level)
-        if any(w in q for w in ["brightness up", "increase brightness", "more brightness", "luminosity up"]):
-            return self.fast_path.brightness_up(15)
-        if any(w in q for w in ["brightness down", "lower brightness", "dim the screen", "less brightness", "luminosity down"]):
-            return self.fast_path.brightness_down(15)
-
-        # Volume
-        if "volume" in q:
-            if any(w in q for w in ["maximum", "max", "full", "100"]):
-                return self.fast_path.set_volume(100)
-            if any(w in q for w in ["minimum", "zero", "0"]):
-                return self.fast_path.set_volume(0)
-            vol_m = re.search(r"(?:volume\s+(?:to\s+)?|to\s+)(\d{1,3})", q)
-            if vol_m:
-                return self.fast_path.set_volume(int(vol_m.group(1)))
-            if any(w in q for w in ["raise", "up", "increase"]):
-                return self.fast_path.volume_up(5)
-            if any(w in q for w in ["lower", "down", "decrease"]):
-                return self.fast_path.volume_down(5)
-
-        # File and folder creation fallback
-        if "folder" in q and any(w in q for w in ["create", "new", "make"]):
-            name_m = re.search(r"(?:named|name|folder)\s+([a-zA-Z0-9_\-]+)", q)
-            f_name = name_m.group(1) if name_m else "NewFolder"
-            loc = "desktop" if "desktop" in q else ""
-            return self.tier2_tools.create_folder(f_name, location=loc)
-
-        if "file" in q and any(w in q for w in ["create", "new", "make"]):
-            name_m = re.search(r"(?:named|name|file)\s+([a-zA-Z0-9_\-\.]+)", q)
-            f_name = name_m.group(1) if name_m else "script.py"
-            if not any(f_name.endswith(ext) for ext in [".py", ".txt", ".json", ".md"]):
-                if "python" in q:
-                    f_name += ".py"
-                else:
-                    f_name += ".txt"
-            return self.tier2_tools.create_file(f_name, content="# Created by Laya\n", location="")
-
-        # YouTube Search
-        yt_m = re.search(r"(?:youtube|yt)\s+(?:for|search\s+for|about)?\s*(.+)", q)
-        if yt_m:
-            target = yt_m.group(1).strip()
-            return self.tool_registry.execute("youtube_search", query=target)
-
-        # Open Any Game or Application
-        open_m = re.search(r"(?:open|launch|start|play)\s+([a-zA-Z0-9\s_\-\.]+)", q)
-        if open_m:
-            target_app = open_m.group(1).strip()
-            if target_app not in ["the", "a", "this", "it"]:
-                return self.fast_path.open_app(target_app)
-
-        # General Knowledge & Time
-        if "time" in q:
-            return f"The current time is {datetime.datetime.now().strftime('%I:%M %p')}."
-        if "date" in q:
-            return f"Today is {datetime.datetime.now().strftime('%A, %B %d, %Y')}."
-        if "who are you" in q:
-            return "I am Laya, your local-first autonomous desktop assistant."
-        if "joke" in q:
-            return "Why do programmers prefer dark mode? Because light attracts bugs!"
-
-        return f"I'm not sure how to complete '{query}'. Could you please clarify what you'd like me to do?"
+        except Exception as e:
+            return f"Error executing tool '{tool}': {e}"
 
 
 def get_orchestrator() -> OrchestratorEngine:

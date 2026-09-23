@@ -1,0 +1,442 @@
+"""
+Laya OpenAI-Compatible Native Tool Calling Schemas
+Standardized JSON schemas for autonomous function calling across Groq and Ollama.
+"""
+
+from typing import List, Dict, Any
+
+TOOLS_SCHEMA: List[Dict[str, Any]] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "create_folder",
+            "description": "Create a new directory on the Windows file system. Location can be 'desktop', 'documents', 'downloads', a relative path like 'desktop/MyFolder', or empty for the active folder.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "folder_name": {"type": "string", "description": "Name of the folder to create"},
+                    "location": {"type": "string", "description": "Base directory location (e.g. 'desktop', 'downloads', 'documents')"}
+                },
+                "required": ["folder_name"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_file",
+            "description": "Create ANY text or script file (.py, .txt, .json, .md, .html, etc.) with custom content in the active directory or at a specified location.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filename": {"type": "string", "description": "Filename with extension (e.g. 'script.py', 'notes.txt')"},
+                    "content": {"type": "string", "description": "File body or code contents to write"},
+                    "location": {"type": "string", "description": "Optional location path (e.g. 'desktop', 'desktop/MyFolder')"}
+                },
+                "required": ["filename"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_file_info",
+            "description": "Get the exact full path, size, and metadata of the most recently created or referenced file or folder.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Optional filename or query to inspect"}
+                }
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "open_app",
+            "description": "Launch any installed application, browser, utility, or game, or bring its existing window to the foreground.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Application name (e.g. 'chrome', 'telegram', 'discord', 'vscode', 'notepad', 'spotify')"}
+                },
+                "required": ["name"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "close_app",
+            "description": "Close an application by process name or active window.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Process name or window title to close"}
+                },
+                "required": ["name"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "open_folder",
+            "description": "Open a folder in Windows File Explorer.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "folder_name": {"type": "string", "description": "Folder alias ('desktop', 'downloads', 'documents') or directory path"}
+                },
+                "required": ["folder_name"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "set_brightness",
+            "description": "Set display brightness / luminosity level (0 to 100).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "level": {"type": "integer", "description": "Brightness percentage from 0 to 100"}
+                },
+                "required": ["level"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "set_volume",
+            "description": "Set audio master volume level (0 to 100).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "level": {"type": "integer", "description": "Volume percentage from 0 to 100"}
+                },
+                "required": ["level"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "lock_workstation",
+            "description": "Lock the Windows workstation screen, optionally after a delay in seconds.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "delay_sec": {"type": "integer", "description": "Delay in seconds before locking (0 for immediate)"}
+                }
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "take_screenshot",
+            "description": "Capture a full-screen screenshot and save it to the Screenshots folder.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "destination": {"type": "string", "description": "Optional custom path or filename"}
+                }
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "web_search",
+            "description": "Search Google or the web in the default browser.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Search query terms"}
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "youtube_search",
+            "description": "Search and open YouTube videos in the default browser.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Video search query"}
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "open_url",
+            "description": "Open a specific URL in the default browser.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string", "description": "Full URL starting with http:// or https://"}
+                },
+                "required": ["url"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_word_document",
+            "description": "Create a formatted Word document (.docx) on a given topic with styled headings and content, and open it.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "topic": {"type": "string", "description": "Document title / subject"},
+                    "content": {"type": "string", "description": "Optional body text or essay paragraphs"}
+                },
+                "required": ["topic"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_excel_sheet",
+            "description": "Create a styled Excel spreadsheet (.xlsx) with tables, headers, and formulas.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "topic": {"type": "string", "description": "Spreadsheet topic or budget name"}
+                },
+                "required": ["topic"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_note",
+            "description": "Create a quick text note and open it immediately in Notepad.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "content": {"type": "string", "description": "Note content to write"}
+                },
+                "required": ["content"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "send_whatsapp",
+            "description": "Open WhatsApp and prepare or send a message to a contact.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "contact": {"type": "string", "description": "Contact name or phone number"},
+                    "message": {"type": "string", "description": "Message text"}
+                },
+                "required": ["contact", "message"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "add_memory",
+            "description": "Persist an important user fact, preference, or reminder into durable SQLite memory.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "fact": {"type": "string", "description": "The fact or preference to remember"}
+                },
+                "required": ["fact"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "query_memory",
+            "description": "Search and retrieve stored user facts and preferences from durable memory.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Keyword or topic to retrieve (use 'all' for complete summary)"}
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "check_system",
+            "description": "Query live system telemetry: battery percentage, RAM utilization, CPU load, or local IP address.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "metric": {"type": "string", "enum": ["battery", "ram", "cpu", "ip"], "description": "Metric to inspect"}
+                },
+                "required": ["metric"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "mouse_click",
+            "description": "Simulate a physical mouse click at specific screen coordinates (x, y) or at the current cursor position.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "x": {"type": "integer", "description": "Horizontal screen coordinate"},
+                    "y": {"type": "integer", "description": "Vertical screen coordinate"},
+                    "button": {"type": "string", "enum": ["left", "right", "middle"], "description": "Mouse button"},
+                    "clicks": {"type": "integer", "description": "Number of clicks (1 for single, 2 for double)"}
+                }
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "mouse_scroll",
+            "description": "Scroll the mouse wheel up (positive) or down (negative).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "clicks": {"type": "integer", "description": "Amount to scroll (e.g. 5 for up, -5 for down)"}
+                },
+                "required": ["clicks"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "keyboard_type",
+            "description": "Type text into the currently active or focused window as a human user.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string", "description": "Text string to type"}
+                },
+                "required": ["text"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "keyboard_hotkey",
+            "description": "Press a keyboard shortcut / hotkey combination (e.g. ['ctrl', 't'] for new tab, ['ctrl', 'w'] to close tab, ['alt', 'tab'] to switch app, ['win', 'd'] for desktop).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "keys": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of key names to press in combination (e.g. ['ctrl', 'c'])"
+                    }
+                },
+                "required": ["keys"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "clipboard_copy",
+            "description": "Copy arbitrary text to the Windows system clipboard.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string", "description": "Text to put on clipboard"}
+                },
+                "required": ["text"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "clipboard_read",
+            "description": "Read the current text contents from the Windows system clipboard.",
+            "parameters": {
+                "type": "object",
+                "properties": {}
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_processes",
+            "description": "List running Windows processes sorted by memory or CPU usage to identify performance bottlenecks.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "sort_by": {"type": "string", "enum": ["memory", "cpu"], "description": "Sort metric"},
+                    "top_n": {"type": "integer", "description": "Number of processes to return (default 8)"}
+                }
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "kill_process",
+            "description": "Terminate a frozen or unwanted application by process name or PID.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name_or_pid": {"type": "string", "description": "Process name (e.g. 'chrome.exe', 'notepad') or numeric PID"}
+                },
+                "required": ["name_or_pid"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_gpu_vram_status",
+            "description": "Query the NVIDIA GPU hardware for live VRAM memory usage, GPU core utilization, and temperature.",
+            "parameters": {
+                "type": "object",
+                "properties": {}
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_disk_space",
+            "description": "Check available storage space on system drives (C:, D:).",
+            "parameters": {
+                "type": "object",
+                "properties": {}
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_powershell",
+            "description": "Execute an arbitrary PowerShell command on Windows for advanced administration.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {"type": "string", "description": "PowerShell command line"}
+                },
+                "required": ["command"]
+            }
+        }
+    }
+]
