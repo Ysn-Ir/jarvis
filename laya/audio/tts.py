@@ -71,8 +71,10 @@ class TTSEngine:
         try:
             import edge_tts
             warm_file = CACHE_DIR / "warm.mp3"
-            comm = edge_tts.Communicate("Ready.", self.voice)
-            asyncio.run(comm.save(str(warm_file)))
+            async def _warm():
+                comm = edge_tts.Communicate("Ready.", self.voice)
+                await asyncio.wait_for(comm.save(str(warm_file)), timeout=2.5)
+            asyncio.run(_warm())
         except Exception:
             pass
 
@@ -92,7 +94,7 @@ class TTSEngine:
 
             async def _synthesize():
                 comm = edge_tts.Communicate(speech_text, self.voice)
-                await comm.save(str(cache_file))
+                await asyncio.wait_for(comm.save(str(cache_file)), timeout=3.0)
 
             asyncio.run(_synthesize())
 

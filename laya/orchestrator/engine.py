@@ -11,7 +11,7 @@ import time
 import socket
 import datetime
 import subprocess
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Callable
 
 from laya.router.taxonomy import RouteDecision, ExecutionPath
 from laya.orchestrator.permission import get_permission_gate, PermissionTier
@@ -53,7 +53,13 @@ class OrchestratorEngine:
             cls._instance = cls()
         return cls._instance
 
-    def execute(self, decision: RouteDecision, history: Optional[List[Dict[str, str]]] = None, is_confirmed: bool = False) -> str:
+    def execute(
+        self,
+        decision: RouteDecision,
+        history: Optional[List[Dict[str, str]]] = None,
+        is_confirmed: bool = False,
+        step_callback: Optional[Callable[[str], None]] = None,
+    ) -> str:
         """Execute reasoning path task, dynamically planning multi-step instructions with multi-turn context."""
         action = decision.action
         params = decision.params
@@ -85,6 +91,7 @@ class OrchestratorEngine:
                 raw_query,
                 tool_dispatcher=lambda tool, args: self._dispatch_tool(tool, args, is_confirmed=is_confirmed),
                 history=history,
+                step_callback=step_callback,
             )
             return res
 

@@ -69,12 +69,16 @@ class IntentRouter:
         # ---------------------------------------------------------
         # 3. Simple Instant Fast-Path Triggers (<1ms)
         # ---------------------------------------------------------
-        # Simple Volume (without "to X" or "maximum")
-        if text in ["volume up", "raise volume", "raise the volume", "raise up the volume", "turn up volume", "turn up the volume", "turn the volume up", "louder"]:
-            return RouteDecision(path=ExecutionPath.FAST_PATH, action="volume_up", params={"steps": 5})
+        # Simple & Relative Volume
+        rel_up = re.match(r"^(?:raise|increase|turn up)\s+(?:the\s+)?volume(?:\s+by)?(?:\s*(\d+))?(?:\s*percent|%)?$", text)
+        if rel_up or text in ["volume up", "raise volume", "raise the volume", "raise up the volume", "turn up volume", "turn up the volume", "turn the volume up", "louder"]:
+            steps = int(rel_up.group(1)) // 2 if (rel_up and rel_up.group(1)) else 5
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="volume_up", params={"steps": max(1, steps)})
 
-        if text in ["volume down", "lower volume", "lower the volume", "turn down volume", "turn down the volume", "turn the volume down", "quieter"]:
-            return RouteDecision(path=ExecutionPath.FAST_PATH, action="volume_down", params={"steps": 5})
+        rel_down = re.match(r"^(?:lower|decrease|turn down)\s+(?:the\s+)?volume(?:\s+by)?(?:\s*(\d+))?(?:\s*percent|%)?$", text)
+        if rel_down or text in ["volume down", "lower volume", "lower the volume", "turn down volume", "turn down the volume", "turn the volume down", "quieter"]:
+            steps = int(rel_down.group(1)) // 2 if (rel_down and rel_down.group(1)) else 5
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="volume_down", params={"steps": max(1, steps)})
 
         vol_match = re.match(r"^(?:set\s+volume\s+to|volume\s+to|volume)\s+(\d{1,3})$", text)
         if vol_match:

@@ -7,7 +7,7 @@ import sys
 import time
 import argparse
 from pathlib import Path
-from typing import List, Dict
+from typing import List, Dict, Optional, Callable
 
 # Ensure UTF-8 stdout on Windows
 if hasattr(sys.stdout, "reconfigure"):
@@ -31,7 +31,12 @@ class LayaAssistant:
         self.tts = get_tts_engine()
         self.conversation_history: List[Dict[str, str]] = []
 
-    def handle_command(self, query: str, speak: bool = True) -> str:
+    def handle_command(
+        self,
+        query: str,
+        speak: bool = True,
+        step_callback: Optional[Callable[[str], None]] = None,
+    ) -> str:
         """Process natural language query through the 3-tier execution architecture with multi-turn memory."""
         t_start = time.perf_counter()
 
@@ -65,7 +70,11 @@ class LayaAssistant:
                 self.tts.speak(result_text)
 
         elif decision.path == ExecutionPath.REASONING_PATH:
-            result_text = self.orchestrator.execute(decision, history=self.conversation_history)
+            result_text = self.orchestrator.execute(
+                decision,
+                history=self.conversation_history,
+                step_callback=step_callback,
+            )
             if speak:
                 self.tts.speak(result_text)
 
@@ -145,35 +154,26 @@ class LayaAssistant:
 def main():
     parser = argparse.ArgumentParser(description="Laya Autonomous Desktop Assistant")
     parser.add_argument("query", nargs="*", help="Optional command to execute directly")
-    parser.add_argument("--voice", "-v", action="store_true", help="Launch interactive voice mode")
+    parser.add_argument("--hud", action="store_true", help="Launch transparent desktop HUD interface with wake word")
+    parser.add_argument("--voice", "-v", action="store_true", help="Launch interactive voice mode in console")
     args = parser.parse_args()
 
     assistant = LayaAssistant()
 
-    if args.voice:
+    if args.hud:
+        from laya.ui.hud import launch_hud
+        print("🚀 Launching Laya Desktop HUD...")
+        launch_hud(assistant_instance=assistant)
+    elif args.voice:
         assistant.run_voice_loop()
     elif args.query:
         full_query = " ".join(args.query)
         assistant.handle_command(full_query, speak=False)
     else:
-        # Interactive CLI mode
-        print("\n" + "=" * 65)
-        print("🤖 LAYA INTERACTIVE DESKTOP ASSISTANT")
-        print("   Type any command or 'exit' to quit.")
-        print("=" * 65 + "\n")
-
-        while True:
-            try:
-                line = input("Laya > ").strip()
-                if not line:
-                    continue
-                if line.lower() in ["exit", "quit", "q"]:
-                    break
-                assistant.handle_command(line, speak=False)
-            except KeyboardInterrupt:
-                break
-            except Exception as e:
-                print(f"Error: {e}")
+        # Launch HUD as the default modern experience
+        from laya.ui.hud import launch_hud
+        print("🚀 Launching Laya Desktop HUD (use --voice for CLI voice)...")
+        launch_hud(assistant_instance=assistant)
 
 
 if __name__ == "__main__":

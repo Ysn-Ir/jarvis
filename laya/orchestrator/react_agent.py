@@ -10,7 +10,7 @@ import sys
 import json
 import time
 import urllib.request
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional, Tuple, Callable
 
 from laya.config import (
     GROQ_API_KEY,
@@ -91,6 +91,7 @@ class ReActAgent:
 
     def __init__(self):
         self.groq_client = None
+        self._groq_failed = False
         if GROQ_API_KEY:
             try:
                 from groq import Groq
@@ -110,6 +111,7 @@ class ReActAgent:
         tool_dispatcher: Any,
         history: Optional[List[Dict[str, str]]] = None,
         max_steps: int = 6,
+        step_callback: Optional[Callable[[str], None]] = None,
     ) -> Tuple[str, str]:
         """
         Execute the autonomous ReAct perception-action loop.
@@ -128,21 +130,23 @@ class ReActAgent:
 
         messages.append({"role": "user", "content": query})
 
-        # Try Groq first, fall back to Ollama if network is down
-        try:
-            if self.groq_client:
-                return self._run_groq_loop(messages, tool_dispatcher, max_steps)
-        except Exception as e:
-            print(f"[ReActAgent] Groq loop encountered: {e}, switching to local Ollama...")
+        # Try Groq first if available and not previously failed, fall back to Ollama if network is down
+        if self.groq_client and not self._groq_failed:
+            try:
+                return self._run_groq_loop(messages, tool_dispatcher, max_steps, step_callback=step_callback)
+            except Exception as e:
+                print(f"[ReActAgent] Groq network error: {e}, falling back to local Ollama (RTX 4050 GPU)...")
+                self._groq_failed = True
 
         # Ollama local loop
-        return self._run_ollama_loop(messages, tool_dispatcher, max_steps)
+        return self._run_ollama_loop(messages, tool_dispatcher, max_steps, step_callback=step_callback)
 
     def _run_groq_loop(
         self,
         messages: List[Dict[str, Any]],
         tool_dispatcher: Any,
         max_steps: int,
+        step_callback: Optional[Callable[[str], None]] = None,
     ) -> Tuple[str, str]:
         provider = f"Groq ({GROQ_MODEL})"
         step_count = 0
@@ -151,6 +155,9 @@ class ReActAgent:
         active_model = GROQ_MODEL
         while step_count < max_steps:
             step_count += 1
+            if step_callback:
+                step_callback(f"Thinking with {active_model} (step {step_count})...")
+
             try:
                 response = self.groq_client.chat.completions.create(
                     model=active_model,
@@ -205,8 +212,16 @@ class ReActAgent:
                         args = {}
 
                     print(f"  ▶ [ReAct Step {step_count}] Tool Call: '{func_name}' with args {args}")
+                    if step_callback:
+                        step_callback(f"Executing: {func_name}({list(args.values())[:2]})")
+
                     obs = tool_dispatcher(func_name, args)
                     executed_observations.append(obs)
+
+                    if step_callback:
+                        obs_str = str(obs).strip()
+                        summary_obs = (obs_str[:65] + "...") if len(obs_str) > 65 else obs_str
+                        step_callback(f"Result: {summary_obs}")
 
                     # Feed observation back into conversation
                     messages.append({
@@ -232,6 +247,7 @@ class ReActAgent:
         messages: List[Dict[str, Any]],
         tool_dispatcher: Any,
         max_steps: int,
+        step_callback: Optional[Callable[[str], None]] = None,
     ) -> Tuple[str, str]:
         provider = f"Local Ollama ({OLLAMA_MODEL})"
         step_count = 0
@@ -240,12 +256,19 @@ class ReActAgent:
         # Convert tools to Ollama format
         while step_count < max_steps:
             step_count += 1
+            if step_callback:
+                step_callback(f"Local GPU thinking (step {step_count})...")
+
             payload = {
                 "model": OLLAMA_MODEL,
                 "messages": messages,
                 "tools": TOOLS_SCHEMA,
                 "stream": False,
                 "temperature": 0.1,
+                "options": {
+                    "num_gpu": 99,
+                    "num_thread": 8,
+                }
             }
             req = urllib.request.Request(
                 f"{OLLAMA_BASE_URL}/chat/completions",
@@ -269,8 +292,17 @@ class ReActAgent:
                     raw_args = tc["function"]["arguments"]
                     args = json.loads(raw_args) if isinstance(raw_args, str) else (raw_args or {})
                     print(f"  ▶ [ReAct Step {step_count} (Ollama)] Tool Call: '{fn}' with args {args}")
+                    if step_callback:
+                        step_callback(f"Executing: {fn}({list(args.values())[:2]})")
+
                     obs = tool_dispatcher(fn, args)
                     executed_observations.append(obs)
+
+                    if step_callback:
+                        obs_str = str(obs).strip()
+                        summary_obs = (obs_str[:65] + "...") if len(obs_str) > 65 else obs_str
+                        step_callback(f"Result: {summary_obs}")
+
                     messages.append({
                         "role": "tool",
                         "tool_call_id": tc.get("id", f"call_{int(time.time())}"),
