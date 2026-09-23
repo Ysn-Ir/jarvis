@@ -149,17 +149,37 @@ class TTSEngine:
             self._queue.join()
 
     def stop(self):
-        """Clear queue and stop audio."""
+        """Immediately abort current speech playback and clear queue."""
+        self._stop_event.set()
         try:
-            pygame.mixer.music.stop()
+            if pygame.mixer.get_init():
+                pygame.mixer.music.stop()
+                pygame.mixer.music.unload()
         except Exception:
             pass
+        if self._sapi_engine:
+            try:
+                self._sapi_engine.stop()
+            except Exception:
+                pass
         while not self._queue.empty():
             try:
                 self._queue.get_nowait()
                 self._queue.task_done()
             except Exception:
                 pass
+        time.sleep(0.04)
+        self._stop_event.clear()
+
+    def is_speaking(self) -> bool:
+        """Check if speech is currently outputting or queued."""
+        try:
+            if pygame.mixer.get_init() and pygame.mixer.music.get_busy():
+                return True
+        except Exception:
+            pass
+        return not self._queue.empty()
+
 
 
 def get_tts_engine() -> TTSEngine:

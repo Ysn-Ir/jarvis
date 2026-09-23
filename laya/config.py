@@ -20,8 +20,9 @@ MEMORY_DB_PATH = DATA_DIR / "laya_memory.db"
 
 # LLM Providers (Dual-Backend: Cloud Ultra-Fast Groq + Local Private Ollama)
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
-GROQ_FALLBACK_MODEL = os.getenv("GROQ_FALLBACK_MODEL", "qwen/qwen3.8-27b")
+# Default to ultra-fast qwen3.8-27b for sub-second tool turns; gpt-oss-120b for heavy fallback
+GROQ_MODEL = os.getenv("GROQ_MODEL", "qwen/qwen3.8-27b")
+GROQ_FALLBACK_MODEL = os.getenv("GROQ_FALLBACK_MODEL", "openai/gpt-oss-120b")
 GROQ_TIMEOUT_SEC = 40.0
 
 OLLAMA_BASE_URL = "http://localhost:11434/v1"
@@ -35,9 +36,10 @@ AUDIO_CHANNELS = 1
 AUDIO_BLOCK_SIZE = 1024
 
 # Voice Activity Detection (VAD) Settings
-VAD_ENERGY_THRESHOLD = 0.007       # Sensitivity to speech onset
-VAD_SILENCE_LIMIT_SEC = 0.75      # Silence window to consider speech finished
-VAD_MIN_SPEECH_SEC = 0.35         # Minimum speech length to avoid noise spikes
+# 1.6s of trailing silence allows natural human speech pauses without cutting off
+VAD_ENERGY_THRESHOLD = 0.005       # Speech onset sensitivity
+VAD_SILENCE_LIMIT_SEC = 1.6        # Generous silence window before finalizing speech
+VAD_MIN_SPEECH_SEC = 0.30         # Minimum speech length to avoid noise spikes
 
 # Speech-to-Text (STT) Settings
 WHISPER_MODEL_NAME = os.getenv("WHISPER_MODEL", "small.en")

@@ -62,9 +62,10 @@ class AudioCapture:
                 flat_chunk = chunk.flatten()
                 rms = float(np.sqrt(np.mean(flat_chunk**2)))
 
-                # Update adaptive noise floor
-                self.noise_floor = 0.98 * self.noise_floor + 0.02 * rms
-                adaptive_threshold = max(energy_threshold, self.noise_floor * 2.0)
+                # Update adaptive noise floor ONLY when NOT actively speaking
+                if not is_speaking:
+                    self.noise_floor = 0.98 * self.noise_floor + 0.02 * rms
+                adaptive_threshold = max(energy_threshold, self.noise_floor * 1.8)
 
                 if rms > adaptive_threshold:
                     if not is_speaking:
@@ -83,9 +84,9 @@ class AudioCapture:
                             # Speech finished
                             break
                     else:
-                        # Keep a small rolling buffer of pre-speech chunks (last 4 chunks = ~250ms)
+                        # Keep rolling buffer of pre-speech chunks (last 8 chunks = ~500ms)
                         recorded_chunks.append(flat_chunk)
-                        if len(recorded_chunks) > 4:
+                        if len(recorded_chunks) > 8:
                             recorded_chunks.pop(0)
 
         if not is_speaking or not recorded_chunks:

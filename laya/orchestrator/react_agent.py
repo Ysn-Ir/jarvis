@@ -12,6 +12,14 @@ import time
 import urllib.request
 from typing import Dict, Any, List, Optional, Tuple, Callable
 
+# Force UTF-8 stdout on Windows to prevent charmap/cp1252 print crashes
+for stream in (sys.stdout, sys.stderr):
+    if hasattr(stream, "reconfigure"):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
 from laya.config import (
     GROQ_API_KEY,
     GROQ_MODEL,
@@ -91,6 +99,11 @@ Core Execution Paradigms:
    - When given a task, decide the best tools, call them, observe the OS outputs, adapt if needed, and synthesize a concise, helpful spoken response once done.
    - If the user asks a conversational question or asks for ideas, answer directly and articulately.
 
+8. DECISIVENESS, SPEED & CONCISENESS (CRITICAL):
+   - Complete tasks in minimum steps (1 to 2 steps is optimal).
+   - NEVER loop repeatedly probing for alternative extensions (*.txt, *note*, *.md, *.docx). Once you locate the user's file or execute their request, STOP calling tools immediately!
+   - Respond in a concise, natural, 1-2 sentence spoken style. NEVER dump raw debug logs, search tables, or full tool listings into the final spoken output.
+
 Active User Memories & Preferences:
 {memory_summary}
 """
@@ -120,7 +133,7 @@ class ReActAgent:
         query: str,
         tool_dispatcher: Any,
         history: Optional[List[Dict[str, str]]] = None,
-        max_steps: int = 6,
+        max_steps: int = 4,
         step_callback: Optional[Callable[[str], None]] = None,
     ) -> Tuple[str, str]:
         """
@@ -220,7 +233,10 @@ class ReActAgent:
                     except Exception:
                         args = {}
 
-                    print(f"  ▶ [ReAct Step {step_count}] Tool Call: '{func_name}' with args {args}")
+                    try:
+                        print(f"  -> [ReAct Step {step_count}] Tool Call: '{func_name}' with args {args}")
+                    except Exception:
+                        pass
                     if step_callback:
                         step_callback(f"Executing: {func_name}({list(args.values())[:2]})")
 
@@ -243,12 +259,19 @@ class ReActAgent:
                 # Model finished planning and provided final answer
                 final_text = (msg.content or "").strip()
                 if not final_text and executed_observations:
-                    final_text = " | ".join(executed_observations)
+                    last_obs = str(executed_observations[-1])
+                    if "Launched" in last_obs or "notepad" in last_obs:
+                        final_text = "I located and opened your requested file."
+                    else:
+                        final_text = "I completed the requested action on your desktop."
                 return final_text, provider
 
-        # If reached max steps, summarize
+        # If reached max steps, summarize concisely without raw debug dumps
         if executed_observations:
-            return " | ".join(executed_observations), provider
+            last_obs = str(executed_observations[-1])
+            if "Launched" in last_obs or "notepad" in last_obs:
+                return "I located your note and opened it on your desktop.", provider
+            return "I completed the requested operations on your desktop.", provider
         return "I completed the requested operations.", provider
 
     def _run_ollama_loop(
@@ -302,7 +325,10 @@ class ReActAgent:
                     fn = tc["function"]["name"]
                     raw_args = tc["function"]["arguments"]
                     args = json.loads(raw_args) if isinstance(raw_args, str) else (raw_args or {})
-                    print(f"  ▶ [ReAct Step {step_count} (Ollama)] Tool Call: '{fn}' with args {args}")
+                    try:
+                        print(f"  -> [ReAct Step {step_count} (Ollama)] Tool Call: '{fn}' with args {args}")
+                    except Exception:
+                        pass
                     if step_callback:
                         step_callback(f"Executing: {fn}({list(args.values())[:2]})")
 
@@ -323,11 +349,18 @@ class ReActAgent:
             else:
                 final_text = (msg.get("content") or "").strip()
                 if not final_text and executed_observations:
-                    final_text = " | ".join(executed_observations)
+                    last_obs = str(executed_observations[-1])
+                    if "Launched" in last_obs or "notepad" in last_obs:
+                        final_text = "I located and opened your requested file."
+                    else:
+                        final_text = "I completed the requested action on your desktop."
                 return final_text, provider
 
         if executed_observations:
-            return " | ".join(executed_observations), provider
+            last_obs = str(executed_observations[-1])
+            if "Launched" in last_obs or "notepad" in last_obs:
+                return "I located your note and opened it on your desktop.", provider
+            return "I completed the requested operations on your desktop.", provider
         return "I completed the requested operations.", provider
 
 

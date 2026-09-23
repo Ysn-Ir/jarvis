@@ -56,6 +56,12 @@ def test_wake_word_parsing():
     intent = classify_intent(cmd2)
     assert intent.action == "query_identity"
 
+    # Test interruption keywords: "stop", "shut up", "quiet", "cancel"
+    from laya.audio.wake_word import INTERRUPT_KEYWORDS_REGEX
+    for phrase in ["stop", "hey stop", "shut up", "be quiet", "cancel that"]:
+        assert re.search(INTERRUPT_KEYWORDS_REGEX, phrase, re.IGNORECASE) is not None, f"Failed on: {phrase}"
+
+
 
 if __name__ == "__main__":
     import tempfile

@@ -81,6 +81,9 @@ class LayaHUD(ctk.CTk):
         self._build_top_island()
         self._build_content_cards()
 
+        # Global hotkey bindings: ESC to immediately shut speech off and cancel
+        self.bind_all("<Escape>", lambda e: self._on_escape_pressed())
+
         # Initialize Continuous Wake Word Engine
         self.wake_detector: Optional[WakeWordDetector] = None
         self._init_wake_word()
@@ -173,6 +176,21 @@ class LayaHUD(ctk.CTk):
             command=self._toggle_collapse,
         )
         self.collapse_btn.pack(side="right", padx=2)
+
+        # Stop / Shut Up Button (Immediate Barge-In)
+        self.stop_btn = ctk.CTkButton(
+            self.island_frame,
+            text="■ STOP",
+            width=54,
+            height=26,
+            fg_color="#18181c",
+            hover_color="#33141e",
+            text_color="#f43f5e",
+            font=ctk.CTkFont(size=9, weight="bold"),
+            corner_radius=13,
+            command=self._on_stop_clicked,
+        )
+        self.stop_btn.pack(side="right", padx=3)
 
     # -------------------------------------------------------------
     # 2. Main Content Cards (Monochrome Glass Cards)
@@ -402,39 +420,65 @@ class LayaHUD(ctk.CTk):
             self._toggle_collapse()
 
     # -------------------------------------------------------------
-    # 5. Continuous Single-Pass Wake Word Integration
+    # -------------------------------------------------------------
+    # 5. Continuous Single-Pass Wake Word & Barge-In Integration
     # -------------------------------------------------------------
     def _init_wake_word(self):
         try:
             self.wake_detector = get_wake_word_detector(
                 on_wake=self._on_wake_heard,
                 on_command=self._on_direct_command_heard,
+                on_interrupt=self._on_interrupt_requested,
             )
             self.wake_detector.start()
         except Exception as e:
             print(f"[HUD] Wake word note: {e}")
 
+    def _on_interrupt_requested(self):
+        """User spoke interrupt word ('stop', 'shut up', 'quiet') or wake word while speaking -> shut speech off immediately!"""
+        print("[HUD] Interruption vocal trigger received: silencing speech.")
+        self.tts.stop()
+        self.msg_queue.put(("barge_in_stop", None))
+
+    def _on_stop_clicked(self):
+        """User clicked STOP button -> immediately silence speech."""
+        print("[HUD] STOP button clicked: silencing speech.")
+        self.tts.stop()
+        self.msg_queue.put(("barge_in_stop", None))
+
+    def _on_escape_pressed(self):
+        """User hit Escape -> immediately silence speech and reset."""
+        print("[HUD] ESC pressed: silencing speech.")
+        self.tts.stop()
+        self.msg_queue.put(("barge_in_stop", None))
+
     def _on_wake_heard(self):
         """User spoke only wake word -> activate listening mode."""
+        self.tts.stop()
         self.msg_queue.put(("wake_trigger", None))
 
     def _on_direct_command_heard(self, command_text: str):
         """User spoke wake word + command together -> execute immediately!"""
+        self.tts.stop()
         self.msg_queue.put(("direct_command", command_text))
 
     # -------------------------------------------------------------
     # 6. User Input Triggers
     # -------------------------------------------------------------
     def _on_mic_click(self):
-        if self.is_recording or self.is_processing:
+        # Instantly silence any ongoing speech
+        self.tts.stop()
+        if self.is_recording:
             return
         if self.wake_detector:
             self.wake_detector.pause()
         self._start_voice_recording_thread()
 
     def _on_submit_text(self):
+        # Instantly silence any ongoing speech
+        self.tts.stop()
         query = self.input_field.get().strip()
-        if not query or self.is_processing:
+        if not query:
             return
         self.input_field.delete(0, "end")
         self._start_command_execution(query)
@@ -451,7 +495,8 @@ class LayaHUD(ctk.CTk):
     def _record_and_transcribe_worker(self):
         try:
             self.tts.stop()
-            audio_data = self.capture.record_until_silence(max_duration_sec=7.0)
+            # 15s max with 1.6s natural silence window
+            audio_data = self.capture.record_until_silence(max_duration_sec=15.0)
             if audio_data is None or len(audio_data) == 0:
                 self.msg_queue.put(("reset_idle", None))
                 return
@@ -468,6 +513,8 @@ class LayaHUD(ctk.CTk):
             self.msg_queue.put(("reset_idle", None))
 
     def _start_command_execution(self, query: str):
+        # Silence speech before executing new command
+        self.tts.stop()
         self._expand_if_collapsed()
         if self.wake_detector:
             self.wake_detector.pause()
@@ -528,6 +575,13 @@ class LayaHUD(ctk.CTk):
                     res_text, dt_ms = args[0], args[1]
                     self._render_result(res_text, dt_ms)
 
+                elif kind == "barge_in_stop":
+                    self.current_state = "IDLE"
+                    self._set_state_badge("● SILENCED", "#f43f5e", "#1c1917")
+                    self.query_text.configure(text="Speech stopped. Listening... (or type a command)", text_color=self.CLR_WHITE)
+                    if self.wake_detector:
+                        self.wake_detector.resume()
+
                 elif kind == "reset_idle":
                     self.current_state = "IDLE"
                     self._set_state_badge("● READY", self.CLR_SILVER, "#18181c")
@@ -543,6 +597,12 @@ class LayaHUD(ctk.CTk):
 
         except queue.Empty:
             pass
+
+        # Auto-reset badge and visualizer to READY once speech finishes
+        if self.current_state == "SPEAKING" and not self.tts.is_speaking():
+            self.current_state = "IDLE"
+            self._set_state_badge("● READY", self.CLR_SILVER, "#18181c")
+            self.query_text.configure(text="Listening for voice... (Say 'Hey Laya' or 'Jarvis')", text_color=self.CLR_TEXT_DIM)
 
         self.after(35, self._drain_queue)
 

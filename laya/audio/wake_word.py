@@ -33,6 +33,7 @@ from laya.config import (
 )
 
 WAKE_KEYWORDS_REGEX = r"\b(?:hey|hi|hello)?[\s,]+(?:laya|leia|layer|liar|laia|leya|jarvis|computer)\b|\b(?:laya|leia|jarvis|computer)\b"
+INTERRUPT_KEYWORDS_REGEX = r"\b(?:stop|shut\s*up|quiet|cancel|silence|halt|pause)\b"
 NON_COMMAND_WORDS = {"laya", "leia", "layer", "liar", "laia", "leya", "jarvis", "computer", "hey", "hello", "hi"}
 
 
@@ -43,9 +44,11 @@ class WakeWordDetector:
         self,
         on_wake: Optional[Callable[[], None]] = None,
         on_command: Optional[Callable[[str], None]] = None,
+        on_interrupt: Optional[Callable[[], None]] = None,
     ):
         self.on_wake = on_wake
         self.on_command = on_command
+        self.on_interrupt = on_interrupt
         self.is_running = False
         self.is_listening_active = False  # Suppress wake word while actively processing
         self._thread: Optional[threading.Thread] = None
@@ -61,14 +64,17 @@ class WakeWordDetector:
         cls,
         on_wake: Optional[Callable[[], None]] = None,
         on_command: Optional[Callable[[str], None]] = None,
+        on_interrupt: Optional[Callable[[], None]] = None,
     ) -> "WakeWordDetector":
         if cls._instance is None:
-            cls._instance = cls(on_wake=on_wake, on_command=on_command)
+            cls._instance = cls(on_wake=on_wake, on_command=on_command, on_interrupt=on_interrupt)
         else:
             if on_wake:
                 cls._instance.on_wake = on_wake
             if on_command:
                 cls._instance.on_command = on_command
+            if on_interrupt:
+                cls._instance.on_interrupt = on_interrupt
         return cls._instance
 
     def start(self):
@@ -124,8 +130,8 @@ class WakeWordDetector:
                         is_in_speech = True
                         silence_count = 0
                         speech_buffer.append(audio_chunk)
-                        # Cap max continuous speech at 6 seconds
-                        if len(speech_buffer) > 24:
+                        # Cap max continuous speech at 12 seconds
+                        if len(speech_buffer) > 48:
                             self._process_speech(speech_buffer)
                             speech_buffer = []
                             is_in_speech = False
@@ -133,15 +139,15 @@ class WakeWordDetector:
                         if is_in_speech:
                             silence_count += 1
                             speech_buffer.append(audio_chunk)
-                            # ~0.5s of silence after speech -> speech ended
-                            if silence_count >= 2:
+                            # ~1.25s of silence after speech -> speech finished naturally
+                            if silence_count >= 5:
                                 self._process_speech(speech_buffer)
                                 speech_buffer = []
                                 is_in_speech = False
                                 silence_count = 0
                         else:
-                            # Keep tiny rolling pre-roll buffer (1 chunk)
-                            speech_buffer = [audio_chunk]
+                            # Keep rolling pre-roll buffer (~500ms)
+                            speech_buffer = speech_buffer[-1:] + [audio_chunk] if speech_buffer else [audio_chunk]
 
         except Exception as e:
             print(f"[WakeWord Error] Stream stopped: {e}", file=sys.stderr)
@@ -152,8 +158,8 @@ class WakeWordDetector:
             return
 
         full_clip = np.concatenate(chunks)
-        # Skip clips shorter than 0.4s
-        if len(full_clip) < int(AUDIO_SAMPLE_RATE * 0.4):
+        # Skip clips shorter than 0.35s
+        if len(full_clip) < int(AUDIO_SAMPLE_RATE * 0.35):
             return
 
         try:
@@ -163,9 +169,22 @@ class WakeWordDetector:
                 return
 
             text_lower = text.lower().strip()
+
+            # 1. Instant Vocal Barge-In: "Stop", "Quiet", "Shut up", "Cancel"
+            if re.search(INTERRUPT_KEYWORDS_REGEX, text_lower):
+                print(f"[WakeWord] Interruption heard: '{text}'")
+                if self.on_interrupt:
+                    self.on_interrupt()
+                return
+
+            # 2. Wake Word Detection
             match = re.search(WAKE_KEYWORDS_REGEX, text_lower)
             if match:
                 print(f"[WakeWord] Trigger heard: '{text}'")
+                # Immediately silence any current speech
+                if self.on_interrupt:
+                    self.on_interrupt()
+
                 # Extract subsequent command from the same utterance
                 raw_cmd = text[match.end():].strip().lstrip(",.!? ").strip()
                 clean_cmd = re.sub(r"^(?:hey|hi|hello)?[\s,]*(?:laya|jarvis|computer)[,\.!\s]*", "", raw_cmd, flags=re.IGNORECASE).strip()
@@ -190,5 +209,7 @@ class WakeWordDetector:
 def get_wake_word_detector(
     on_wake: Optional[Callable[[], None]] = None,
     on_command: Optional[Callable[[str], None]] = None,
+    on_interrupt: Optional[Callable[[], None]] = None,
 ) -> WakeWordDetector:
-    return WakeWordDetector.get_instance(on_wake=on_wake, on_command=on_command)
+    return WakeWordDetector.get_instance(on_wake=on_wake, on_command=on_command, on_interrupt=on_interrupt)
+
