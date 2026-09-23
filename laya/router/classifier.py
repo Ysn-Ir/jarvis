@@ -175,13 +175,37 @@ class IntentRouter:
         if any(p in text for p in ["tell me a joke", "make me laugh", "joke"]):
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="tell_joke")
 
-        # Direct app launch (e.g. "open chrome", "open telegram", "open discord", "open vs code", "open notepad")
-        open_match = re.match(r"^(?:open|launch|start)\s+(?:the\s+)?([a-zA-Z0-9\s_\-\.]+?)(?:\s+app|\s+application|\s+program)?$", text)
+        # Direct app launch & control (e.g. "open up spotify", "can you open chrome", "launch notepad", "start up paint")
+        open_match = re.match(
+            r"^(?:can\s+you\s+|could\s+you\s+|please\s+)?(?:open\s+up|start\s+up|fire\s+up|bring\s+up|open|launch|start|run)\s+(?:the\s+)?([a-zA-Z0-9\s_\-\.]+?)(?:\s+app|\s+application|\s+program)?$",
+            text,
+            flags=re.IGNORECASE
+        )
         if open_match:
             raw_target = open_match.group(1).strip()
-            # Do not intercept file or web instructions like "open chrome and search" or "open folder"
+            # Clean leading "up " if present
+            raw_target = re.sub(r"^up\s+", "", raw_target).strip()
+            if raw_target in ["something", "an app", "a program", "app", "application"]:
+                return RouteDecision(
+                    path=ExecutionPath.CLARIFY,
+                    action="none",
+                    clarification_prompt="What application would you like me to open?"
+                )
             if raw_target not in ["a", "the", "it", "this", "new folder", "folder"]:
                 return RouteDecision(path=ExecutionPath.FAST_PATH, action="open_app", params={"app_name": raw_target})
+
+        # Direct app close (e.g. "close spotify", "quit chrome", "close notepad", "exit discord")
+        close_match = re.match(
+            r"^(?:can\s+you\s+|could\s+you\s+|please\s+)?(?:close\s+down|shut\s+down|close|quit|exit|kill)\s+(?:the\s+)?([a-zA-Z0-9\s_\-\.]+?)(?:\s+app|\s+application|\s+program)?$",
+            text,
+            flags=re.IGNORECASE
+        )
+        if close_match:
+            raw_close = close_match.group(1).strip()
+            raw_close = re.sub(r"^down\s+", "", raw_close).strip()
+            if raw_close not in ["this", "it", "window", "active window", "the window", "computer", "pc"]:
+                return RouteDecision(path=ExecutionPath.FAST_PATH, action="close_window", params={"title_keyword": raw_close})
+
 
 
         # ---------------------------------------------------------

