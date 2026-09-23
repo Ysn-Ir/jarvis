@@ -261,6 +261,13 @@ class OrchestratorEngine:
                 return self.computer_use.clipboard_copy(text=args.get("text", ""))
             elif tool == "clipboard_read":
                 return self.computer_use.clipboard_read()
+            elif tool in ["browser_search", "web_browser_search"]:
+                q = args.get("query", "")
+                engine = args.get("engine", "google")
+                return self.fast_path.browser_search(query=q, engine=engine)
+            elif tool in ["browser_open_url", "open_url"]:
+                url = args.get("url", "")
+                return self.fast_path.browser_open_url(url=url)
 
             # System Pro
             elif tool == "list_processes":

@@ -7,5 +7,15 @@ Tier 3: Vision Fallback (Screen-grounded clicking)
 
 from .registry import ToolRegistry, get_tool_registry
 from .tier1_native import Tier1NativeTools, get_tier1_tools
+from .browser_automator import BrowserAutomator, get_browser_automator
 
-__all__ = ["ToolRegistry", "get_tool_registry", "Tier1NativeTools", "get_tier1_tools"]
+__all__ = [
+    "ToolRegistry",
+    "get_tool_registry",
+    "Tier1NativeTools",
+    "get_tier1_tools",
+    "BrowserAutomator",
+    "get_browser_automator",
+]
+
+

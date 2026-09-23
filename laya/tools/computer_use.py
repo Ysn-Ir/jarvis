@@ -155,6 +155,30 @@ class ComputerUseTools:
         size = pyautogui.size()
         return f"Cursor position: ({pos.x}, {pos.y}) | Screen resolution: {size.width}x{size.height}."
 
+    def mouse_drag(self, start_x: int, start_y: int, end_x: int, end_y: int, duration: float = 0.3) -> str:
+        """Click and drag from (start_x, start_y) to (end_x, end_y)."""
+        try:
+            pyautogui.moveTo(int(start_x), int(start_y))
+            time.sleep(0.05)
+            pyautogui.dragTo(int(end_x), int(end_y), duration=float(duration), button="left")
+            return f"Dragged mouse from ({start_x}, {start_y}) to ({end_x}, {end_y})."
+        except Exception as e:
+            return f"Failed dragging mouse: {e}"
+
+    def take_screenshot(self, filename: Optional[str] = None) -> str:
+        """Capture full desktop screenshot and return screen dimensions and save path."""
+        try:
+            from laya.config import ROOT_DIR
+            shots_dir = ROOT_DIR / "data" / "screenshots"
+            shots_dir.mkdir(parents=True, exist_ok=True)
+            fname = filename or f"screenshot_{int(time.time())}.png"
+            path = shots_dir / fname
+            im = pyautogui.screenshot()
+            im.save(str(path))
+            return f"Captured desktop screenshot ({im.width}x{im.height}) saved to {path}."
+        except Exception as e:
+            return f"Failed capturing screenshot: {e}"
+
 
 def get_computer_use_tools() -> ComputerUseTools:
     return ComputerUseTools.get_instance()

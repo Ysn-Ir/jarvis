@@ -234,6 +234,17 @@ class FastPathExecutor:
     def tell_joke(self) -> str:
         return "Why do programmers prefer dark mode? Because light attracts bugs!"
 
+    # -------------------------------------------------------------
+    # High-Speed Browser Direct Automation
+    # -------------------------------------------------------------
+    def browser_search(self, query: str, engine: str = "google") -> str:
+        from laya.tools.browser_automator import get_browser_automator
+        return get_browser_automator().search_web(query, engine=engine)
+
+    def browser_open_url(self, url: str) -> str:
+        from laya.tools.browser_automator import get_browser_automator
+        return get_browser_automator().open_url(url)
+
 
 def get_fast_path_executor() -> FastPathExecutor:
     return FastPathExecutor.get_instance()

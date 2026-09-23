@@ -1,15 +1,17 @@
 """
-Laya State-of-the-Art Futuristic Desktop HUD (Heads-Up Display)
-Frameless, semi-transparent, draggable desktop overlay with non-blocking
-multi-threaded execution, real-time ReAct step streaming, and always-on wake word.
+Laya Futuristic Desktop HUD — Cluely-Inspired Dynamic Island
+Floating translucent glass capsule with animated audio waveform visualizer,
+subtle neon glow borders, single-pass continuous wake word, and real-time step streaming.
 """
 
 import sys
 import os
+import math
 import time
 import queue
+import random
 import threading
-from typing import Optional, Callable
+from typing import Optional, Callable, List
 
 import customtkinter as ctk
 
@@ -27,255 +29,349 @@ class LayaHUD(ctk.CTk):
         self.stt = get_stt_engine()
         self.capture = AudioCapture()
 
-        # Thread communication queue
+        # Thread Communication
         self.msg_queue: queue.Queue = queue.Queue()
         self.is_recording = False
         self.is_processing = False
         self.is_collapsed = False
+        self.current_state = "IDLE"  # IDLE, LISTENING, PROCESSING, SPEAKING
 
-        # Configure Window
-        self.title("Laya HUD")
-        self.hud_width = 460
-        self.hud_height = 560
-        self.collapsed_height = 56
+        # Window Dimensions
+        self.title("Laya AI")
+        self.hud_width = 440
+        self.hud_height = 490
+        self.pill_height = 66
 
-        # Position at top-right of primary screen
+        # Position top-right
         screen_w = self.winfo_screenwidth()
-        pos_x = max(20, screen_w - self.hud_width - 30)
-        pos_y = 40
+        pos_x = max(20, screen_w - self.hud_width - 35)
+        pos_y = 35
         self.geometry(f"{self.hud_width}x{self.hud_height}+{pos_x}+{pos_y}")
 
-        # Modern Frameless & Transparent Styling
-        self.overrideredirect(True)          # Frameless
-        self.attributes("-topmost", True)      # Always on top
-        self.attributes("-alpha", 0.94)        # Glass transparency
+        # Cluely-Style Glass Styling
+        self.overrideredirect(True)
+        self.attributes("-topmost", True)
+        self.attributes("-alpha", 0.94)
 
         ctk.set_appearance_mode("Dark")
         ctk.set_default_color_theme("blue")
 
-        # Color Palette: Deep Slate Glass with Cyan & Violet Accents
-        self.BG_MAIN = "#0b0f19"
-        self.BG_CARD = "#131b2e"
-        self.BG_FEED = "#0d1322"
-        self.ACCENT_CYAN = "#00d2ff"
-        self.ACCENT_VIOLET = "#7928ca"
-        self.TEXT_MUTED = "#8b949e"
-        self.TEXT_BRIGHT = "#f0f6fc"
+        # Futuristic Obsidian & Cyberpunk Neon Palette
+        self.COLOR_BG = "#070a13"
+        self.COLOR_CAPSULE = "#0d1322"
+        self.COLOR_CARD = "#11182c"
+        self.COLOR_CYAN = "#00f0ff"
+        self.COLOR_PURPLE = "#a855f7"
+        self.COLOR_GREEN = "#10b981"
+        self.COLOR_AMBER = "#f59e0b"
+        self.COLOR_TEXT_DIM = "#94a3b8"
+        self.COLOR_TEXT_WHITE = "#f8fafc"
 
-        self.configure(fg_color=self.BG_MAIN)
+        self.configure(fg_color=self.COLOR_BG)
 
-        # Dragging State
+        # Drag tracking
         self._drag_x = 0
         self._drag_y = 0
 
-        # Build GUI Components
-        self._build_header()
-        self._build_status_bar()
-        self._build_main_content()
-        self._build_controls()
+        # Animation state for waveform
+        self._wave_phase = 0.0
+        self._wave_bars = [4] * 18
 
-        # Setup Wake Word Engine
+        # Build Interface
+        self._build_dynamic_island()
+        self._build_expanded_body()
+
+        # Initialize Wake Word
         self.wake_detector: Optional[WakeWordDetector] = None
         self._init_wake_word()
 
-        # Start periodic queue polling (30ms)
-        self.after(30, self._drain_queue)
+        # Animation & Queue Polling
+        self.after(35, self._drain_queue)
+        self.after(40, self._animate_waveform)
 
-    def _build_header(self):
-        """Header bar with title, telemetry badge, and window controls."""
-        self.header_frame = ctk.CTkFrame(self, fg_color=self.BG_CARD, corner_radius=12, height=44)
-        self.header_frame.pack(fill="x", padx=8, pady=(8, 4))
-        self.header_frame.pack_propagate(False)
-
-        # Enable dragging by clicking anywhere on header
-        self.header_frame.bind("<Button-1>", self._start_drag)
-        self.header_frame.bind("<B1-Motion>", self._on_drag)
-
-        # Branding
-        self.logo_label = ctk.CTkLabel(
-            self.header_frame,
-            text="⚡ LAYA OS",
-            font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
-            text_color=self.ACCENT_CYAN,
+    # -------------------------------------------------------------
+    # 1. Dynamic Island Top Capsule
+    # -------------------------------------------------------------
+    def _build_dynamic_island(self):
+        """Top capsule: Branding, Animated Waveform Visualizer, State Pill, Controls."""
+        self.island_frame = ctk.CTkFrame(
+            self,
+            fg_color=self.COLOR_CAPSULE,
+            corner_radius=22,
+            border_width=1,
+            border_color="#1e293b",
+            height=58,
         )
-        self.logo_label.pack(side="left", padx=(14, 8))
-        self.logo_label.bind("<Button-1>", self._start_drag)
-        self.logo_label.bind("<B1-Motion>", self._on_drag)
+        self.island_frame.pack(fill="x", padx=10, pady=(10, 4))
+        self.island_frame.pack_propagate(False)
 
-        # Telemetry Pill (GPU & Engine)
-        self.gpu_badge = ctk.CTkLabel(
-            self.header_frame,
-            text="RTX 4050 • CUDA",
-            font=ctk.CTkFont(family="Consolas", size=10),
-            text_color="#38ef7d",
-            fg_color="#092816",
-            corner_radius=6,
-            padx=8,
+        # Draggable header
+        self.island_frame.bind("<Button-1>", self._start_drag)
+        self.island_frame.bind("<B1-Motion>", self._on_drag)
+
+        # Glowing Logo
+        self.brand_label = ctk.CTkLabel(
+            self.island_frame,
+            text="✦ LAYA",
+            font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
+            text_color=self.COLOR_CYAN,
+        )
+        self.brand_label.pack(side="left", padx=(14, 6))
+        self.brand_label.bind("<Button-1>", self._start_drag)
+        self.brand_label.bind("<B1-Motion>", self._on_drag)
+
+        # Canvas Waveform Visualizer
+        self.canvas_wave = ctk.CTkCanvas(
+            self.island_frame,
+            width=110,
+            height=28,
+            bg=self.COLOR_CAPSULE,
+            highlightthickness=0,
+        )
+        self.canvas_wave.pack(side="left", padx=(2, 6), pady=14)
+        self.canvas_wave.bind("<Button-1>", self._start_drag)
+        self.canvas_wave.bind("<B1-Motion>", self._on_drag)
+
+        # Status Badge Pill
+        self.state_badge = ctk.CTkLabel(
+            self.island_frame,
+            text="● READY",
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            text_color=self.COLOR_GREEN,
+            fg_color="#062e1e",
+            corner_radius=12,
+            padx=10,
             pady=2,
         )
-        self.gpu_badge.pack(side="left", padx=4)
+        self.state_badge.pack(side="left", padx=4)
 
-        # Window Controls: Collapse & Close
+        # Close Button
         self.close_btn = ctk.CTkButton(
-            self.header_frame,
+            self.island_frame,
             text="✕",
-            width=28,
-            height=28,
-            fg_color="#21262d",
-            hover_color="#da3633",
-            text_color="#c9d1d9",
-            font=ctk.CTkFont(size=12, weight="bold"),
-            corner_radius=8,
+            width=26,
+            height=26,
+            fg_color="#182234",
+            hover_color="#ef4444",
+            text_color="#94a3b8",
+            font=ctk.CTkFont(size=11, weight="bold"),
+            corner_radius=13,
             command=self._on_close,
         )
         self.close_btn.pack(side="right", padx=(4, 10))
 
+        # Collapse Button
         self.collapse_btn = ctk.CTkButton(
-            self.header_frame,
+            self.island_frame,
             text="─",
-            width=28,
-            height=28,
-            fg_color="#21262d",
-            hover_color="#30363d",
-            text_color="#c9d1d9",
-            font=ctk.CTkFont(size=12, weight="bold"),
-            corner_radius=8,
+            width=26,
+            height=26,
+            fg_color="#182234",
+            hover_color="#334155",
+            text_color="#94a3b8",
+            font=ctk.CTkFont(size=11, weight="bold"),
+            corner_radius=13,
             command=self._toggle_collapse,
         )
         self.collapse_btn.pack(side="right", padx=2)
 
-    def _build_status_bar(self):
-        """Status indicator pill."""
-        self.status_frame = ctk.CTkFrame(self, fg_color="transparent", height=30)
-        self.status_frame.pack(fill="x", padx=12, pady=(2, 6))
+    # -------------------------------------------------------------
+    # 2. Expanded Glass Body
+    # -------------------------------------------------------------
+    def _build_expanded_body(self):
+        """Content container: Transcript Bubble, Live Step Feed, Results, and Input."""
+        self.body_container = ctk.CTkFrame(self, fg_color="transparent")
+        self.body_container.pack(fill="both", expand=True, padx=10, pady=(2, 10))
 
-        self.status_pill = ctk.CTkLabel(
-            self.status_frame,
-            text="● IDLE — Say 'Hey Laya' or 'Jarvis'",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            text_color="#00ff88",
-            fg_color="#092314",
-            corner_radius=10,
-            padx=12,
-            pady=3,
+        # A. User Utterance Glass Card
+        self.bubble_frame = ctk.CTkFrame(
+            self.body_container,
+            fg_color=self.COLOR_CARD,
+            corner_radius=16,
+            border_width=1,
+            border_color="#1e293b",
         )
-        self.status_pill.pack(side="left")
+        self.bubble_frame.pack(fill="x", pady=(0, 6))
 
-    def _build_main_content(self):
-        """Container for query view, live step feed, and results card."""
-        self.content_container = ctk.CTkFrame(self, fg_color="transparent")
-        self.content_container.pack(fill="both", expand=True, padx=8, pady=2)
-
-        # 1. User Query Card
-        self.query_frame = ctk.CTkFrame(self.content_container, fg_color=self.BG_CARD, corner_radius=10)
-        self.query_frame.pack(fill="x", pady=(0, 6))
-
-        self.query_label = ctk.CTkLabel(
-            self.query_frame,
-            text="Waiting for voice command...",
+        self.query_text = ctk.CTkLabel(
+            self.bubble_frame,
+            text="Listening for voice... (Say 'Hey Laya' or 'Jarvis')",
             font=ctk.CTkFont(family="Segoe UI", size=12, slant="italic"),
-            text_color=self.TEXT_MUTED,
-            wraplength=420,
+            text_color=self.COLOR_TEXT_DIM,
+            wraplength=400,
             justify="left",
-            padx=12,
-            pady=8,
+            padx=14,
+            pady=10,
         )
-        self.query_label.pack(fill="x", anchor="w")
+        self.query_text.pack(fill="x", anchor="w")
 
-        # 2. Live Action / Step Stream Feed (Activity ticker)
-        self.feed_header = ctk.CTkLabel(
-            self.content_container,
-            text="LIVE ACTIVITY FEED",
-            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
-            text_color=self.TEXT_MUTED,
+        # B. Real-Time Action Ticker (Live Step Feed)
+        self.step_container = ctk.CTkFrame(
+            self.body_container,
+            fg_color="#0a0f1d",
+            corner_radius=14,
+            border_width=1,
+            border_color="#1e293b",
         )
-        self.feed_header.pack(anchor="w", padx=6, pady=(2, 2))
+        self.step_container.pack(fill="x", pady=(0, 6))
 
-        self.feed_box = ctk.CTkTextbox(
-            self.content_container,
-            fg_color=self.BG_FEED,
-            text_color=self.ACCENT_CYAN,
+        self.step_header = ctk.CTkLabel(
+            self.step_container,
+            text="✦ LIVE INTEL & ACTIONS",
+            font=ctk.CTkFont(family="Segoe UI", size=9, weight="bold"),
+            text_color=self.COLOR_CYAN,
+        )
+        self.step_header.pack(anchor="w", padx=12, pady=(6, 2))
+
+        self.step_box = ctk.CTkTextbox(
+            self.step_container,
+            fg_color="transparent",
+            text_color="#38bdf8",
             font=ctk.CTkFont(family="Consolas", size=10),
-            corner_radius=10,
-            height=100,
+            height=70,
             wrap="word",
         )
-        self.feed_box.pack(fill="x", pady=(0, 6))
-        self.feed_box.insert("end", "System ready. RTX 4050 GPU accelerated.\n")
-        self.feed_box.configure(state="disabled")
+        self.step_box.pack(fill="x", padx=6, pady=(0, 6))
+        self.step_box.insert("end", "Autonomous desktop agent armed. RTX 4050 active.\n")
+        self.step_box.configure(state="disabled")
 
-        # 3. Final Results Card
-        self.result_header = ctk.CTkLabel(
-            self.content_container,
-            text="RESPONSE & OUTPUT",
-            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
-            text_color=self.TEXT_MUTED,
+        # C. Output / Spoken Response Card
+        self.result_container = ctk.CTkFrame(
+            self.body_container,
+            fg_color=self.COLOR_CARD,
+            corner_radius=16,
+            border_width=1,
+            border_color="#1e293b",
         )
-        self.result_header.pack(anchor="w", padx=6, pady=(2, 2))
+        self.result_container.pack(fill="both", expand=True, pady=(0, 6))
+
+        self.result_header = ctk.CTkLabel(
+            self.result_container,
+            text="✦ ASSISTANT RESPONSE",
+            font=ctk.CTkFont(family="Segoe UI", size=9, weight="bold"),
+            text_color=self.COLOR_PURPLE,
+        )
+        self.result_header.pack(anchor="w", padx=12, pady=(6, 2))
 
         self.result_box = ctk.CTkTextbox(
-            self.content_container,
-            fg_color=self.BG_CARD,
-            text_color=self.TEXT_BRIGHT,
+            self.result_container,
+            fg_color="transparent",
+            text_color=self.COLOR_TEXT_WHITE,
             font=ctk.CTkFont(family="Segoe UI", size=12),
-            corner_radius=10,
             wrap="word",
         )
-        self.result_box.pack(fill="both", expand=True, pady=(0, 6))
-        self.result_box.insert("end", "Hello! I am Laya, your autonomous desktop assistant.\nSay 'Hey Laya' or click the microphone to speak.")
+        self.result_box.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+        self.result_box.insert(
+            "end",
+            "I am ready. Try saying:\n"
+            "• 'Hey Laya open paint and draw a heart'\n"
+            "• 'Hey Laya search youtube for lo-fi'\n"
+            "• 'Hey Laya raise the volume by 10 percent'"
+        )
         self.result_box.configure(state="disabled")
 
-    def _build_controls(self):
-        """Bottom controls: text entry, send button, and manual mic button."""
-        self.controls_frame = ctk.CTkFrame(self, fg_color=self.BG_CARD, corner_radius=12, height=52)
-        self.controls_frame.pack(fill="x", padx=8, pady=(2, 8))
-        self.controls_frame.pack_propagate(False)
+        # D. Input Bar (Pill Entry, Mic Button, Send)
+        self.input_pill = ctk.CTkFrame(
+            self.body_container,
+            fg_color=self.COLOR_CAPSULE,
+            corner_radius=22,
+            border_width=1,
+            border_color="#1e293b",
+            height=46,
+        )
+        self.input_pill.pack(fill="x")
+        self.input_pill.pack_propagate(False)
 
-        # Mic Button
+        # Mic Trigger
         self.mic_btn = ctk.CTkButton(
-            self.controls_frame,
+            self.input_pill,
             text="🎙️",
-            width=38,
-            height=38,
-            fg_color="#1f293d",
-            hover_color=self.ACCENT_VIOLET,
-            font=ctk.CTkFont(size=16),
-            corner_radius=10,
+            width=34,
+            height=34,
+            fg_color="#182234",
+            hover_color=self.COLOR_PURPLE,
+            font=ctk.CTkFont(size=14),
+            corner_radius=17,
             command=self._on_mic_click,
         )
-        self.mic_btn.pack(side="left", padx=(8, 6), pady=7)
+        self.mic_btn.pack(side="left", padx=(6, 4), pady=6)
 
-        # Text input entry
-        self.input_entry = ctk.CTkEntry(
-            self.controls_frame,
-            placeholder_text="Ask Laya or type command...",
-            fg_color="#0b0f19",
-            border_color="#212936",
-            text_color=self.TEXT_BRIGHT,
+        # Text Prompt Field
+        self.input_field = ctk.CTkEntry(
+            self.input_pill,
+            placeholder_text="Type command or ask anything...",
+            fg_color="transparent",
+            border_width=0,
+            text_color=self.COLOR_TEXT_WHITE,
             font=ctk.CTkFont(family="Segoe UI", size=12),
-            corner_radius=8,
-            height=36,
         )
-        self.input_entry.pack(side="left", fill="x", expand=True, padx=4, pady=7)
-        self.input_entry.bind("<Return>", lambda e: self._on_send_text())
+        self.input_field.pack(side="left", fill="x", expand=True, padx=4, pady=6)
+        self.input_field.bind("<Return>", lambda e: self._on_submit_text())
 
-        # Send Button
+        # Send Arrow
         self.send_btn = ctk.CTkButton(
-            self.controls_frame,
+            self.input_pill,
             text="➤",
-            width=36,
-            height=36,
-            fg_color=self.ACCENT_CYAN,
+            width=32,
+            height=32,
+            fg_color=self.COLOR_CYAN,
             text_color="#000000",
-            hover_color="#00a3cc",
-            font=ctk.CTkFont(size=14, weight="bold"),
-            corner_radius=8,
-            command=self._on_send_text,
+            hover_color="#38bdf8",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            corner_radius=16,
+            command=self._on_submit_text,
         )
-        self.send_btn.pack(side="right", padx=(4, 8), pady=7)
+        self.send_btn.pack(side="right", padx=(4, 6), pady=7)
 
     # -------------------------------------------------------------
-    # Drag & Window Controls
+    # 3. Waveform Animation (Futuristic Audio Visualizer)
+    # -------------------------------------------------------------
+    def _animate_waveform(self):
+        """Draws animated glowing soundwave bars on the canvas based on active state."""
+        self._wave_phase += 0.25
+        w = 110
+        h = 28
+        bar_count = 14
+        bar_width = 4
+        bar_spacing = 3
+
+        self.canvas_wave.delete("all")
+
+        # Calculate heights based on state
+        for i in range(bar_count):
+            if self.current_state == "IDLE":
+                # Gentle breathing wave
+                bh = int(3 + 3 * math.sin(self._wave_phase * 0.7 + i * 0.5))
+                color = "#334155"
+            elif self.current_state == "LISTENING":
+                # High energy reactive audio wave
+                bh = int(4 + 9 * abs(math.sin(self._wave_phase * 1.6 + i * 0.8)))
+                color = self.COLOR_CYAN
+            elif self.current_state == "PROCESSING":
+                # Scanning neon sweep
+                sweep_pos = (math.sin(self._wave_phase * 1.2) + 1.0) * 0.5 * bar_count
+                dist = abs(i - sweep_pos)
+                bh = int(max(3, 14 - dist * 4))
+                color = self.COLOR_AMBER
+            elif self.current_state == "SPEAKING":
+                # Rhythmic speech pulses
+                bh = int(4 + 10 * abs(math.cos(self._wave_phase * 1.4 + i * 0.6)))
+                color = self.COLOR_PURPLE
+            else:
+                bh = 4
+                color = "#334155"
+
+            x0 = 8 + i * (bar_width + bar_spacing)
+            y0 = (h - bh) // 2
+            x1 = x0 + bar_width
+            y1 = y0 + bh
+
+            self.canvas_wave.create_rectangle(x0, y0, x1, y1, fill=color, outline="")
+
+        self.after(40, self._animate_waveform)
+
+    # -------------------------------------------------------------
+    # 4. Drag & Window Controls
     # -------------------------------------------------------------
     def _start_drag(self, event):
         self._drag_x = event.x
@@ -293,181 +389,187 @@ class LayaHUD(ctk.CTk):
         sys.exit(0)
 
     def _toggle_collapse(self):
-        """Toggle between full HUD and compact floating pill."""
         if not self.is_collapsed:
-            self.content_container.pack_forget()
-            self.status_frame.pack_forget()
-            self.controls_frame.pack_forget()
-            self.geometry(f"{self.hud_width}x{self.collapsed_height}")
+            self.body_container.pack_forget()
+            self.geometry(f"{self.hud_width}x{self.pill_height}")
             self.collapse_btn.configure(text="□")
             self.is_collapsed = True
         else:
             self.geometry(f"{self.hud_width}x{self.hud_height}")
-            self.status_frame.pack(fill="x", padx=12, pady=(2, 6))
-            self.content_container.pack(fill="both", expand=True, padx=8, pady=2)
-            self.controls_frame.pack(fill="x", padx=8, pady=(2, 8))
+            self.body_container.pack(fill="both", expand=True, padx=10, pady=(2, 10))
             self.collapse_btn.configure(text="─")
             self.is_collapsed = False
 
+    def _expand_if_collapsed(self):
+        if self.is_collapsed:
+            self._toggle_collapse()
+
     # -------------------------------------------------------------
-    # Wake Word Integration
+    # 5. Instant Wake Word & Single-Pass Utterance Integration
     # -------------------------------------------------------------
     def _init_wake_word(self):
-        """Start the always-on wake word detector in background."""
         try:
-            self.wake_detector = get_wake_word_detector(on_wake=self._on_wake_triggered)
+            self.wake_detector = get_wake_word_detector(
+                on_wake=self._on_wake_heard,
+                on_command=self._on_direct_command_heard,
+            )
             self.wake_detector.start()
         except Exception as e:
-            print(f"[HUD] Wake word initialization note: {e}")
+            print(f"[HUD] Wake word note: {e}")
 
-    def _on_wake_triggered(self):
-        """Callback from background wake-word thread."""
-        self.msg_queue.put(("wake_word_heard", None))
+    def _on_wake_heard(self):
+        """User said only wake word ('Hey Laya' / 'Jarvis') -> listen for speech."""
+        self.msg_queue.put(("wake_trigger", None))
+
+    def _on_direct_command_heard(self, command_text: str):
+        """User spoke wake word + command together -> execute immediately!"""
+        self.msg_queue.put(("direct_command", command_text))
 
     # -------------------------------------------------------------
-    # User Input Handlers
+    # 6. User Input Triggers
     # -------------------------------------------------------------
     def _on_mic_click(self):
         if self.is_recording or self.is_processing:
             return
         if self.wake_detector:
             self.wake_detector.pause()
-        self._start_voice_capture_thread()
+        self._start_voice_recording_thread()
 
-    def _on_send_text(self):
-        query = self.input_entry.get().strip()
+    def _on_submit_text(self):
+        query = self.input_field.get().strip()
         if not query or self.is_processing:
             return
-        self.input_entry.delete(0, "end")
-        self._start_execution_thread(query)
+        self.input_field.delete(0, "end")
+        self._start_command_execution(query)
 
-    def _start_voice_capture_thread(self):
-        """Launch background speech recording & Whisper transcription thread."""
+    def _start_voice_recording_thread(self):
+        self._expand_if_collapsed()
         self.is_recording = True
-        self.set_status("LISTENING", "● LISTENING... (Speak now)", "#ffaa00", "#332200")
-        self.query_label.configure(text="Listening...", text_color=self.ACCENT_CYAN)
+        self.current_state = "LISTENING"
+        self._set_state_badge("● LISTENING", self.COLOR_CYAN, "#083344")
+        self.query_text.configure(text="Listening...", text_color=self.COLOR_CYAN)
 
-        threading.Thread(target=self._voice_worker, daemon=True).start()
+        threading.Thread(target=self._record_and_transcribe_worker, daemon=True).start()
 
-    def _voice_worker(self):
-        """Non-blocking background worker for audio capture and STT."""
+    def _record_and_transcribe_worker(self):
         try:
-            self.tts.stop()  # Stop any active speech playback
+            self.tts.stop()
             audio_data = self.capture.record_until_silence(max_duration_sec=7.0)
             if audio_data is None or len(audio_data) == 0:
-                self.msg_queue.put(("status", ("IDLE", "● IDLE — No speech detected", "#00ff88", "#092314")))
-                self.msg_queue.put(("resume_wake", None))
-                self.is_recording = False
+                self.msg_queue.put(("reset_idle", None))
                 return
 
-            self.msg_queue.put(("status", ("PROCESSING", "● TRANSCRIBING (Whisper CUDA)...", "#00d2ff", "#002b3d")))
+            self.msg_queue.put(("state", "PROCESSING"))
             transcript = self.stt.transcribe(audio_data)
-
-            if not transcript or len(transcript.strip()) == 0:
-                self.msg_queue.put(("status", ("IDLE", "● IDLE — Could not transcribe", "#00ff88", "#092314")))
-                self.msg_queue.put(("resume_wake", None))
-                self.is_recording = False
+            if not transcript or not transcript.strip():
+                self.msg_queue.put(("reset_idle", None))
                 return
 
-            self.msg_queue.put(("user_query", transcript))
-            self._execute_command_worker(transcript)
+            self.msg_queue.put(("direct_command", transcript))
 
-        except Exception as e:
-            self.msg_queue.put(("step", f"Audio error: {e}"))
-            self.msg_queue.put(("status", ("IDLE", "● IDLE — Ready", "#00ff88", "#092314")))
-            self.msg_queue.put(("resume_wake", None))
-            self.is_recording = False
+        except Exception as ex:
+            self.msg_queue.put(("reset_idle", None))
 
-    def _start_execution_thread(self, query: str):
-        """Launch background command execution thread."""
+    def _start_command_execution(self, query: str):
+        self._expand_if_collapsed()
         if self.wake_detector:
             self.wake_detector.pause()
-        self.query_label.configure(text=f"\"{query}\"", text_color=self.TEXT_BRIGHT)
-        self.set_status("PROCESSING", "● PROCESSING...", "#00d2ff", "#002b3d")
 
-        threading.Thread(target=lambda: self._execute_command_worker(query), daemon=True).start()
+        self.current_state = "PROCESSING"
+        self._set_state_badge("● PROCESSING", self.COLOR_AMBER, "#451a03")
+        self.query_text.configure(text=f"\"{query}\"", text_color=self.COLOR_TEXT_WHITE)
 
-    def _execute_command_worker(self, query: str):
-        """Background thread executing Laya 3-tier routing and ReAct loop."""
+        threading.Thread(target=lambda: self._execute_task_worker(query), daemon=True).start()
+
+    def _execute_task_worker(self, query: str):
         self.is_processing = True
+        t0 = time.time()
         try:
             def on_step(step_msg: str):
                 self.msg_queue.put(("step", step_msg))
 
             if self.assistant:
-                res = self.assistant.handle_command(query, speak=True, step_callback=on_step)
+                result = self.assistant.handle_command(query, speak=True, step_callback=on_step)
             else:
-                res = f"Simulated output for query: {query}"
+                result = f"Completed command: {query}"
 
-            self.msg_queue.put(("result", res))
+            dt_ms = (time.time() - t0) * 1000
+            self.msg_queue.put(("result", result, dt_ms))
+
         except Exception as e:
-            self.msg_queue.put(("result", f"Execution error: {e}"))
+            self.msg_queue.put(("result", f"Execution error: {e}", 0))
         finally:
             self.is_processing = False
             self.is_recording = False
-            self.msg_queue.put(("status", ("IDLE", "● IDLE — Say 'Hey Laya' or 'Jarvis'", "#00ff88", "#092314")))
-            self.msg_queue.put(("resume_wake", None))
+            self.msg_queue.put(("post_execution", None))
 
     # -------------------------------------------------------------
-    # Thread-Safe GUI Event Processing
+    # 7. Thread-Safe Event Drainer
     # -------------------------------------------------------------
     def _drain_queue(self):
-        """Processes messages queued by background worker threads."""
         try:
             while True:
-                kind, data = self.msg_queue.get_nowait()
+                kind, *args = self.msg_queue.get_nowait()
 
-                if kind == "wake_word_heard":
-                    if not self.is_recording and not self.is_processing:
-                        if self.is_collapsed:
-                            self._toggle_collapse()
-                        self._start_voice_capture_thread()
+                if kind == "wake_trigger":
+                    self._start_voice_recording_thread()
 
-                elif kind == "resume_wake":
+                elif kind == "direct_command":
+                    cmd = args[0]
+                    self._start_command_execution(cmd)
+
+                elif kind == "state":
+                    st = args[0]
+                    self.current_state = st
+                    if st == "PROCESSING":
+                        self._set_state_badge("● PROCESSING", self.COLOR_AMBER, "#451a03")
+
+                elif kind == "step":
+                    self._append_step(str(args[0]))
+
+                elif kind == "result":
+                    res_text, dt_ms = args[0], args[1]
+                    self._render_result(res_text, dt_ms)
+
+                elif kind == "reset_idle":
+                    self.current_state = "IDLE"
+                    self._set_state_badge("● READY", self.COLOR_GREEN, "#062e1e")
+                    self.query_text.configure(text="Listening for voice... (Say 'Hey Laya')", text_color=self.COLOR_TEXT_DIM)
                     if self.wake_detector:
                         self.wake_detector.resume()
 
-                elif kind == "status":
-                    st_name, text, fg, bg = data
-                    self.set_status(st_name, text, fg, bg)
-
-                elif kind == "user_query":
-                    self.query_label.configure(text=f"\"{data}\"", text_color=self.TEXT_BRIGHT)
-
-                elif kind == "step":
-                    self.append_feed(str(data))
-
-                elif kind == "result":
-                    self.set_result(str(data))
+                elif kind == "post_execution":
+                    self.current_state = "SPEAKING"
+                    self._set_state_badge("● COMPLETE", self.COLOR_PURPLE, "#2e1065")
+                    if self.wake_detector:
+                        self.wake_detector.resume()
 
         except queue.Empty:
             pass
 
-        # Reschedule check in 30ms
-        self.after(30, self._drain_queue)
+        self.after(35, self._drain_queue)
 
-    def set_status(self, mode: str, text: str, fg: str, bg: str):
-        """Update status pill."""
-        self.status_pill.configure(text=text, text_color=fg, fg_color=bg)
+    def _set_state_badge(self, text: str, fg: str, bg: str):
+        self.state_badge.configure(text=text, text_color=fg, fg_color=bg)
 
-    def append_feed(self, step_text: str):
-        """Append a step to the real-time activity feed."""
-        self.feed_box.configure(state="normal")
-        timestamp = time.strftime("%H:%M:%S")
-        self.feed_box.insert("end", f"[{timestamp}] {step_text}\n")
-        self.feed_box.see("end")
-        self.feed_box.configure(state="disabled")
+    def _append_step(self, step_text: str):
+        self.step_box.configure(state="normal")
+        t_str = time.strftime("%H:%M:%S")
+        self.step_box.insert("end", f"[{t_str}] {step_text}\n")
+        self.step_box.see("end")
+        self.step_box.configure(state="disabled")
 
-    def set_result(self, result_text: str):
-        """Render final response in the result card."""
+    def _render_result(self, result_text: str, dt_ms: float):
         self.result_box.configure(state="normal")
         self.result_box.delete("1.0", "end")
         self.result_box.insert("end", result_text)
         self.result_box.configure(state="disabled")
 
+        if dt_ms > 0:
+            self.step_header.configure(text=f"✦ LIVE INTEL & ACTIONS ({dt_ms:.0f}ms)")
+
 
 def launch_hud(assistant_instance=None):
-    """Launcher entry point for the Laya Desktop HUD."""
     app = LayaHUD(assistant_instance=assistant_instance)
     app.mainloop()
 

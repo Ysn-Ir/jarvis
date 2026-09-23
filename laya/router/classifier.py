@@ -56,7 +56,21 @@ class IntentRouter:
                 )
 
         # ---------------------------------------------------------
-        # 2. Compound / Multi-Step Detection -> Always Route to Agent Planner
+        # 2. Direct Browser Search Automation (<1ms)
+        # ---------------------------------------------------------
+        browser_search_match = re.search(r"(?:open\s+(?:a\s+)?browser\s+(?:and\s+search\s+for|to\s+search|to\s+look\s+for|and\s+look\s+for|and\s+search)|search\s+(?:google|youtube|web|the\s+web)\s+for|look\s+(?:in|into)\s+(?:a\s+)?browser\s+for)\s+(.+)", text)
+        if browser_search_match:
+            query = browser_search_match.group(1).strip()
+            engine = "youtube" if "youtube" in text else "google"
+            return RouteDecision(
+                path=ExecutionPath.FAST_PATH,
+                action="browser_search",
+                params={"query": query, "engine": engine},
+                safety_tier="GREEN",
+            )
+
+        # ---------------------------------------------------------
+        # 3. Compound / Multi-Step Detection -> Agent Planner
         # ---------------------------------------------------------
         if any(w in text for w in [" and ", " then ", " after that ", " also "]):
             return RouteDecision(
