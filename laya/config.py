@@ -20,8 +20,9 @@ MEMORY_DB_PATH = DATA_DIR / "laya_memory.db"
 
 # LLM Providers (Dual-Backend: Cloud Ultra-Fast Groq + Local Private Ollama)
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-GROQ_MODEL = "openai/gpt-oss-20b"
-GROQ_TIMEOUT_SEC = 8.0
+GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
+GROQ_FALLBACK_MODEL = "openai/gpt-oss-20b"
+GROQ_TIMEOUT_SEC = 10.0
 
 OLLAMA_BASE_URL = "http://localhost:11434/v1"
 OLLAMA_MODEL = "mistral:7b"

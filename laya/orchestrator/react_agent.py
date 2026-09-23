@@ -15,6 +15,7 @@ from typing import Dict, Any, List, Optional, Tuple
 from laya.config import (
     GROQ_API_KEY,
     GROQ_MODEL,
+    GROQ_FALLBACK_MODEL,
     GROQ_TIMEOUT_SEC,
     OLLAMA_BASE_URL,
     OLLAMA_MODEL,
@@ -26,24 +27,33 @@ from laya.orchestrator.memory import get_memory_store
 
 def build_react_system_prompt() -> str:
     memory_summary = get_memory_store().get_all_summary()
-    return f"""You are Laya, an autonomous state-of-the-art Windows desktop assistant.
-You possess COMPLETE control over the operating system, applications, files, GUI, and hardware.
-You operate in an autonomous perception-action loop:
-1. When asked to accomplish a task, analyze what tools are needed and call them.
-2. Observe the actual outputs returned from the operating system.
-3. If an action needs a follow-up (e.g. creating a folder then creating a file inside it, or copying text then pasting it), execute the next action based on the previous output.
-4. When all actions are complete, synthesize a concise, friendly spoken response explaining what was done.
-5. If the user asks a question (time, battery, system status, general knowledge), answer it clearly.
+    return f"""You are Laya, a State-of-the-Art autonomous Windows desktop computer agent modeled after Open-Interpreter and Microsoft UFO.
+You possess COMPLETE control over the operating system, applications, files, GUI, code execution, and hardware.
+
+Core Execution Paradigms:
+1. UNIVERSAL CODE EXECUTION (Open-Interpreter):
+   - When asked to perform complex data analysis, file batch operations, calculation, regex, web scraping, API queries, or open-ended automation, use `run_python` to execute Python code.
+   - You have access to os, sys, shutil, requests, bs4, psutil, win32gui, uiautomation, math, json, and csv.
+
+2. LIVE WEB INTELLIGENCE:
+   - When asked about real-world facts, current news, weather, sports scores, documentation, or online info, use `live_web_search` to fetch real search summaries and URLs so you can speak the actual answer.
+   - Use `fetch_webpage_content` to download and read articles or documentation from specific URLs.
+
+3. WINDOWS UI AUTOMATION (Microsoft UFO):
+   - For applications on Windows, use `inspect_window_controls` to see all buttons, edits, and tabs.
+   - Use `click_window_control` or `set_window_control_text` to control applications reliably by name.
+   - Use `list_open_windows` and `focus_window` to manage active tasks.
+
+4. DEEP FILESYSTEM INTELLIGENCE:
+   - Use `read_file_content` to inspect files, notes, or scripts.
+   - Use `search_filesystem` to find files matching wildcard patterns.
+   - Use `list_directory` to see files in any directory.
+
+5. PERCEPTION-ACTION REASONING:
+   - When given a task, decide the best tools, call them, observe the OS outputs, adapt if needed, and synthesize a concise, helpful spoken response once done.
 
 Active User Memories & Preferences:
 {memory_summary}
-
-Operating Rules:
-- If a folder is created on Desktop, files placed inside should use location='desktop/<folder_name>'.
-- When asked where a file or folder is, call get_file_info.
-- When asked about battery, RAM, CPU, or IP, call check_system.
-- When asked to launch an app, call open_app.
-- For desktop automation, mouse and keyboard tools are available.
 """
 
 
@@ -109,17 +119,34 @@ class ReActAgent:
         step_count = 0
         executed_observations = []
 
+        active_model = GROQ_MODEL
         while step_count < max_steps:
             step_count += 1
-            response = self.groq_client.chat.completions.create(
-                model=GROQ_MODEL,
-                messages=messages,
-                tools=TOOLS_SCHEMA,
-                tool_choice="auto",
-                temperature=0.1,
-                timeout=GROQ_TIMEOUT_SEC,
-            )
+            try:
+                response = self.groq_client.chat.completions.create(
+                    model=active_model,
+                    messages=messages,
+                    tools=TOOLS_SCHEMA,
+                    tool_choice="auto",
+                    temperature=0.1,
+                    timeout=GROQ_TIMEOUT_SEC,
+                )
+            except Exception as e:
+                if active_model != GROQ_FALLBACK_MODEL:
+                    print(f"[ReActAgent] Model {active_model} returned {e}, falling back to {GROQ_FALLBACK_MODEL}...")
+                    active_model = GROQ_FALLBACK_MODEL
+                    response = self.groq_client.chat.completions.create(
+                        model=active_model,
+                        messages=messages,
+                        tools=TOOLS_SCHEMA,
+                        tool_choice="auto",
+                        temperature=0.1,
+                        timeout=GROQ_TIMEOUT_SEC,
+                    )
+                else:
+                    raise e
 
+            provider = f"Groq ({active_model})"
             msg = response.choices[0].message
 
             # Check if model wants to call tools

@@ -22,6 +22,10 @@ from laya.tools.registry import get_tool_registry
 from laya.tools.tier2_os_mcp import get_tier2_tools
 from laya.tools.computer_use import get_computer_use_tools
 from laya.tools.system_pro import get_system_pro_tools
+from laya.tools.code_interpreter import get_code_interpreter
+from laya.tools.web_intelligence import get_web_intelligence
+from laya.tools.ufo_controller import get_ufo_controller
+from laya.tools.filesystem_pro import get_filesystem_pro
 from laya.fast_path.executor import get_fast_path_executor
 
 
@@ -38,6 +42,10 @@ class OrchestratorEngine:
         self.memory = get_memory_store()
         self.computer_use = get_computer_use_tools()
         self.system_pro = get_system_pro_tools()
+        self.code_interpreter = get_code_interpreter()
+        self.web_intelligence = get_web_intelligence()
+        self.ufo_controller = get_ufo_controller()
+        self.filesystem_pro = get_filesystem_pro()
 
     @classmethod
     def get_instance(cls) -> "OrchestratorEngine":
@@ -70,7 +78,9 @@ class OrchestratorEngine:
                 return f"I've noted that in memory: '{fact_text}'."
 
         # 1. State-of-the-Art Autonomous ReAct Agent Loop
-        if action in ["plan_and_execute", "general_reasoning"] or not action:
+        # If action is open-ended or not a recognized direct tool, run autonomous ReAct loop
+        direct_single_tools = ["list_processes", "kill_process", "get_gpu_vram_status", "get_disk_space"]
+        if action not in direct_single_tools or action in ["plan_and_execute", "general_reasoning", "autonomous_task"]:
             res, provider = self.react_agent.run(
                 raw_query,
                 tool_dispatcher=lambda tool, args: self._dispatch_tool(tool, args, is_confirmed=is_confirmed),
@@ -256,14 +266,51 @@ class OrchestratorEngine:
             elif tool == "empty_recycle_bin":
                 return self.system_pro.empty_recycle_bin()
 
-            # Advanced Shell
-            elif tool in ["run_powershell", "execute_command", "shell"]:
-                cmd_str = args.get("command", "")
-                if any(w in cmd_str.lower() for w in ["notepad", "start ", "explorer"]):
-                    subprocess.Popen(["powershell", "-NoProfile", "-Command", cmd_str], shell=True)
-                    return f"Started '{cmd_str}'."
-                p = subprocess.run(["powershell", "-NoProfile", "-Command", cmd_str], capture_output=True, text=True, timeout=5)
-                return p.stdout.strip() or p.stderr.strip() or "Executed PowerShell command."
+            # Advanced Universal Code Execution (Open-Interpreter Paradigm)
+            elif tool in ["run_python", "execute_python", "python"]:
+                return self.code_interpreter.run_python(args.get("code", ""))
+            elif tool in ["run_powershell", "execute_command", "shell", "powershell"]:
+                cmd_str = args.get("command", "") or args.get("cmd", "")
+                return self.code_interpreter.run_powershell(cmd_str)
+
+            # Web Intelligence & Live Search
+            elif tool in ["live_web_search", "web_search_live", "google_search"]:
+                q = args.get("query", "")
+                max_res = int(args.get("max_results", 4))
+                return self.web_intelligence.live_web_search(q, max_results=max_res)
+            elif tool in ["fetch_webpage_content", "read_webpage", "scrape_url"]:
+                return self.web_intelligence.fetch_webpage_content(args.get("url", ""))
+
+            # Microsoft UFO Windows UI Automation
+            elif tool in ["inspect_window_controls", "inspect_active_window", "uia_tree"]:
+                return self.ufo_controller.inspect_window_controls()
+            elif tool in ["click_window_control", "click_uia_control"]:
+                return self.ufo_controller.click_window_control(args.get("name", ""))
+            elif tool in ["set_window_control_text", "type_into_control"]:
+                return self.ufo_controller.set_window_control_text(args.get("name", ""), args.get("text", ""))
+            elif tool in ["list_open_windows", "get_open_windows"]:
+                return self.ufo_controller.list_open_windows()
+            elif tool in ["focus_window", "switch_to_window"]:
+                return self.ufo_controller.focus_window(args.get("title", ""))
+
+            # Deep Filesystem Intelligence
+            elif tool in ["read_file_content", "read_file", "view_file"]:
+                return self.filesystem_pro.read_file_content(
+                    args.get("filepath", "") or args.get("path", ""),
+                    max_lines=int(args.get("max_lines", 150))
+                )
+            elif tool in ["list_directory", "list_dir", "ls", "dir"]:
+                return self.filesystem_pro.list_directory(args.get("path", "desktop"))
+            elif tool in ["search_filesystem", "find_files", "search_files"]:
+                return self.filesystem_pro.search_filesystem(
+                    args.get("pattern", ""),
+                    root_dir=args.get("root_dir", "desktop")
+                )
+            elif tool in ["organize_directory", "organize_files"]:
+                return self.filesystem_pro.organize_directory(
+                    args.get("directory", "downloads"),
+                    by=args.get("by", "extension")
+                )
 
             elif tool == "answer_question":
                 return args.get("text", "")

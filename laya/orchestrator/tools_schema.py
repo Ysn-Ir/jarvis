@@ -438,5 +438,171 @@ TOOLS_SCHEMA: List[Dict[str, Any]] = [
                 "required": ["command"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_python",
+            "description": "Execute arbitrary Python code in the local environment and return stdout/stderr (Open-Interpreter paradigm). Use for calculations, complex data processing, scraping, API queries, file transformations, or solving any open-ended task.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "code": {"type": "string", "description": "Python source code to execute"}
+                },
+                "required": ["code"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "live_web_search",
+            "description": "Execute a real-time live web search using DuckDuckGo to look up facts, news, documentation, scores, or current world information. Returns actual text summaries and URLs so you can speak the answer.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Search query terms"},
+                    "max_results": {"type": "integer", "description": "Number of results to retrieve (default 4)"}
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "fetch_webpage_content",
+            "description": "Download and extract clean, readable text from any website or article URL for reading or summarization.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string", "description": "Full webpage URL (e.g. 'https://en.wikipedia.org/...')"}
+                },
+                "required": ["url"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "inspect_window_controls",
+            "description": "Inspect the Microsoft UI Automation (UIA) control hierarchy of the active foreground window. Returns all interactive controls (Buttons, Text Inputs, Tabs, Menu items) with their exact UI names.",
+            "parameters": {
+                "type": "object",
+                "properties": {}
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "click_window_control",
+            "description": "Directly click an interactive UI control (button, tab, menu) by name in the active window via Microsoft UI Automation.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Name or text of the control to click (e.g. 'File', 'Save', 'Search', 'Close')"}
+                },
+                "required": ["name"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "set_window_control_text",
+            "description": "Enter text into an input or edit box control in the active window via Microsoft UI Automation.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Name or ID of edit box (optional)"},
+                    "text": {"type": "string", "description": "Text to set"}
+                },
+                "required": ["text"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_open_windows",
+            "description": "List all visible application windows currently open on the desktop with their window titles and HWNDs.",
+            "parameters": {
+                "type": "object",
+                "properties": {}
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "focus_window",
+            "description": "Bring an open application window to the foreground by its window title or application name.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string", "description": "Window title or app name to focus"}
+                },
+                "required": ["title"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_file_content",
+            "description": "Read the text contents of a file on the local system (scripts, notes, configs, csv, markdown, logs).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filepath": {"type": "string", "description": "Path to file (e.g. 'desktop/script.py' or absolute path)"},
+                    "max_lines": {"type": "integer", "description": "Max lines to read (default 150)"}
+                },
+                "required": ["filepath"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_directory",
+            "description": "List files and subdirectories with sizes and modification dates in any folder (e.g. 'desktop', 'downloads', 'documents').",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Directory path or alias ('desktop', 'downloads', 'documents')"}
+                }
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_filesystem",
+            "description": "Search for files matching a wildcard pattern (e.g. '*.pdf', '*invoice*', '*.py') across a directory.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pattern": {"type": "string", "description": "Search pattern (e.g. '*.docx', '*budget*')"},
+                    "root_dir": {"type": "string", "description": "Directory to search from (default 'desktop')"}
+                },
+                "required": ["pattern"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "organize_directory",
+            "description": "Organize unorganized files in a directory into categorized folders (Images, Documents, Installers, Code).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "directory": {"type": "string", "description": "Directory to organize (e.g. 'downloads', 'desktop')"}
+                },
+                "required": ["directory"]
+            }
+        }
     }
 ]
+
