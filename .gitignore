@@ -9,3 +9,5 @@ venv/
 ENV/
 *.log
 screenshots/
+*.db
+data/

@@ -1,0 +1,93 @@
+"""
+Laya Configuration & System Settings
+"""
+
+import os
+from pathlib import Path
+import torch
+
+# Base Paths
+ROOT_DIR = Path(__file__).resolve().parent.parent
+DOCS_DIR = Path.home() / "Documents" / "LayaDocs"
+DOCS_DIR.mkdir(parents=True, exist_ok=True)
+
+DATA_DIR = ROOT_DIR / "data"
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+MEMORY_DB_PATH = DATA_DIR / "laya_memory.db"
+
+# Audio Pipeline Settings
+AUDIO_SAMPLE_RATE = 16000
+AUDIO_CHANNELS = 1
+AUDIO_BLOCK_SIZE = 1024
+
+# Voice Activity Detection (VAD) Settings
+VAD_ENERGY_THRESHOLD = 0.007       # Sensitivity to speech onset
+VAD_SILENCE_LIMIT_SEC = 0.75      # Silence window to consider speech finished
+VAD_MIN_SPEECH_SEC = 0.35         # Minimum speech length to avoid noise spikes
+
+# Speech-to-Text (STT) Settings
+WHISPER_MODEL_NAME = "base.en"
+WHISPER_DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+WHISPER_COMPUTE_TYPE = "float16" if torch.cuda.is_available() else "int8"
+
+# Text-to-Speech (TTS) Settings
+TTS_ENGINE = "sapi5"              # Native Windows SAPI5 (0ms network latency)
+TTS_RATE = 190                    # Conversational speaking rate (words/min)
+TTS_VOLUME = 1.0
+
+# Latency Budgets (ms)
+FAST_PATH_BUDGET_MS = 300.0
+
+# Application Mappings
+APP_REGISTRY = {
+    "spotify": "spotify",
+    "chrome": "chrome",
+    "google chrome": "chrome",
+    "browser": "chrome",
+    "edge": "msedge",
+    "microsoft edge": "msedge",
+    "word": "winword",
+    "microsoft word": "winword",
+    "excel": "excel",
+    "microsoft excel": "excel",
+    "notepad": "notepad",
+    "calculator": "calc",
+    "calc": "calc",
+    "settings": "ms-settings:",
+    "whatsapp": "whatsapp",
+    "discord": "discord",
+    "terminal": "wt",
+    "cmd": "cmd",
+    "powershell": "powershell",
+    "explorer": "explorer",
+}
+
+# Special Windows Folders
+FOLDER_ALIASES = {
+    "downloads": str(Path.home() / "Downloads"),
+    "documents": str(Path.home() / "Documents"),
+    "desktop": str(Path.home() / "Desktop"),
+    "pictures": str(Path.home() / "Pictures"),
+    "music": str(Path.home() / "Music"),
+    "videos": str(Path.home() / "Videos"),
+    "layadocs": str(DOCS_DIR),
+}
+
+# Safety & Permission Tiers
+GREEN_ACTIONS = [
+    "volume_up", "volume_down", "set_volume", "mute",
+    "play_media", "pause_media", "next_track", "prev_track",
+    "check_battery", "check_ram", "check_cpu", "check_ip",
+    "open_app", "open_folder", "create_document", "create_note", "create_sheet",
+    "web_search", "query_time", "query_date", "query_memory",
+]
+
+YELLOW_ACTIONS = [
+    "send_email", "send_whatsapp", "create_calendar_event",
+    "modify_system_setting", "delete_user_file",
+]
+
+RED_ACTIONS = [
+    "shutdown_system", "restart_system", "format_disk",
+    "delete_system_directory", "kill_critical_process",
+]
