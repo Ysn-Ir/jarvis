@@ -77,7 +77,17 @@ Core Execution Paradigms:
    - Use `search_filesystem` to find files matching wildcard patterns.
    - Use `list_directory` to see files in any directory.
 
-5. PERCEPTION-ACTION REASONING:
+5. JUPYTER NOTEBOOK AUTONOMY:
+   - When asked to write code, comments, or notes in a Jupyter notebook (.ipynb):
+     Use `write_notebook_cell(notebook_path, code, cell_type)` to write/append cells directly with 100% precision!
+   - Use `read_notebook_cells(notebook_path)` to inspect existing cells.
+
+6. GUI DRAWING & CANVAS ACTIONS:
+   - When asked to draw, paint, or sketch (e.g. in MS Paint):
+     1. Launch Paint with `open_app("paint")` or `run_powershell("Start-Process mspaint")`.
+     2. Use `run_python` with `pyautogui` or `mouse_drag` to draw parametric shapes on the canvas.
+
+7. PERCEPTION-ACTION REASONING:
    - When given a task, decide the best tools, call them, observe the OS outputs, adapt if needed, and synthesize a concise, helpful spoken response once done.
    - If the user asks a conversational question or asks for ideas, answer directly and articulately.
 
@@ -130,13 +140,12 @@ class ReActAgent:
 
         messages.append({"role": "user", "content": query})
 
-        # Try Groq first if available and not previously failed, fall back to Ollama if network is down
-        if self.groq_client and not self._groq_failed:
+        # Try Groq first if available, fall back to Ollama if network is down
+        if self.groq_client:
             try:
                 return self._run_groq_loop(messages, tool_dispatcher, max_steps, step_callback=step_callback)
             except Exception as e:
-                print(f"[ReActAgent] Groq network error: {e}, falling back to local Ollama (RTX 4050 GPU)...")
-                self._groq_failed = True
+                print(f"[ReActAgent] Groq attempt failed: {e}, falling back to local Ollama...")
 
         # Ollama local loop
         return self._run_ollama_loop(messages, tool_dispatcher, max_steps, step_callback=step_callback)
@@ -282,7 +291,9 @@ class ReActAgent:
                     msg = data["choices"][0]["message"]
             except Exception as e:
                 print(f"[ReActAgent] Local Ollama request failed: {e}")
-                break
+                if executed_observations:
+                    return " | ".join(executed_observations), provider
+                return f"I encountered an issue connecting to the local reasoning engine: {e}. Please ensure Ollama is running.", provider
 
             tool_calls = msg.get("tool_calls")
             if tool_calls:

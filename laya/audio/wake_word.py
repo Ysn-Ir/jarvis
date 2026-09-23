@@ -32,7 +32,8 @@ from laya.config import (
     WHISPER_COMPUTE_TYPE,
 )
 
-WAKE_KEYWORDS_REGEX = r"\b(?:hey\s+)?(?:laya|leia|layer|liar|laia|leya|jarvis|computer)\b"
+WAKE_KEYWORDS_REGEX = r"\b(?:hey|hi|hello)?[\s,]+(?:laya|leia|layer|liar|laia|leya|jarvis|computer)\b|\b(?:laya|leia|jarvis|computer)\b"
+NON_COMMAND_WORDS = {"laya", "leia", "layer", "liar", "laia", "leya", "jarvis", "computer", "hey", "hello", "hi"}
 
 
 class WakeWordDetector:
@@ -166,14 +167,18 @@ class WakeWordDetector:
             if match:
                 print(f"[WakeWord] Trigger heard: '{text}'")
                 # Extract subsequent command from the same utterance
-                command = text[match.end():].strip().lstrip(",.!?").strip()
+                raw_cmd = text[match.end():].strip().lstrip(",.!? ").strip()
+                clean_cmd = re.sub(r"^(?:hey|hi|hello)?[\s,]*(?:laya|jarvis|computer)[,\.!\s]*", "", raw_cmd, flags=re.IGNORECASE).strip()
 
-                if len(command) >= 2:
-                    print(f"[WakeWord] Single-pass command executing: '{command}'")
+                is_real_command = bool(clean_cmd and clean_cmd.lower() not in NON_COMMAND_WORDS and len(clean_cmd) >= 3)
+
+                if is_real_command:
+                    print(f"[WakeWord] Single-pass command executing: '{clean_cmd}'")
                     self.pause()
                     if self.on_command:
-                        self.on_command(command)
+                        self.on_command(clean_cmd)
                 else:
+                    print(f"[WakeWord] Wake trigger activated, awaiting follow-up voice...")
                     self.pause()
                     if self.on_wake:
                         self.on_wake()

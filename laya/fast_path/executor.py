@@ -229,7 +229,7 @@ class FastPathExecutor:
         return f"Today is {now.strftime('%A, %B %d, %Y')}."
 
     def query_identity(self) -> str:
-        return "I am Laya, your local-first autonomous desktop assistant."
+        return "I am online, fully armed, and ready for your command."
 
     def tell_joke(self) -> str:
         return "Why do programmers prefer dark mode? Because light attracts bugs!"

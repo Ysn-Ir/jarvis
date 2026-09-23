@@ -31,9 +31,28 @@ class IntentRouter:
             )
 
         text = utterance.lower().strip()
-        # Strip wake words
-        text = re.sub(r"^(laya|jarvis|hey laya|hey jarvis|computer)[,\s]+", "", text)
-        text = text.strip()
+        # Strip wake words and surrounding punctuation cleanly
+        text = re.sub(r"^(?:hey|hi|hello)?[\s,]*(?:laya|jarvis|computer)[,\.!\s]*", "", text, flags=re.IGNORECASE).strip()
+        text = text.strip(".!? ")
+
+        # Instant greetings and readiness checks (<0.1ms)
+        if not text or text in ["laya", "jarvis", "computer", "hey", "hello", "hi"]:
+            return RouteDecision(
+                path=ExecutionPath.FAST_PATH,
+                action="query_identity",
+                params={},
+                confidence=1.0,
+                reasoning="Instant greeting response."
+            )
+
+        if text in ["are you ready", "you ready", "are you there", "status", "ready"]:
+            return RouteDecision(
+                path=ExecutionPath.FAST_PATH,
+                action="query_identity",
+                params={},
+                confidence=1.0,
+                reasoning="Instant readiness check."
+            )
 
         # ---------------------------------------------------------
         # 1. Catastrophic Destructive Safety Guardrail (0.0ms Abort)
@@ -179,3 +198,9 @@ class IntentRouter:
 
 def get_intent_router() -> IntentRouter:
     return IntentRouter.get_instance()
+
+
+def classify_intent(utterance: str) -> RouteDecision:
+    """Convenience helper to classify and route an utterance."""
+    return IntentRouter.get_instance().route(utterance)
+

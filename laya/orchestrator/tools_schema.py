@@ -40,6 +40,36 @@ TOOLS_SCHEMA: List[Dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "write_notebook_cell",
+            "description": "Write, append, or insert code or markdown cells into a Jupyter notebook (.ipynb) on the Desktop or in the workspace.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "notebook_path": {"type": "string", "description": "Notebook filename or path (e.g. 'Untitled.ipynb', 'desktop/analysis.ipynb')"},
+                    "code": {"type": "string", "description": "Code or markdown content to write into the cell"},
+                    "cell_type": {"type": "string", "enum": ["code", "markdown"], "description": "Cell type, default is 'code'"}
+                },
+                "required": ["notebook_path", "code"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_notebook_cells",
+            "description": "Read and inspect all cells and code in a Jupyter notebook (.ipynb).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "notebook_path": {"type": "string", "description": "Notebook filename or path (e.g. 'Untitled.ipynb')"}
+                },
+                "required": ["notebook_path"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "get_file_info",
             "description": "Get the exact full path, size, and metadata of the most recently created or referenced file or folder.",
             "parameters": {

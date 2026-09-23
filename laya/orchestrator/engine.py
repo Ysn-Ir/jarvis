@@ -26,6 +26,7 @@ from laya.tools.code_interpreter import get_code_interpreter
 from laya.tools.web_intelligence import get_web_intelligence
 from laya.tools.ufo_controller import get_ufo_controller
 from laya.tools.filesystem_pro import get_filesystem_pro
+from laya.tools.notebook_tools import get_notebook_tools
 from laya.fast_path.executor import get_fast_path_executor
 
 
@@ -46,6 +47,7 @@ class OrchestratorEngine:
         self.web_intelligence = get_web_intelligence()
         self.ufo_controller = get_ufo_controller()
         self.filesystem_pro = get_filesystem_pro()
+        self.notebook_tools = get_notebook_tools()
 
     @classmethod
     def get_instance(cls) -> "OrchestratorEngine":
@@ -268,6 +270,23 @@ class OrchestratorEngine:
             elif tool in ["browser_open_url", "open_url"]:
                 url = args.get("url", "")
                 return self.fast_path.browser_open_url(url=url)
+
+            # Jupyter Notebook Autonomy
+            elif tool in ["write_notebook_cell", "write_notebook"]:
+                return self.notebook_tools.write_notebook_cell(
+                    notebook_path=args.get("notebook_path", "Untitled.ipynb"),
+                    code=args.get("code", ""),
+                    cell_type=args.get("cell_type", "code"),
+                    position=args.get("position")
+                )
+            elif tool in ["read_notebook_cells", "read_notebook"]:
+                return self.notebook_tools.read_notebook_cells(
+                    notebook_path=args.get("notebook_path", "Untitled.ipynb")
+                )
+            elif tool in ["create_notebook", "new_notebook"]:
+                return self.notebook_tools.create_notebook(
+                    notebook_path=args.get("notebook_path", "Untitled.ipynb")
+                )
 
             # System Pro
             elif tool == "list_processes":

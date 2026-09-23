@@ -1,7 +1,8 @@
 """
-Laya Futuristic Desktop HUD — Cluely-Inspired Dynamic Island
-Floating translucent glass capsule with animated audio waveform visualizer,
-subtle neon glow borders, single-pass continuous wake word, and real-time step streaming.
+Laya State-of-the-Art Futuristic Desktop HUD
+Monochromatic Luxury Glass Edition (Obsidian Black, Charcoal Gray, and Pure White).
+Features floating dynamic island capsule, real-time monochrome audio waveform visualizer,
+single-pass continuous wake word, and live step streaming.
 """
 
 import sys
@@ -29,26 +30,26 @@ class LayaHUD(ctk.CTk):
         self.stt = get_stt_engine()
         self.capture = AudioCapture()
 
-        # Thread Communication
+        # Thread Communication Queue
         self.msg_queue: queue.Queue = queue.Queue()
         self.is_recording = False
         self.is_processing = False
         self.is_collapsed = False
         self.current_state = "IDLE"  # IDLE, LISTENING, PROCESSING, SPEAKING
 
-        # Window Dimensions
+        # Geometry Settings
         self.title("Laya AI")
         self.hud_width = 440
         self.hud_height = 490
-        self.pill_height = 66
+        self.pill_height = 64
 
-        # Position top-right
+        # Position at top-right of screen
         screen_w = self.winfo_screenwidth()
         pos_x = max(20, screen_w - self.hud_width - 35)
         pos_y = 35
         self.geometry(f"{self.hud_width}x{self.hud_height}+{pos_x}+{pos_y}")
 
-        # Cluely-Style Glass Styling
+        # Frameless, Always on Top, Glass Transparency
         self.overrideredirect(True)
         self.attributes("-topmost", True)
         self.attributes("-alpha", 0.94)
@@ -56,51 +57,49 @@ class LayaHUD(ctk.CTk):
         ctk.set_appearance_mode("Dark")
         ctk.set_default_color_theme("blue")
 
-        # Futuristic Obsidian & Cyberpunk Neon Palette
-        self.COLOR_BG = "#070a13"
-        self.COLOR_CAPSULE = "#0d1322"
-        self.COLOR_CARD = "#11182c"
-        self.COLOR_CYAN = "#00f0ff"
-        self.COLOR_PURPLE = "#a855f7"
-        self.COLOR_GREEN = "#10b981"
-        self.COLOR_AMBER = "#f59e0b"
-        self.COLOR_TEXT_DIM = "#94a3b8"
-        self.COLOR_TEXT_WHITE = "#f8fafc"
+        # Refined High-End Monochromatic Color System (Black, Gray, White)
+        self.CLR_BG = "#050507"          # Deep Void Black
+        self.CLR_CAPSULE = "#0f0f12"     # Frosted Obsidian Charcoal
+        self.CLR_CARD = "#141417"        # Dark Zinc Card
+        self.CLR_BORDER = "#222226"      # Subtle Slate Border
+        self.CLR_BORDER_LIGHT = "#333338"
+        self.CLR_WHITE = "#ffffff"       # Pure Brilliant White
+        self.CLR_SILVER = "#e4e4e7"      # Crisp Platinum
+        self.CLR_TEXT_DIM = "#8e8e93"    # Neutral Silver Subtext
+        self.CLR_TEXT_MUTED = "#55555c"
 
-        self.configure(fg_color=self.COLOR_BG)
+        self.configure(fg_color=self.CLR_BG)
 
         # Drag tracking
         self._drag_x = 0
         self._drag_y = 0
 
-        # Animation state for waveform
+        # Animation state for real-time waveform visualizer
         self._wave_phase = 0.0
-        self._wave_bars = [4] * 18
 
-        # Build Interface
-        self._build_dynamic_island()
-        self._build_expanded_body()
+        # Build Monochromatic Interface
+        self._build_top_island()
+        self._build_content_cards()
 
-        # Initialize Wake Word
+        # Initialize Continuous Wake Word Engine
         self.wake_detector: Optional[WakeWordDetector] = None
         self._init_wake_word()
 
-        # Animation & Queue Polling
+        # Periodic Event & Animation Loops
         self.after(35, self._drain_queue)
         self.after(40, self._animate_waveform)
 
     # -------------------------------------------------------------
-    # 1. Dynamic Island Top Capsule
+    # 1. Floating Dynamic Island Capsule (Top Header)
     # -------------------------------------------------------------
-    def _build_dynamic_island(self):
-        """Top capsule: Branding, Animated Waveform Visualizer, State Pill, Controls."""
+    def _build_top_island(self):
         self.island_frame = ctk.CTkFrame(
             self,
-            fg_color=self.COLOR_CAPSULE,
-            corner_radius=22,
+            fg_color=self.CLR_CAPSULE,
+            corner_radius=20,
             border_width=1,
-            border_color="#1e293b",
-            height=58,
+            border_color=self.CLR_BORDER,
+            height=54,
         )
         self.island_frame.pack(fill="x", padx=10, pady=(10, 4))
         self.island_frame.pack_propagate(False)
@@ -109,39 +108,39 @@ class LayaHUD(ctk.CTk):
         self.island_frame.bind("<Button-1>", self._start_drag)
         self.island_frame.bind("<B1-Motion>", self._on_drag)
 
-        # Glowing Logo
+        # Minimalist Brand Icon & Label
         self.brand_label = ctk.CTkLabel(
             self.island_frame,
             text="✦ LAYA",
             font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
-            text_color=self.COLOR_CYAN,
+            text_color=self.CLR_WHITE,
         )
         self.brand_label.pack(side="left", padx=(14, 6))
         self.brand_label.bind("<Button-1>", self._start_drag)
         self.brand_label.bind("<B1-Motion>", self._on_drag)
 
-        # Canvas Waveform Visualizer
+        # Monochromatic Audio Waveform Visualizer
         self.canvas_wave = ctk.CTkCanvas(
             self.island_frame,
-            width=110,
-            height=28,
-            bg=self.COLOR_CAPSULE,
+            width=115,
+            height=26,
+            bg=self.CLR_CAPSULE,
             highlightthickness=0,
         )
-        self.canvas_wave.pack(side="left", padx=(2, 6), pady=14)
+        self.canvas_wave.pack(side="left", padx=(4, 6), pady=14)
         self.canvas_wave.bind("<Button-1>", self._start_drag)
         self.canvas_wave.bind("<B1-Motion>", self._on_drag)
 
-        # Status Badge Pill
+        # Minimalist State Badge (Monochrome Glass Pill)
         self.state_badge = ctk.CTkLabel(
             self.island_frame,
             text="● READY",
             font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
-            text_color=self.COLOR_GREEN,
-            fg_color="#062e1e",
+            text_color=self.CLR_SILVER,
+            fg_color="#18181c",
             corner_radius=12,
             padx=10,
-            pady=2,
+            pady=3,
         )
         self.state_badge.pack(side="left", padx=4)
 
@@ -151,10 +150,10 @@ class LayaHUD(ctk.CTk):
             text="✕",
             width=26,
             height=26,
-            fg_color="#182234",
-            hover_color="#ef4444",
-            text_color="#94a3b8",
-            font=ctk.CTkFont(size=11, weight="bold"),
+            fg_color="#18181c",
+            hover_color="#e11d48",
+            text_color=self.CLR_TEXT_DIM,
+            font=ctk.CTkFont(size=10, weight="bold"),
             corner_radius=13,
             command=self._on_close,
         )
@@ -166,30 +165,29 @@ class LayaHUD(ctk.CTk):
             text="─",
             width=26,
             height=26,
-            fg_color="#182234",
-            hover_color="#334155",
-            text_color="#94a3b8",
-            font=ctk.CTkFont(size=11, weight="bold"),
+            fg_color="#18181c",
+            hover_color="#2b2b32",
+            text_color=self.CLR_TEXT_DIM,
+            font=ctk.CTkFont(size=10, weight="bold"),
             corner_radius=13,
             command=self._toggle_collapse,
         )
         self.collapse_btn.pack(side="right", padx=2)
 
     # -------------------------------------------------------------
-    # 2. Expanded Glass Body
+    # 2. Main Content Cards (Monochrome Glass Cards)
     # -------------------------------------------------------------
-    def _build_expanded_body(self):
-        """Content container: Transcript Bubble, Live Step Feed, Results, and Input."""
+    def _build_content_cards(self):
         self.body_container = ctk.CTkFrame(self, fg_color="transparent")
         self.body_container.pack(fill="both", expand=True, padx=10, pady=(2, 10))
 
         # A. User Utterance Glass Card
         self.bubble_frame = ctk.CTkFrame(
             self.body_container,
-            fg_color=self.COLOR_CARD,
-            corner_radius=16,
+            fg_color=self.CLR_CARD,
+            corner_radius=14,
             border_width=1,
-            border_color="#1e293b",
+            border_color=self.CLR_BORDER,
         )
         self.bubble_frame.pack(fill="x", pady=(0, 6))
 
@@ -197,7 +195,7 @@ class LayaHUD(ctk.CTk):
             self.bubble_frame,
             text="Listening for voice... (Say 'Hey Laya' or 'Jarvis')",
             font=ctk.CTkFont(family="Segoe UI", size=12, slant="italic"),
-            text_color=self.COLOR_TEXT_DIM,
+            text_color=self.CLR_TEXT_DIM,
             wraplength=400,
             justify="left",
             padx=14,
@@ -205,13 +203,13 @@ class LayaHUD(ctk.CTk):
         )
         self.query_text.pack(fill="x", anchor="w")
 
-        # B. Real-Time Action Ticker (Live Step Feed)
+        # B. Real-Time Action Ticker (Live Step Stream)
         self.step_container = ctk.CTkFrame(
             self.body_container,
-            fg_color="#0a0f1d",
-            corner_radius=14,
+            fg_color="#0b0b0d",
+            corner_radius=12,
             border_width=1,
-            border_color="#1e293b",
+            border_color=self.CLR_BORDER,
         )
         self.step_container.pack(fill="x", pady=(0, 6))
 
@@ -219,44 +217,44 @@ class LayaHUD(ctk.CTk):
             self.step_container,
             text="✦ LIVE INTEL & ACTIONS",
             font=ctk.CTkFont(family="Segoe UI", size=9, weight="bold"),
-            text_color=self.COLOR_CYAN,
+            text_color=self.CLR_SILVER,
         )
         self.step_header.pack(anchor="w", padx=12, pady=(6, 2))
 
         self.step_box = ctk.CTkTextbox(
             self.step_container,
             fg_color="transparent",
-            text_color="#38bdf8",
+            text_color=self.CLR_SILVER,
             font=ctk.CTkFont(family="Consolas", size=10),
             height=70,
             wrap="word",
         )
         self.step_box.pack(fill="x", padx=6, pady=(0, 6))
-        self.step_box.insert("end", "Autonomous desktop agent armed. RTX 4050 active.\n")
+        self.step_box.insert("end", "Autonomous desktop agent online. RTX 4050 active.\n")
         self.step_box.configure(state="disabled")
 
-        # C. Output / Spoken Response Card
+        # C. Assistant Response Card
         self.result_container = ctk.CTkFrame(
             self.body_container,
-            fg_color=self.COLOR_CARD,
-            corner_radius=16,
+            fg_color=self.CLR_CARD,
+            corner_radius=14,
             border_width=1,
-            border_color="#1e293b",
+            border_color=self.CLR_BORDER,
         )
         self.result_container.pack(fill="both", expand=True, pady=(0, 6))
 
         self.result_header = ctk.CTkLabel(
             self.result_container,
-            text="✦ ASSISTANT RESPONSE",
+            text="✦ RESPONSE",
             font=ctk.CTkFont(family="Segoe UI", size=9, weight="bold"),
-            text_color=self.COLOR_PURPLE,
+            text_color=self.CLR_SILVER,
         )
         self.result_header.pack(anchor="w", padx=12, pady=(6, 2))
 
         self.result_box = ctk.CTkTextbox(
             self.result_container,
             fg_color="transparent",
-            text_color=self.COLOR_TEXT_WHITE,
+            text_color=self.CLR_WHITE,
             font=ctk.CTkFont(family="Segoe UI", size=12),
             wrap="word",
         )
@@ -264,34 +262,34 @@ class LayaHUD(ctk.CTk):
         self.result_box.insert(
             "end",
             "I am ready. Try saying:\n"
-            "• 'Hey Laya open paint and draw a heart'\n"
-            "• 'Hey Laya search youtube for lo-fi'\n"
-            "• 'Hey Laya raise the volume by 10 percent'"
+            "• 'Hey Jarvis, write print hello in Untitled.ipynb'\n"
+            "• 'Hey Jarvis, open paint and draw a circle'\n"
+            "• 'Hey Jarvis, raise the volume by 10 percent'"
         )
         self.result_box.configure(state="disabled")
 
-        # D. Input Bar (Pill Entry, Mic Button, Send)
+        # D. Input Bar (Pill Entry, Mic Button, Pure White Send Button)
         self.input_pill = ctk.CTkFrame(
             self.body_container,
-            fg_color=self.COLOR_CAPSULE,
-            corner_radius=22,
+            fg_color=self.CLR_CAPSULE,
+            corner_radius=20,
             border_width=1,
-            border_color="#1e293b",
-            height=46,
+            border_color=self.CLR_BORDER,
+            height=44,
         )
         self.input_pill.pack(fill="x")
         self.input_pill.pack_propagate(False)
 
-        # Mic Trigger
+        # Minimalist Mic Trigger
         self.mic_btn = ctk.CTkButton(
             self.input_pill,
             text="🎙️",
-            width=34,
-            height=34,
-            fg_color="#182234",
-            hover_color=self.COLOR_PURPLE,
-            font=ctk.CTkFont(size=14),
-            corner_radius=17,
+            width=32,
+            height=32,
+            fg_color="#18181c",
+            hover_color="#2b2b32",
+            font=ctk.CTkFont(size=13),
+            corner_radius=16,
             command=self._on_mic_click,
         )
         self.mic_btn.pack(side="left", padx=(6, 4), pady=6)
@@ -299,69 +297,68 @@ class LayaHUD(ctk.CTk):
         # Text Prompt Field
         self.input_field = ctk.CTkEntry(
             self.input_pill,
-            placeholder_text="Type command or ask anything...",
+            placeholder_text="Ask Jarvis or type a command...",
             fg_color="transparent",
             border_width=0,
-            text_color=self.COLOR_TEXT_WHITE,
+            text_color=self.CLR_WHITE,
             font=ctk.CTkFont(family="Segoe UI", size=12),
         )
         self.input_field.pack(side="left", fill="x", expand=True, padx=4, pady=6)
         self.input_field.bind("<Return>", lambda e: self._on_submit_text())
 
-        # Send Arrow
+        # Apple/Vercel-Grade Pure White Send Button
         self.send_btn = ctk.CTkButton(
             self.input_pill,
             text="➤",
-            width=32,
-            height=32,
-            fg_color=self.COLOR_CYAN,
+            width=30,
+            height=30,
+            fg_color=self.CLR_WHITE,
             text_color="#000000",
-            hover_color="#38bdf8",
+            hover_color=self.CLR_SILVER,
             font=ctk.CTkFont(size=12, weight="bold"),
-            corner_radius=16,
+            corner_radius=15,
             command=self._on_submit_text,
         )
         self.send_btn.pack(side="right", padx=(4, 6), pady=7)
 
     # -------------------------------------------------------------
-    # 3. Waveform Animation (Futuristic Audio Visualizer)
+    # 3. Monochromatic Audio Waveform Visualizer
     # -------------------------------------------------------------
     def _animate_waveform(self):
-        """Draws animated glowing soundwave bars on the canvas based on active state."""
-        self._wave_phase += 0.25
-        w = 110
-        h = 28
-        bar_count = 14
+        """Draws animated monochromatic vertical bars on the canvas based on active state."""
+        self._wave_phase += 0.22
+        w = 115
+        h = 26
+        bar_count = 15
         bar_width = 4
         bar_spacing = 3
 
         self.canvas_wave.delete("all")
 
-        # Calculate heights based on state
         for i in range(bar_count):
             if self.current_state == "IDLE":
-                # Gentle breathing wave
-                bh = int(3 + 3 * math.sin(self._wave_phase * 0.7 + i * 0.5))
-                color = "#334155"
+                # Gentle, elegant monochromatic breathing ripple
+                bh = int(3 + 3 * math.sin(self._wave_phase * 0.7 + i * 0.45))
+                color = "#38383f"
             elif self.current_state == "LISTENING":
-                # High energy reactive audio wave
-                bh = int(4 + 9 * abs(math.sin(self._wave_phase * 1.6 + i * 0.8)))
-                color = self.COLOR_CYAN
+                # High energy reactive audio wave in brilliant white & silver
+                bh = int(4 + 9 * abs(math.sin(self._wave_phase * 1.5 + i * 0.75)))
+                color = self.CLR_WHITE if i % 2 == 0 else self.CLR_SILVER
             elif self.current_state == "PROCESSING":
-                # Scanning neon sweep
-                sweep_pos = (math.sin(self._wave_phase * 1.2) + 1.0) * 0.5 * bar_count
+                # Scanning silver sweep
+                sweep_pos = (math.sin(self._wave_phase * 1.1) + 1.0) * 0.5 * bar_count
                 dist = abs(i - sweep_pos)
-                bh = int(max(3, 14 - dist * 4))
-                color = self.COLOR_AMBER
+                bh = int(max(3, 13 - dist * 3.5))
+                color = self.CLR_WHITE if dist < 1.5 else "#52525b"
             elif self.current_state == "SPEAKING":
-                # Rhythmic speech pulses
-                bh = int(4 + 10 * abs(math.cos(self._wave_phase * 1.4 + i * 0.6)))
-                color = self.COLOR_PURPLE
+                # Rhythmic speech pulses in crisp silver
+                bh = int(4 + 9 * abs(math.cos(self._wave_phase * 1.3 + i * 0.55)))
+                color = self.CLR_SILVER
             else:
                 bh = 4
-                color = "#334155"
+                color = "#38383f"
 
-            x0 = 8 + i * (bar_width + bar_spacing)
+            x0 = 6 + i * (bar_width + bar_spacing)
             y0 = (h - bh) // 2
             x1 = x0 + bar_width
             y1 = y0 + bh
@@ -405,7 +402,7 @@ class LayaHUD(ctk.CTk):
             self._toggle_collapse()
 
     # -------------------------------------------------------------
-    # 5. Instant Wake Word & Single-Pass Utterance Integration
+    # 5. Continuous Single-Pass Wake Word Integration
     # -------------------------------------------------------------
     def _init_wake_word(self):
         try:
@@ -418,7 +415,7 @@ class LayaHUD(ctk.CTk):
             print(f"[HUD] Wake word note: {e}")
 
     def _on_wake_heard(self):
-        """User said only wake word ('Hey Laya' / 'Jarvis') -> listen for speech."""
+        """User spoke only wake word -> activate listening mode."""
         self.msg_queue.put(("wake_trigger", None))
 
     def _on_direct_command_heard(self, command_text: str):
@@ -446,8 +443,8 @@ class LayaHUD(ctk.CTk):
         self._expand_if_collapsed()
         self.is_recording = True
         self.current_state = "LISTENING"
-        self._set_state_badge("● LISTENING", self.COLOR_CYAN, "#083344")
-        self.query_text.configure(text="Listening...", text_color=self.COLOR_CYAN)
+        self._set_state_badge("● LISTENING", self.CLR_WHITE, "#27272a")
+        self.query_text.configure(text="Listening...", text_color=self.CLR_WHITE)
 
         threading.Thread(target=self._record_and_transcribe_worker, daemon=True).start()
 
@@ -476,8 +473,8 @@ class LayaHUD(ctk.CTk):
             self.wake_detector.pause()
 
         self.current_state = "PROCESSING"
-        self._set_state_badge("● PROCESSING", self.COLOR_AMBER, "#451a03")
-        self.query_text.configure(text=f"\"{query}\"", text_color=self.COLOR_TEXT_WHITE)
+        self._set_state_badge("● PROCESSING", self.CLR_SILVER, "#1c1c1f")
+        self.query_text.configure(text=f"\"{query}\"", text_color=self.CLR_WHITE)
 
         threading.Thread(target=lambda: self._execute_task_worker(query), daemon=True).start()
 
@@ -522,7 +519,7 @@ class LayaHUD(ctk.CTk):
                     st = args[0]
                     self.current_state = st
                     if st == "PROCESSING":
-                        self._set_state_badge("● PROCESSING", self.COLOR_AMBER, "#451a03")
+                        self._set_state_badge("● PROCESSING", self.CLR_SILVER, "#1c1c1f")
 
                 elif kind == "step":
                     self._append_step(str(args[0]))
@@ -533,14 +530,14 @@ class LayaHUD(ctk.CTk):
 
                 elif kind == "reset_idle":
                     self.current_state = "IDLE"
-                    self._set_state_badge("● READY", self.COLOR_GREEN, "#062e1e")
-                    self.query_text.configure(text="Listening for voice... (Say 'Hey Laya')", text_color=self.COLOR_TEXT_DIM)
+                    self._set_state_badge("● READY", self.CLR_SILVER, "#18181c")
+                    self.query_text.configure(text="Listening for voice... (Say 'Hey Laya' or 'Jarvis')", text_color=self.CLR_TEXT_DIM)
                     if self.wake_detector:
                         self.wake_detector.resume()
 
                 elif kind == "post_execution":
                     self.current_state = "SPEAKING"
-                    self._set_state_badge("● COMPLETE", self.COLOR_PURPLE, "#2e1065")
+                    self._set_state_badge("● COMPLETE", self.CLR_WHITE, "#27272a")
                     if self.wake_detector:
                         self.wake_detector.resume()
 
