@@ -153,7 +153,8 @@ class OrchestratorEngine:
         total_steps = len(actions)
 
         for idx, item in enumerate(actions):
-            tool = item.get("tool", "")
+            raw_tool = item.get("tool", "")
+            tool = re.sub(r"^(?:tool\.|functions\.|laya\.)", "", raw_tool.strip().lower())
             args = item.get("args", {})
             print(f"  ▶ [Step {idx + 1}/{total_steps}] Executing '{tool}'...")
 
@@ -167,12 +168,15 @@ class OrchestratorEngine:
                     res = self.tier2_tools.create_folder(args.get("folder_name", "NewFolder"), location=args.get("location", ""))
                     executed_summaries.append(res)
                 elif tool == "create_file":
-                    # If location is empty and a folder was just created, target that folder
                     loc = args.get("location", "")
                     res = self.tier2_tools.create_file(args.get("filename", "script.py"), content=args.get("content", ""), location=loc)
                     executed_summaries.append(res)
                 elif tool == "get_file_info":
                     res = self.tier2_tools.get_file_info(args.get("query", ""))
+                    executed_summaries.append(res)
+                elif tool in ["open_folder", "explore"]:
+                    folder_target = args.get("folder_name") or args.get("name") or args.get("location", "desktop")
+                    res = self.fast_path.open_folder(folder_target)
                     executed_summaries.append(res)
                 elif tool == "youtube_search":
                     res = self.tool_registry.execute("youtube_search", query=args.get("query", ""))
@@ -183,8 +187,8 @@ class OrchestratorEngine:
                 elif tool == "open_url":
                     res = self.tool_registry.execute("open_url", url=args.get("url", ""))
                     executed_summaries.append(res)
-                elif tool in ["open_app", "open_app_or_game"]:
-                    name = args.get("name", "")
+                elif tool in ["open_app", "open_app_or_game", "launch_app"]:
+                    name = args.get("name") or args.get("app_name", "")
                     res = self.fast_path.open_app(name)
                     executed_summaries.append(res)
                 elif tool == "close_app":
@@ -221,6 +225,32 @@ class OrchestratorEngine:
                 elif tool == "query_memory":
                     res = self.memory.search_facts(args.get("query", ""))
                     executed_summaries.append(res)
+                elif tool in ["query_time", "get_time", "time"]:
+                    res = self.fast_path.query_time()
+                    executed_summaries.append(res)
+                elif tool in ["query_date", "get_date", "date"]:
+                    res = self.fast_path.query_date()
+                    executed_summaries.append(res)
+                elif tool in ["check_system", "check_battery", "battery"]:
+                    metric = str(args.get("metric", "battery")).lower()
+                    if "ram" in metric or "memory" in metric:
+                        res = self.fast_path.check_ram()
+                    elif "cpu" in metric:
+                        res = self.fast_path.check_cpu()
+                    elif "ip" in metric:
+                        res = self.fast_path.check_ip()
+                    else:
+                        res = self.fast_path.check_battery()
+                    executed_summaries.append(res)
+                elif tool in ["check_ram", "ram"]:
+                    res = self.fast_path.check_ram()
+                    executed_summaries.append(res)
+                elif tool in ["check_cpu", "cpu"]:
+                    res = self.fast_path.check_cpu()
+                    executed_summaries.append(res)
+                elif tool in ["check_ip", "ip"]:
+                    res = self.fast_path.check_ip()
+                    executed_summaries.append(res)
                 elif tool == "create_note":
                     res = self.tool_registry.execute("create_notepad_note", content=args.get("content", ""))
                     executed_summaries.append(res)
@@ -239,39 +269,40 @@ class OrchestratorEngine:
                 elif tool == "take_screenshot":
                     res = self.fast_path.take_screenshot()
                     executed_summaries.append(res)
-                elif tool == "lock_workstation":
-                    res = self.fast_path.lock_workstation()
+                elif tool in ["lock_workstation", "lock_pc", "lock"]:
+                    delay = int(args.get("delay_sec", 0))
+                    res = self.fast_path.lock_workstation(delay_sec=delay)
                     executed_summaries.append(res)
-                elif tool == "check_system":
-                    metric = args.get("metric", "battery").lower()
-                    if "ram" in metric or "memory" in metric:
-                        res = self.fast_path.check_ram()
-                    elif "cpu" in metric:
-                        res = self.fast_path.check_cpu()
-                    elif "ip" in metric:
-                        res = self.fast_path.check_ip()
+                elif tool in ["run_powershell", "execute_command", "shell"]:
+                    cmd_str = args.get("command", "")
+                    if any(w in cmd_str.lower() for w in ["notepad", "start ", "explorer"]):
+                        subprocess.Popen(["powershell", "-NoProfile", "-Command", cmd_str], shell=True)
+                        executed_summaries.append(f"Started '{cmd_str}'.")
                     else:
-                        res = self.fast_path.check_battery()
-                    executed_summaries.append(res)
-                elif tool == "run_powershell":
-                    cmd = ["powershell", "-NoProfile", "-Command", args.get("command", "")]
-                    p = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
-                    executed_summaries.append(p.stdout.strip() or "Executed PowerShell command.")
+                        p = subprocess.run(["powershell", "-NoProfile", "-Command", cmd_str], capture_output=True, text=True, timeout=5)
+                        executed_summaries.append(p.stdout.strip() or "Executed PowerShell command.")
                 elif tool == "answer_question":
-                    executed_summaries.append(args.get("text", ""))
+                    ans_text = args.get("text", "")
+                    if ans_text and not ans_text.startswith("{"):
+                        executed_summaries.append(ans_text)
                 else:
                     executed_summaries.append(f"Completed action '{tool}'.")
             except Exception as e:
                 executed_summaries.append(f"Failed action '{tool}': {e}")
 
+        # If any informational query was run (battery, ram, time, date, ip), prioritize that ground-truth response
+        info_responses = [s for s in executed_summaries if any(w in s for w in ["Battery", "RAM usage", "CPU", "IP address", "time is", "Today is", "Active memories:", "is located at:"])]
+        if info_responses:
+            return " ".join(info_responses)
+
         spoken = plan.get("spoken_summary", "").strip()
-        # If any queries returned specific paths or facts, append them so user has the ground truth
         detailed_facts = [s for s in executed_summaries if ("\\" in s and ":" in s) or "Active memories:" in s]
         if detailed_facts and spoken:
             extra = " " + " ".join(detailed_facts)
             if not any(f in spoken for f in detailed_facts):
                 return f"{spoken}{extra}"
         return spoken if spoken else " | ".join(executed_summaries)
+
 
 
     def _solve_offline_reasoning(self, query: str) -> str:

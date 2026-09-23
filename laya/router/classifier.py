@@ -93,48 +93,54 @@ class IntentRouter:
         if text in ["previous song", "previous track"]:
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="prev_track")
 
-        # Telemetry
-        if text in ["check battery", "battery", "battery level"]:
+        # Telemetry & System Diagnostics (Robust phrase matching)
+        if "battery" in text and not any(w in text for w in ["buy", "order", "replace"]):
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="check_battery")
 
-        if text in ["check ram", "ram", "memory usage"]:
-            return RouteDecision(path=ExecutionPath.FAST_PATH, action="check_ram")
+        if (any(w in text for w in ["check ram", "ram usage", "how much ram", "memory usage", "check memory"]) or re.search(r"\bram\b", text)):
+            if not any(ign in text for ign in ["telegram", "program", "diagram", "instagram"]):
+                return RouteDecision(path=ExecutionPath.FAST_PATH, action="check_ram")
 
-        if text in ["check cpu", "cpu usage"]:
+
+        if any(w in text for w in ["check cpu", "cpu usage", "cpu utilization", "processor usage"]):
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="check_cpu")
 
-        if text in ["what is my ip", "my ip", "what's my ip"]:
+        if any(w in text for w in ["what is my ip", "my ip", "what's my ip", "check ip", "ip address"]):
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="check_ip")
 
         # System Screen & Power
-        if text in ["lock screen", "lock computer", "lock pc"]:
-            return RouteDecision(path=ExecutionPath.FAST_PATH, action="lock_workstation")
+        if any(w in text for w in ["lock screen", "lock computer", "lock pc", "lock down the pc", "lock it down"]):
+            delay_m = re.search(r"(\d+)\s*(?:seconds?|secs?|s)", text)
+            delay_sec = int(delay_m.group(1)) if delay_m else 0
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="lock_workstation", params={"delay_sec": delay_sec})
 
-        if text in ["take a screenshot", "take screenshot", "screenshot"]:
+        if text in ["take a screenshot", "take screenshot", "screenshot", "screen shot", "capture screen"]:
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="take_screenshot")
 
-        if text in ["close this", "close window", "close this window"]:
+        if text in ["close this", "close window", "close this window", "close active window"]:
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="close_active_window")
 
-        # Identity & Time
-        if text in ["what time is it", "current time", "what's the time", "time"]:
+        # Identity & Time (Robust phrase matching)
+        if any(p in text for p in ["time is it", "what time", "current time", "time now", "tell me the time", "what's the time", "time it is", "what is the time"]):
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="query_time")
 
-        if text in ["what is today's date", "today's date", "what date is it"]:
+        if any(p in text for p in ["today's date", "what date", "current date", "what day is it", "what's the date", "what is today's date"]):
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="query_date")
 
-        if text in ["who are you", "what is your name"]:
+        if any(p in text for p in ["who are you", "what is your name", "what are you"]):
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="query_identity")
 
-        if text in ["tell me a joke", "make me laugh", "joke"]:
+        if any(p in text for p in ["tell me a joke", "make me laugh", "joke"]):
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="tell_joke")
 
-        # Single word app launch (e.g. "open spotify", "open chrome")
-        single_open = re.match(r"^(?:open|launch|start)\s+([a-zA-Z0-9]+)$", text)
-        if single_open:
-            app_key = single_open.group(1).strip()
-            if app_key in APP_REGISTRY or app_key in FOLDER_ALIASES:
-                return RouteDecision(path=ExecutionPath.FAST_PATH, action="open_app", params={"app_name": app_key})
+        # Direct app launch (e.g. "open chrome", "open telegram", "open discord", "open vs code", "open notepad")
+        open_match = re.match(r"^(?:open|launch|start)\s+(?:the\s+)?([a-zA-Z0-9\s_\-\.]+?)(?:\s+app|\s+application|\s+program)?$", text)
+        if open_match:
+            raw_target = open_match.group(1).strip()
+            # Do not intercept file or web instructions like "open chrome and search" or "open folder"
+            if raw_target not in ["a", "the", "it", "this", "new folder", "folder"]:
+                return RouteDecision(path=ExecutionPath.FAST_PATH, action="open_app", params={"app_name": raw_target})
+
 
         # ---------------------------------------------------------
         # 4. ALL Other Instructions Handled by Autonomous Agent Planner

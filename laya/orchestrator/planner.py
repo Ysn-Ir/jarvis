@@ -56,8 +56,10 @@ Available Tools:
 - query_memory(query: str): Retrieve stored facts or memories when user asks 'what did I ask you to remember?'.
 - create_word_document(topic: str, content: str = ""): Create rich styled Word document (.docx).
 - create_excel_sheet(topic: str): Create styled Excel spreadsheet (.xlsx).
+- create_note(content: str): Open Notepad and write note content (.txt).
 - take_screenshot(): Capture screen.
-- lock_workstation(): Lock computer screen.
+- lock_workstation(delay_sec: int = 0): Lock computer screen (optionally after delay_sec seconds).
+
 - check_system(metric: str): Check 'battery', 'ram', 'cpu', or 'ip'.
 - run_powershell(command: str): Run arbitrary PowerShell commands for system tasks.
 - answer_question(text: str): Speak back direct answers to questions, date/time, jokes, or conversational responses.

@@ -107,32 +107,102 @@ class AppLocator:
 
         return None
 
-    def launch(self, name_or_query: str) -> Tuple[bool, str]:
-        """Launch any game, tool, or app on the PC."""
-        result = self.find_app(name_or_query)
-        if not result:
-            # Fall back to starting via Windows shell directly
-            try:
-                os.startfile(name_or_query)
-                return True, f"Launched '{name_or_query}' directly."
-            except Exception:
-                try:
-                    subprocess.Popen(name_or_query, shell=True)
-                    return True, f"Started '{name_or_query}'."
-                except Exception as ex:
-                    return False, f"Could not find or launch application or game '{name_or_query}': {ex}"
-
-        display_name, target = result
+    def _bring_to_foreground(self, query: str) -> bool:
+        """If an application window is already running, restore and bring it to front."""
         try:
-            if target.endswith((".lnk", ".url")):
-                os.startfile(target)
-            else:
-                # Launch via Windows shell AppsFolder (works for ANY app/game registered in Windows)
-                cmd = f'explorer.exe "shell:AppsFolder\\{target}"'
-                subprocess.Popen(cmd, shell=True)
-            return True, f"Opening {display_name.title()}."
-        except Exception as e:
-            return False, f"Failed launching {display_name}: {e}"
+            import win32gui
+            import win32con
+            found_hwnd = None
+            q_lower = query.lower().strip()
+
+            def enum_cb(hwnd, _):
+                nonlocal found_hwnd
+                if win32gui.IsWindowVisible(hwnd):
+                    title = win32gui.GetWindowText(hwnd).lower()
+                    if title and (q_lower in title or any(w in title for w in q_lower.split())):
+                        found_hwnd = hwnd
+                        return False
+                return True
+
+            win32gui.EnumWindows(enum_cb, None)
+            if found_hwnd:
+                win32gui.ShowWindow(found_hwnd, win32con.SW_RESTORE)
+                win32gui.SetForegroundWindow(found_hwnd)
+                return True
+        except Exception:
+            pass
+        return False
+
+    def launch(self, name_or_query: str) -> Tuple[bool, str]:
+        """Launch any game, tool, or app on the PC, or bring its window to the front."""
+        q = name_or_query.lower().strip()
+        # Clean common filler prefixes
+        for prefix in ["open ", "launch ", "start ", "the "]:
+            if q.startswith(prefix):
+                q = q[len(prefix):].strip()
+
+        # 1. Bring to foreground if already running
+        if self._bring_to_foreground(q):
+            return True, f"Brought {q.title()} to the foreground."
+
+        # 2. Known standard app direct paths
+        common_paths = {
+            "chrome": r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            "google chrome": r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            "brave": r"C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe",
+            "edge": r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+            "msedge": r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+            "telegram": str(Path.home() / r"AppData\Roaming\Telegram Desktop\Telegram.exe"),
+            "discord": str(Path.home() / r"AppData\Local\Discord\Update.exe --processStart Discord.exe"),
+            "vscode": "code",
+            "vs code": "code",
+            "visual studio code": "code",
+            "notepad": "notepad.exe",
+            "calc": "calc.exe",
+            "calculator": "calc.exe",
+            "spotify": "spotify",
+            "whatsapp": "whatsapp:",
+        }
+        for key, target_path in common_paths.items():
+            if q == key or q in key or key in q:
+                try:
+                    if target_path.endswith(".exe") and os.path.exists(target_path):
+                        os.startfile(target_path)
+                    elif "--processStart" in target_path or target_path in ["code", "spotify", "notepad.exe", "calc.exe", "whatsapp:"]:
+                        subprocess.Popen(target_path, shell=True)
+                    else:
+                        os.startfile(target_path)
+                    return True, f"Opening {key.title()}."
+                except Exception:
+                    pass
+
+        # 3. Dynamic lookup in StartApps and shortcuts
+        result = self.find_app(q)
+        if result:
+            display_name, target = result
+            try:
+                if target.endswith((".lnk", ".url")) and os.path.exists(target):
+                    os.startfile(target)
+                elif ":" in target or "\\" in target:
+                    os.startfile(target)
+                else:
+                    cmd = f'explorer.exe "shell:AppsFolder\\{target}"'
+                    subprocess.Popen(cmd, shell=True)
+                return True, f"Opening {display_name.title()}."
+            except Exception as e:
+                pass
+
+        # 4. Fall back to Windows Shell startfile or Popen
+        try:
+            os.startfile(q)
+            return True, f"Opened '{q}'."
+        except Exception:
+            try:
+                subprocess.Popen(f"start {q}", shell=True)
+                return True, f"Started '{q}'."
+            except Exception as ex:
+                return False, f"Could not find or launch application '{name_or_query}'."
+
 
 
 def get_app_locator() -> AppLocator:

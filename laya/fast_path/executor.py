@@ -112,9 +112,17 @@ class FastPathExecutor:
     # -------------------------------------------------------------
     # Screen & System Actions
     # -------------------------------------------------------------
-    def lock_workstation(self) -> str:
+    def lock_workstation(self, delay_sec: int = 0) -> str:
+        if delay_sec > 0:
+            import threading
+            def _delayed():
+                time.sleep(delay_sec)
+                ctypes.windll.user32.LockWorkStation()
+            threading.Thread(target=_delayed, daemon=True).start()
+            return f"Locking your PC in {delay_sec} seconds."
         ctypes.windll.user32.LockWorkStation()
-        return "Screen locked."
+        return "Your PC is now locked."
+
 
     def take_screenshot(self) -> str:
         try:
