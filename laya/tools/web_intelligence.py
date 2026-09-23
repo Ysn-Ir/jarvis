@@ -1,7 +1,8 @@
 """
 Laya Web Intelligence Engine
-Real-time web search and page content extraction using duckduckgo_search and BeautifulSoup.
-Enables Laya to answer live questions, check news, weather, facts, and extract text from URLs.
+Multi-engine real-time web search and page content extraction.
+Combines Wikipedia Knowledge Extracts, Bing Web Search, and BeautifulSoup.
+Enables Laya to answer live questions, check news, weather, people, entities, and extract text from URLs.
 """
 
 import re
@@ -22,48 +23,75 @@ class WebIntelligence:
 
     def live_web_search(self, query: str, max_results: int = 4) -> str:
         """
-        Execute a live web search and return structured titles, snippets, and URLs.
+        Execute a robust multi-source web search combining Wikipedia Knowledge summaries
+        and Bing Web Search results with structured titles, snippets, and URLs.
         """
         if not query or not query.strip():
             return "No search query provided."
 
         clean_query = query.strip()
+        output_sections: List[str] = []
 
-        # Primary: duckduckgo_search library
+        # 1. Wikipedia Knowledge Extract (Ultra-fast & 100% accurate for entities/people/facts)
         try:
-            from duckduckgo_search import DDGS
-            results = list(DDGS().text(clean_query, max_results=max_results))
-            if results:
-                formatted = []
-                for idx, r in enumerate(results, 1):
-                    title = r.get("title", "Untitled")
-                    snippet = r.get("body", "")
-                    url = r.get("href", "")
-                    formatted.append(f"[{idx}] {title}\nSummary: {snippet}\nURL: {url}")
-                return "\n\n".join(formatted)
-        except Exception as e:
-            # Fallback to direct DuckDuckGo instant API
-            pass
-
-        # Fallback: DuckDuckGo instant answer API
-        try:
-            api_url = f"https://api.duckduckgo.com/?q={urllib.parse.quote(clean_query)}&format=json&no_html=1"
-            res = requests.get(api_url, timeout=5, headers={"User-Agent": "Mozilla/5.0"})
-            if res.status_code == 200:
-                data = res.json()
-                abstract = data.get("AbstractText") or data.get("Answer")
-                if abstract:
-                    source = data.get("AbstractSource", "DuckDuckGo")
-                    return f"Result ({source}):\n{abstract}"
-                related = data.get("RelatedTopics", [])
-                if related and isinstance(related, list):
-                    first_topic = related[0]
-                    if isinstance(first_topic, dict) and first_topic.get("Text"):
-                        return f"Result:\n{first_topic.get('Text')}"
+            wiki_url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{urllib.parse.quote(clean_query)}"
+            w_res = requests.get(wiki_url, headers={"User-Agent": "Laya/2.0"}, timeout=3)
+            if w_res.status_code == 200:
+                data = w_res.json()
+                extract = data.get("extract")
+                title = data.get("title")
+                if extract:
+                    output_sections.append(f"[Verified Knowledge - {title}]:\n{extract}")
         except Exception:
             pass
 
-        return f"Could not find live search results for '{clean_query}'. Please check your network connection."
+        # 2. Bing Web Search (Live web pages, news, YouTube, sports, products)
+        try:
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept-Language": "en-US,en;q=0.9"
+            }
+            bing_url = f"https://www.bing.com/search?q={urllib.parse.quote(clean_query)}"
+            b_res = requests.get(bing_url, headers=headers, timeout=4)
+            if b_res.status_code == 200:
+                soup = BeautifulSoup(b_res.text, "html.parser")
+                web_results = []
+                for li in soup.select("li.b_algo")[:max_results]:
+                    h2 = li.find("h2")
+                    title = h2.get_text().strip() if h2 else ""
+                    p = li.find("p") or li.find(".b_caption")
+                    snippet = p.get_text().strip() if p else ""
+                    link = h2.find("a")["href"] if (h2 and h2.find("a") and h2.find("a").has_attr("href")) else ""
+                    if title:
+                        res_str = f"• {title}"
+                        if snippet:
+                            res_str += f"\n  Summary: {snippet}"
+                        if link:
+                            res_str += f"\n  URL: {link}"
+                        web_results.append(res_str)
+
+                if web_results:
+                    output_sections.append("[Live Web Results]:\n" + "\n\n".join(web_results))
+        except Exception:
+            pass
+
+        # 3. DuckDuckGo Instant Answer Fallback
+        if not output_sections:
+            try:
+                api_url = f"https://api.duckduckgo.com/?q={urllib.parse.quote(clean_query)}&format=json&no_html=1"
+                d_res = requests.get(api_url, timeout=3, headers={"User-Agent": "Mozilla/5.0"})
+                if d_res.status_code == 200:
+                    d_data = d_res.json()
+                    abstract = d_data.get("AbstractText") or d_data.get("Answer")
+                    if abstract:
+                        output_sections.append(f"[Search Result]:\n{abstract}")
+            except Exception:
+                pass
+
+        if output_sections:
+            return "\n\n".join(output_sections)
+
+        return f"Could not find live web search results for '{clean_query}'. Please verify your query or internet connection."
 
     def fetch_webpage_content(self, url: str, max_chars: int = 2500) -> str:
         """

@@ -115,7 +115,8 @@ class LayaAssistant:
                     # Direct text command
                     self.handle_command(user_input, speak=True)
                 else:
-                    # Voice recording
+                    # Voice recording: stop any playing speech so mic doesn't record assistant audio
+                    self.tts.stop()
                     print("🎤 Listening... (Speak now)")
                     audio_data = capture.record_until_silence(max_duration_sec=8.0)
                     if audio_data is None or len(audio_data) == 0:

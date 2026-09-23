@@ -158,11 +158,11 @@ class OrchestratorEngine:
             elif tool == "take_screenshot":
                 return self.fast_path.take_screenshot()
 
-            # Web & Search
-            elif tool == "web_search":
-                return self.tool_registry.execute("web_search", query=args.get("query", ""))
-            elif tool == "youtube_search":
-                return self.tool_registry.execute("youtube_search", query=args.get("query", ""))
+            # Web & Search Intelligence
+            elif tool in ["web_search", "live_web_search", "google_search"]:
+                return self.web_intelligence.live_web_search(args.get("query", ""), max_results=4)
+            elif tool in ["youtube_search", "search_youtube"]:
+                return self.web_intelligence.live_web_search(f"{args.get('query', '')} YouTube", max_results=4)
             elif tool == "open_url":
                 return self.tool_registry.execute("open_url", url=args.get("url", ""))
 

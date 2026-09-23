@@ -150,7 +150,7 @@ TOOLS_SCHEMA: List[Dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "web_search",
-            "description": "Search Google or the web in the default browser.",
+            "description": "Execute a real-time web search to look up facts, people, entities, YouTube channels, news, scores, or current world information. Returns verified summaries, snippets, and links so you can speak the answer directly.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -164,11 +164,11 @@ TOOLS_SCHEMA: List[Dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "youtube_search",
-            "description": "Search and open YouTube videos in the default browser.",
+            "description": "Search YouTube for videos, channels, creators, or content and return video titles, channels, and details.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "query": {"type": "string", "description": "Video search query"}
+                    "query": {"type": "string", "description": "Video or creator search query"}
                 },
                 "required": ["query"]
             }

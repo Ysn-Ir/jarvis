@@ -45,7 +45,8 @@ WHISPER_DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 WHISPER_COMPUTE_TYPE = "float16" if torch.cuda.is_available() else "int8"
 
 # Text-to-Speech (TTS) Settings
-TTS_ENGINE = "sapi5"              # Native Windows SAPI5 (0ms network latency)
+TTS_ENGINE = os.getenv("TTS_ENGINE", "edge-tts")      # "edge-tts" (Neural JARVIS) with "sapi5" fallback
+EDGE_TTS_VOICE = os.getenv("EDGE_TTS_VOICE", "en-US-ChristopherNeural")  # Neural JARVIS voice
 TTS_RATE = 190                    # Conversational speaking rate (words/min)
 TTS_VOLUME = 1.0
 
