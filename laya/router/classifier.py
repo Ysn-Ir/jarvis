@@ -172,8 +172,17 @@ class IntentRouter:
         if any(p in text for p in ["who are you", "what is your name", "what are you"]):
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="query_identity")
 
-        if any(p in text for p in ["tell me a joke", "make me laugh", "joke"]):
+        if any(p in text for p in ["tell me a joke", "make me laugh", "tell a joke", "joke"]):
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="tell_joke")
+
+        if any(p in text for p in ["tell me a meme", "show me a meme", "give me a meme", "meme reaction", "meme", "memes"]):
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="share_meme")
+
+        if any(p in text for p in ["suggest a song", "suggest songs", "recommend music", "recommend a song", "play some songs", "what should i listen to", "song suggestion", "song recommendations"]):
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="suggest_songs")
+
+        if any(p in text for p in ["who am i", "what do you know about me", "what do you remember about me", "tell me about myself"]):
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="who_am_i")
 
         # Bring window to front / Focus (e.g. "bring spotify to front", "focus chrome", "switch to discord")
         bring_front_match = re.match(

@@ -19,6 +19,8 @@ import customtkinter as ctk
 from laya.audio import get_tts_engine, get_stt_engine, AudioCapture
 from laya.audio.wake_word import get_wake_word_detector, WakeWordDetector
 from laya.fast_path.executor import get_fast_path_executor
+from laya.ui.meme_engine import get_meme_engine
+from laya.orchestrator.memory import get_memory_store
 
 
 class LayaHUD(ctk.CTk):
@@ -29,6 +31,9 @@ class LayaHUD(ctk.CTk):
         self.tts = get_tts_engine()
         self.stt = get_stt_engine()
         self.capture = AudioCapture()
+        self.meme_engine = get_meme_engine()
+        self.memory_store = get_memory_store()
+        self.last_query = ""
 
         # Thread Communication Queue
         self.msg_queue: queue.Queue = queue.Queue()
@@ -91,6 +96,7 @@ class LayaHUD(ctk.CTk):
         # Periodic Event & Animation Loops
         self.after(35, self._drain_queue)
         self.after(40, self._animate_waveform)
+        self.after(800, self._play_startup_greeting)
 
     # -------------------------------------------------------------
     # 1. Floating Dynamic Island Capsule (Top Header)
@@ -261,13 +267,46 @@ class LayaHUD(ctk.CTk):
         )
         self.result_container.pack(fill="both", expand=True, pady=(0, 6))
 
+        # Response header frame with embedded meme reaction badge
+        self.response_header_frame = ctk.CTkFrame(self.result_container, fg_color="transparent")
+        self.response_header_frame.pack(fill="x", padx=10, pady=(6, 2))
+
         self.result_header = ctk.CTkLabel(
-            self.result_container,
+            self.response_header_frame,
             text="✦ RESPONSE",
             font=ctk.CTkFont(family="Segoe UI", size=9, weight="bold"),
             text_color=self.CLR_SILVER,
         )
-        self.result_header.pack(anchor="w", padx=12, pady=(6, 2))
+        self.result_header.pack(side="left")
+
+        # Reaction Badge Widget (Image + Text Tag)
+        self.reaction_frame = ctk.CTkFrame(
+            self.response_header_frame,
+            fg_color="#18181c",
+            corner_radius=10,
+            border_width=1,
+            border_color=self.CLR_BORDER_LIGHT,
+        )
+        self.reaction_frame.pack(side="right")
+
+        self.reaction_img_label = ctk.CTkLabel(
+            self.reaction_frame,
+            text="",
+            width=32,
+            height=32,
+        )
+        self.reaction_img_label.pack(side="left", padx=(4, 2), pady=2)
+
+        self.reaction_tag = ctk.CTkLabel(
+            self.reaction_frame,
+            text="GIGACHAD",
+            font=ctk.CTkFont(family="Segoe UI", size=8, weight="bold"),
+            text_color=self.CLR_WHITE,
+        )
+        self.reaction_tag.pack(side="left", padx=(2, 6), pady=2)
+
+        # Set initial meme reaction
+        self._update_reaction_badge("gigachad")
 
         self.result_box = ctk.CTkTextbox(
             self.result_container,
@@ -515,6 +554,7 @@ class LayaHUD(ctk.CTk):
     def _start_command_execution(self, query: str):
         # Silence speech before executing new command
         self.tts.stop()
+        self.last_query = query
         self._expand_if_collapsed()
         if self.wake_detector:
             self.wake_detector.pause()
@@ -616,11 +656,32 @@ class LayaHUD(ctk.CTk):
         self.step_box.see("end")
         self.step_box.configure(state="disabled")
 
+    def _update_reaction_badge(self, reaction_name: str):
+        try:
+            ctk_img = self.meme_engine.get_ctk_image(reaction_name, size=(30, 30))
+            if ctk_img:
+                self.reaction_img_label.configure(image=ctk_img)
+            self.reaction_tag.configure(text=reaction_name.upper())
+        except Exception:
+            pass
+
+    def _play_startup_greeting(self):
+        try:
+            greeting = self.memory_store.generate_startup_greeting()
+            self._render_result(greeting, 0)
+            self.tts.speak(greeting)
+        except Exception as e:
+            print(f"[HUD Greeting Note] {e}")
+
     def _render_result(self, result_text: str, dt_ms: float):
         self.result_box.configure(state="normal")
         self.result_box.delete("1.0", "end")
         self.result_box.insert("end", result_text)
         self.result_box.configure(state="disabled")
+
+        # Dynamically update the meme reaction badge based on context
+        reaction = self.meme_engine.classify_reaction(self.last_query, result_text)
+        self._update_reaction_badge(reaction)
 
         if dt_ms > 0:
             self.step_header.configure(text=f"✦ LIVE INTEL & ACTIONS ({dt_ms:.0f}ms)")

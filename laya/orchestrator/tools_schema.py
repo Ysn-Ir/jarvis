@@ -40,6 +40,80 @@ TOOLS_SCHEMA: List[Dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "open_file",
+            "description": "Open any existing file or document in its default application on Windows.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filepath": {"type": "string", "description": "Filename or path to open (e.g. 'notes.txt', 'desktop/data.csv')"}
+                },
+                "required": ["filepath"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "delete_file",
+            "description": "Delete a file or folder by sending it safely to the Windows Recycle Bin.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filepath": {"type": "string", "description": "Filename or path of file/folder to delete"},
+                    "permanent": {"type": "boolean", "description": "If true, bypasses Recycle Bin and permanently removes the file"}
+                },
+                "required": ["filepath"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "move_file",
+            "description": "Move a file or directory from source path to destination path.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "source": {"type": "string", "description": "Source file or directory path"},
+                    "destination": {"type": "string", "description": "Destination file or directory path"}
+                },
+                "required": ["source", "destination"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "copy_file",
+            "description": "Copy a file or directory from source to destination.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "source": {"type": "string", "description": "Source file path"},
+                    "destination": {"type": "string", "description": "Destination path or directory"}
+                },
+                "required": ["source", "destination"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "rename_file",
+            "description": "Rename a file or folder.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filepath": {"type": "string", "description": "Current file path"},
+                    "new_name": {"type": "string", "description": "New filename or folder name"}
+                },
+                "required": ["filepath", "new_name"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "write_notebook_cell",
             "description": "Write, append, or insert code or markdown cells into a Jupyter notebook (.ipynb) on the Desktop or in the workspace.",
             "parameters": {

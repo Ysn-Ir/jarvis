@@ -255,7 +255,45 @@ class FastPathExecutor:
         return "I am online, fully armed, and ready for your command."
 
     def tell_joke(self) -> str:
-        return "Why do programmers prefer dark mode? Because light attracts bugs!"
+        import random
+        jokes = [
+            "Why do programmers prefer dark mode? Because light attracts bugs!",
+            "There are 10 types of people in the world: those who understand binary, and those who don't.",
+            "A SQL query walks into a bar, walks up to two tables and asks: 'Can I join you?'",
+            "Why did the developer go broke? Because he used up all his cache.",
+            "Hardware is the part of the computer you can kick; software is the part you can only curse at.",
+            "An optimist says the glass is half full. A pessimist says it's half empty. A programmer says the glass is twice as large as necessary.",
+        ]
+        return random.choice(jokes)
+
+    def share_meme(self) -> str:
+        import random
+        memes = [
+            "Chudjak said: 'Nothing ever happens.' Then the entire build passed with zero warnings. Absolute cinema.",
+            "Wake up babe, new 70B parameter model just dropped. Pure GigaChad energy.",
+            "MonkaS when you git push --force straight to main on a Friday at 4:59 PM.",
+            "They told me 'it works on my machine.' Anon, we are not shipping your laptop to production.",
+            "Feels good man: 0 errors, 0 warnings, and your terminal looks like The Matrix.",
+            "Average bloated software fan vs Average optimized local script enjoyer.",
+        ]
+        return random.choice(memes)
+
+    def suggest_songs(self) -> str:
+        import random
+        tracks = [
+            "For deep flow: 'Resonance' by HOME or 'After Dark' by Mr. Kitty. Peak synthwave focus.",
+            "Need raw GigaChad productivity? Put on DVRST - 'Close Eyes' or Kordhell phonk.",
+            "For chill debugging: Lofi Girl hip-hop beats or C418 - 'Subwoofer Lullaby'.",
+            "Heavy cyberpunk momentum: Perturbator or Carpenter Brut - 'Turbo Killer'.",
+        ]
+        return random.choice(tracks)
+
+    def who_am_i(self) -> str:
+        from laya.orchestrator.memory import get_memory_store
+        mem = get_memory_store()
+        profile = mem.get_user_profile()
+        profile_details = ", ".join([f"{k}: {v}" for k, v in list(profile.items())[:3]]) if profile else "building autonomous AI systems"
+        return f"You are the boss here. I know you're working on: {profile_details}. What are we conquering today?"
 
     # -------------------------------------------------------------
     # High-Speed Browser Direct Automation

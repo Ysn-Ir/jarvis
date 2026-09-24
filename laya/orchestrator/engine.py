@@ -357,6 +357,28 @@ class OrchestratorEngine:
                     args.get("pattern", ""),
                     root_dir=args.get("root_dir", "desktop")
                 )
+            elif tool in ["open_file", "launch_file"]:
+                return self.filesystem_pro.open_file(args.get("filepath", "") or args.get("path", ""))
+            elif tool in ["delete_file", "remove_file", "trash_file"]:
+                return self.filesystem_pro.delete_file(
+                    filepath=args.get("filepath", "") or args.get("path", ""),
+                    permanent=bool(args.get("permanent", False))
+                )
+            elif tool in ["move_file", "relocate_file"]:
+                return self.filesystem_pro.move_file(
+                    source=args.get("source", ""),
+                    destination=args.get("destination", "")
+                )
+            elif tool in ["copy_file", "duplicate_file"]:
+                return self.filesystem_pro.copy_file(
+                    source=args.get("source", ""),
+                    destination=args.get("destination", "")
+                )
+            elif tool in ["rename_file"]:
+                return self.filesystem_pro.rename_file(
+                    filepath=args.get("filepath", "") or args.get("path", ""),
+                    new_name=args.get("new_name", "")
+                )
             elif tool in ["organize_directory", "organize_files"]:
                 return self.filesystem_pro.organize_directory(
                     args.get("directory", "downloads"),

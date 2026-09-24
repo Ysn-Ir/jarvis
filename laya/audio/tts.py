@@ -34,6 +34,7 @@ class TTSEngine:
         self.volume = volume
         self.voice = voice
         self.engine_mode = TTS_ENGINE
+        self._running = True
         self._queue: queue.Queue[str] = queue.Queue()
         self._stop_event = threading.Event()
 
@@ -123,18 +124,22 @@ class TTSEngine:
 
     def _speech_worker(self):
         """Worker thread processing spoken output from queue."""
-        while not self._stop_event.is_set():
+        while self._running:
             try:
                 text = self._queue.get(timeout=0.2)
             except queue.Empty:
                 continue
 
+            if self._stop_event.is_set():
+                self._queue.task_done()
+                continue
+
             if text:
                 success = False
-                if self.engine_mode == "edge-tts":
+                if self.engine_mode == "edge-tts" and not self._stop_event.is_set():
                     success = self._speak_neural(text)
 
-                if not success:
+                if not success and not self._stop_event.is_set():
                     self._speak_sapi5(text)
 
             self._queue.task_done()

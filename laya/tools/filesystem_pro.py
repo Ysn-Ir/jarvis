@@ -182,8 +182,133 @@ class FilesystemPro:
             return f"Organized {moved_count} files into categorized folders in {target.resolve()}."
 
         except Exception as e:
-            return f"Failed to organize directory: {e}"
+            return f"Failed to organize {target}: {e}"
+
+    def open_file(self, filepath: str) -> str:
+        """Open any file in its default Windows application."""
+        target = self._resolve_path(filepath)
+        if not target.exists():
+            return f"File does not exist: {target}"
+        try:
+            os.startfile(str(target))
+            return f"Opened '{target.name}'."
+        except Exception as e:
+            return f"Failed to open '{target.name}': {e}"
+
+    def delete_file(self, filepath: str, permanent: bool = False) -> str:
+        """Safely delete a file by moving it to the Windows Recycle Bin, or permanent removal."""
+        target = self._resolve_path(filepath)
+        if not target.exists():
+            return f"File or folder does not exist: {target}"
+
+        try:
+            if permanent:
+                if target.is_dir():
+                    shutil.rmtree(str(target))
+                else:
+                    target.unlink()
+                return f"Permanently deleted '{target.name}'."
+
+            # Windows Native Recycle Bin via SHFileOperationW
+            import ctypes
+            from ctypes import wintypes
+            class SHFILEOPSTRUCTW(ctypes.Structure):
+                _fields_ = [
+                    ("hwnd", wintypes.HWND),
+                    ("wFunc", wintypes.UINT),
+                    ("pFrom", wintypes.LPCWSTR),
+                    ("pTo", wintypes.LPCWSTR),
+                    ("fFlags", wintypes.WORD),
+                    ("fAnyOperationsAborted", wintypes.BOOL),
+                    ("hNameMappings", wintypes.LPVOID),
+                    ("lpszProgressTitle", wintypes.LPCWSTR),
+                ]
+            op = SHFILEOPSTRUCTW()
+            op.wFunc = 3  # FO_DELETE
+            op.pFrom = str(target.resolve()) + "\0\0"
+            op.fFlags = 0x0040 | 0x0010 | 0x0004  # FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT
+            res = ctypes.windll.shell32.SHFileOperationW(ctypes.byref(op))
+            if res == 0 and not op.fAnyOperationsAborted:
+                return f"Moved '{target.name}' to the Recycle Bin."
+
+            # Fallback to unlink
+            target.unlink()
+            return f"Deleted '{target.name}'."
+        except Exception as e:
+            return f"Failed to delete '{target.name}': {e}"
+
+    def move_file(self, source: str, destination: str) -> str:
+        """Move a file or directory from source to destination."""
+        src = self._resolve_path(source)
+        if not src.exists():
+            return f"Source does not exist: {src}"
+        dest = self._resolve_path(destination)
+        try:
+            shutil.move(str(src), str(dest))
+            return f"Moved '{src.name}' to '{dest}'."
+        except Exception as e:
+            return f"Failed to move '{src.name}': {e}"
+
+    def copy_file(self, source: str, destination: str) -> str:
+        """Copy a file or directory from source to destination."""
+        src = self._resolve_path(source)
+        if not src.exists():
+            return f"Source does not exist: {src}"
+        dest = self._resolve_path(destination)
+        try:
+            if src.is_dir():
+                shutil.copytree(str(src), str(dest), dirs_exist_ok=True)
+            else:
+                shutil.copy2(str(src), str(dest))
+            return f"Copied '{src.name}' to '{dest}'."
+        except Exception as e:
+            return f"Failed to copy '{src.name}': {e}"
+
+    def rename_file(self, filepath: str, new_name: str) -> str:
+        """Rename a file or folder."""
+        target = self._resolve_path(filepath)
+        if not target.exists():
+            return f"Target does not exist: {target}"
+        new_path = target.parent / new_name.strip()
+        try:
+            target.rename(new_path)
+            return f"Renamed '{target.name}' to '{new_name}'."
+        except Exception as e:
+            return f"Failed to rename '{target.name}': {e}"
+
+    def create_file(self, filepath: str, content: str = "") -> str:
+        """Create a file with optional content."""
+        target = self._resolve_path(filepath)
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(content, encoding="utf-8")
+            return f"Created file '{target}'."
+        except Exception as e:
+            return f"Failed to create '{target}': {e}"
 
 
 def get_filesystem_pro() -> FilesystemPro:
     return FilesystemPro.get_instance()
+
+
+# Module-level convenience wrappers
+def read_file_content(filepath: str, max_lines: int = 150) -> str:
+    return get_filesystem_pro().read_file_content(filepath, max_lines)
+
+def open_file(filepath: str) -> str:
+    return get_filesystem_pro().open_file(filepath)
+
+def delete_file(filepath: str, permanent: bool = False) -> str:
+    return get_filesystem_pro().delete_file(filepath, permanent)
+
+def move_file(source: str, destination: str) -> str:
+    return get_filesystem_pro().move_file(source, destination)
+
+def copy_file(source: str, destination: str) -> str:
+    return get_filesystem_pro().copy_file(source, destination)
+
+def rename_file(filepath: str, new_name: str) -> str:
+    return get_filesystem_pro().rename_file(filepath, new_name)
+
+def create_file(filepath: str, content: str = "") -> str:
+    return get_filesystem_pro().create_file(filepath, content)
