@@ -443,19 +443,28 @@ class FastPathExecutor:
         contact = contact.strip()
         message = message.strip()
 
-        # Check if contact is a direct phone number
+        # 1. Check local contact store for phone number
+        from laya.tools.contacts_store import get_contacts_store
+        c_record = get_contacts_store().get_contact(contact)
+        target_phone = c_record.get("whatsapp") or c_record.get("phone") if c_record else None
+
+        # 2. Check if contact itself is a direct phone number
         digits = re.sub(r"[^\d]", "", contact)
-        if len(digits) >= 7 and (contact.startswith("+") or len(digits) == len(contact.replace(" ", "").replace("-", ""))):
-            url = f"whatsapp://send?phone={digits}&text={urllib.parse.quote(message)}"
+        if not target_phone and len(digits) >= 7 and (contact.startswith("+") or len(digits) == len(contact.replace(" ", "").replace("-", ""))):
+            target_phone = digits
+
+        if target_phone:
+            url = f"whatsapp://send?phone={re.sub(r'[^\\d]', '', target_phone)}&text={urllib.parse.quote(message)}"
             try:
                 os.startfile(url)
                 time.sleep(1.0)
                 pyautogui.press("enter")
-                return f"Dispatched WhatsApp message to {contact}: '{message}'"
+                display_name = c_record["name"] if c_record else contact
+                return f"Dispatched WhatsApp message to {display_name}: '{message}'"
             except Exception:
                 pass
 
-        # Named contact lookup via WhatsApp desktop
+        # 3. Named contact lookup via WhatsApp desktop
         from laya.tools.win32_utils import ensure_desktop_access, robust_bring_to_front, find_window_by_query
         ensure_desktop_access()
 
@@ -491,61 +500,34 @@ class FastPathExecutor:
             else:
                 return f"Opened WhatsApp chat with '{contact}'."
         else:
-            # Fallback to WhatsApp Web
             url = f"https://web.whatsapp.com/send?text={urllib.parse.quote(message)}"
             os.startfile(url)
             return f"Opened WhatsApp to send message to '{contact}'."
 
+    # -------------------------------------------------------------
+    # Telegram Full Capabilities (Send, Read, Search, Call)
+    # -------------------------------------------------------------
     def telegram_message(self, contact: str, message: str) -> str:
         """Send a message to a specific contact on Telegram with zero LLM delay."""
-        contact = contact.strip()
-        message = message.strip()
+        from laya.tools.telegram_client import get_telegram_manager
+        return get_telegram_manager().send_message(recipient=contact, message=message)
 
-        from laya.tools.win32_utils import ensure_desktop_access, robust_bring_to_front, find_window_by_query
-        ensure_desktop_access()
+    def telegram_read(self, contact: str, limit: int = 5) -> str:
+        """Read recent messages from a contact on Telegram."""
+        from laya.tools.telegram_client import get_telegram_manager
+        return get_telegram_manager().read_messages(recipient=contact, limit=limit)
 
-        win = find_window_by_query("telegram")
-        if win and win.get("hwnd"):
-            hwnd = win["hwnd"]
-            robust_bring_to_front(hwnd)
-            time.sleep(0.25)
-            pyautogui.press("escape")
-            time.sleep(0.1)
-            pyautogui.hotkey("ctrl", "f")
-            time.sleep(0.2)
-            pyperclip.copy(contact)
-            pyautogui.hotkey("ctrl", "v")
-            time.sleep(0.5)
-            pyautogui.press("enter")
-            time.sleep(0.3)
-            if message:
-                pyperclip.copy(message)
-                pyautogui.hotkey("ctrl", "v")
-                time.sleep(0.15)
-                pyautogui.press("enter")
-                return f"Dispatched Telegram message to '{contact}': {message}"
-            else:
-                return f"Opened Telegram chat with '{contact}'."
-
-        clean_user = contact.lstrip("@")
-        try:
-            tg_url = f"tg://msg?to={clean_user}&text={urllib.parse.quote(message)}"
-            os.startfile(tg_url)
-            return f"Dispatched Telegram message to '{contact}' via Telegram protocol."
-        except Exception:
-            pass
-
-        if clean_user:
-            web_url = f"https://t.me/{clean_user}"
-            os.startfile(web_url)
-            return f"Opened Telegram for '{contact}'."
-        else:
-            os.startfile("https://web.telegram.org")
-            return "Opened Telegram Web."
+    def telegram_search(self, query: str, limit: int = 5) -> str:
+        """Search messages across Telegram."""
+        from laya.tools.telegram_client import get_telegram_manager
+        return get_telegram_manager().search_messages(query=query, limit=limit)
 
     def telegram_call(self, contact: str) -> str:
         """Call a contact on Telegram instantly with zero LLM delay."""
         contact = contact.strip()
+        from laya.tools.contacts_store import get_contacts_store
+        c_record = get_contacts_store().get_contact(contact)
+        target = c_record.get("telegram") if c_record else contact.lstrip("@")
 
         from laya.tools.win32_utils import ensure_desktop_access, robust_bring_to_front, find_window_by_query
         ensure_desktop_access()
@@ -559,7 +541,7 @@ class FastPathExecutor:
             time.sleep(0.1)
             pyautogui.hotkey("ctrl", "f")
             time.sleep(0.2)
-            pyperclip.copy(contact)
+            pyperclip.copy(target)
             pyautogui.hotkey("ctrl", "v")
             time.sleep(0.5)
             pyautogui.press("enter")
@@ -567,13 +549,65 @@ class FastPathExecutor:
             pyautogui.hotkey("ctrl", "u")
             return f"Initiated Telegram voice call to '{contact}'."
 
-        clean_user = contact.lstrip("@")
+        clean_user = target.lstrip("@")
         try:
             os.startfile(f"tg://resolve?domain={clean_user}")
             return f"Opened Telegram to call '{contact}'."
         except Exception:
             os.startfile(f"https://t.me/{clean_user}")
             return f"Opened Telegram profile for '{contact}'."
+
+    # -------------------------------------------------------------
+    # Contact Book CRUD Operations (Zero LLM, Instant)
+    # -------------------------------------------------------------
+    def contact_add(self, name: str, phone: str = "", telegram: str = "", notes: str = "") -> str:
+        """Add or update a contact in the local address book."""
+        from laya.tools.contacts_store import get_contacts_store
+        rec = get_contacts_store().save_contact(name=name, phone=phone, telegram=telegram, notes=notes)
+        details = []
+        if rec.get("phone"):
+            details.append(f"Phone: {rec['phone']}")
+        if rec.get("telegram"):
+            details.append(f"Telegram: @{rec['telegram']}")
+        det_str = f" ({', '.join(details)})" if details else ""
+        return f"Saved contact '{rec['name']}'{det_str}."
+
+    def contact_find(self, query: str) -> str:
+        """Find a contact in the local address book."""
+        from laya.tools.contacts_store import get_contacts_store
+        rec = get_contacts_store().get_contact(query)
+        if rec:
+            details = [f"Name: {rec['name']}"]
+            if rec.get("phone"):
+                details.append(f"Phone: {rec['phone']}")
+            if rec.get("telegram"):
+                details.append(f"Telegram: @{rec['telegram']}")
+            if rec.get("notes"):
+                details.append(f"Notes: {rec['notes']}")
+            return " | ".join(details)
+        return f"No contact found matching '{query}'."
+
+    def contact_list(self) -> str:
+        """List all saved contacts."""
+        from laya.tools.contacts_store import get_contacts_store
+        all_c = get_contacts_store().list_contacts()
+        if not all_c:
+            return "No contacts saved yet. Say 'Add contact [Name] with phone [number]' to save one."
+        lines = []
+        for c in all_c:
+            t = f"@{c['telegram']}" if c.get("telegram") else ""
+            p = c.get("phone", "")
+            info = f" ({', '.join(filter(None, [p, t]))})" if (p or t) else ""
+            lines.append(f"• {c['name']}{info}")
+        return "Contacts:\n" + "\n".join(lines)
+
+    def contact_delete(self, name: str) -> str:
+        """Delete a contact from the address book."""
+        from laya.tools.contacts_store import get_contacts_store
+        ok = get_contacts_store().delete_contact(name)
+        if ok:
+            return f"Removed contact '{name}'."
+        return f"Contact '{name}' not found."
 
     # -------------------------------------------------------------
     # Meme Reaction Trigger

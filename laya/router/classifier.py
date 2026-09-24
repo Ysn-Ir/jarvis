@@ -312,11 +312,50 @@ class IntentRouter:
             target_m = tg_msg_match.group(2).strip() or "Hello from Laya"
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="telegram_message", params={"contact": target_c, "message": target_m})
 
-        tg_quick_match = re.search(r"\b(?:send\s+telegram\s+to|telegram)\s+([a-zA-Z0-9_\-\.]+)\s+(?:saying\s+|that\s+|with\s+|:\s*)?(.*)", text, re.I)
+        # Telegram Reading & Inbox (<0.0ms)
+        tg_read_match = re.search(r"\b(?:read|get|check|show)\s+(?:the\s+)?(?:recent\s+|latest\s+)?messages?\s+(?:from\s+)?(.+?)(?:\s+(?:on|in|from)\s+telegram)?\b|\bwhat\s+did\s+(.+?)\s+send(?:\s+on\s+telegram)?\b", text, re.I)
+        if tg_read_match and ("telegram" in text or "message" in text):
+            target_c = (tg_read_match.group(1) or tg_read_match.group(2) or "").strip()
+            target_c = re.sub(r"\s+(?:on|in|via)\s+telegram$", "", target_c, flags=re.I).strip()
+            if target_c and target_c not in ["me", "i", "it", "my", "the"]:
+                return RouteDecision(path=ExecutionPath.FAST_PATH, action="telegram_read", params={"contact": target_c})
+
+        # Telegram Message Search (<0.0ms)
+        tg_search_match = re.search(r"\b(?:search|find)\s+(?:messages?\s+(?:for|about)\s+|in\s+telegram\s+for\s+|telegram\s+for\s+)(.+)", text, re.I)
+        if tg_search_match:
+            search_q = tg_search_match.group(1).strip()
+            search_q = re.sub(r"\s+(?:on|in)\s+telegram$", "", search_q, flags=re.I).strip()
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="telegram_search", params={"query": search_q})
+
+        tg_quick_match = re.search(r"\b(?:send\s+telegram\s+to|telegram)\s+(?!for\b|messages?\b|search\b)([a-zA-Z0-9_\-\.]+)\s+(?:saying\s+|that\s+|with\s+|:\s*)?(.*)", text, re.I)
         if tg_quick_match:
             target_c = tg_quick_match.group(1).strip()
             target_m = tg_quick_match.group(2).strip() or "Hello from Laya"
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="telegram_message", params={"contact": target_c, "message": target_m})
+
+        # Contact Store Management (Add, Find, List, Delete) (<0.0ms)
+        contact_del_match = re.search(r"\b(?:delete|remove)\s+contact\s+([a-zA-Z0-9_\-\.\s]+)$", text, re.I)
+        if contact_del_match:
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="contact_delete", params={"name": contact_del_match.group(1).strip()})
+
+        contact_find_match = re.search(r"\b(?:find|search|lookup|who\s+is)\s+contact\s+([a-zA-Z0-9_\-\.\s]+)$", text, re.I)
+        if contact_find_match:
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="contact_find", params={"query": contact_find_match.group(1).strip()})
+
+        if text in ["list contacts", "show contacts", "show my contacts", "all contacts", "my contacts", "get contacts"]:
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="contact_list")
+
+        contact_add_match = re.search(r"\b(?:add|create|save|new)\s+contact\s+([a-zA-Z0-9_\-\.\s]+?)(?:\s+with\s+|\s+phone\s+|\s+telegram\s+|\s+number\s+|$)(.*)", text, re.I)
+        if contact_add_match and "contact" in text:
+            c_name = contact_add_match.group(1).strip()
+            c_rest = contact_add_match.group(2).strip()
+            phone_m = re.search(r"(?:phone|number|mobile)\s*[:=]?\s*([+\d\s\-]+)", c_rest, re.I)
+            tg_m = re.search(r"(?:telegram|tg)\s*[:=]?\s*@?([a-zA-Z0-9_]+)", c_rest, re.I)
+            phone_val = phone_m.group(1).strip() if phone_m else ""
+            tg_val = tg_m.group(1).strip() if tg_m else ""
+            if not phone_val and re.search(r"[+\d]{7,}", c_rest):
+                phone_val = re.search(r"[+\d]{7,}", c_rest).group(0)
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="contact_add", params={"name": c_name, "phone": phone_val, "telegram": tg_val})
 
         # 9. App Shifting, Window Splitting & Geometry (<0.0ms)
         shift_app_match = re.search(r"\b(?:shift\s+to|switch\s+to|focus|bring\s+up|go\s+to|bring\s+to\s+front)\s+(?:the\s+)?([a-zA-Z0-9\s_\-\.]+?)(?:\s+window|\s+app)?$", text)
