@@ -20,9 +20,9 @@ MEMORY_DB_PATH = DATA_DIR / "laya_memory.db"
 
 # LLM Providers (Dual-Backend: Cloud Ultra-Fast Groq + Local Private Ollama)
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-# Default to Groq Flagship 70B (llama-3.3-70b-versatile) for deep reasoning; llama-3.1-8b-instant for fast fallback
-GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
-GROQ_FALLBACK_MODEL = os.getenv("GROQ_FALLBACK_MODEL", "llama-3.1-8b-instant")
+# Default to Groq Flagship 120B (openai/gpt-oss-120b) for deep reasoning (<900ms); openai/gpt-oss-20b (<600ms) for fast fallback
+GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
+GROQ_FALLBACK_MODEL = os.getenv("GROQ_FALLBACK_MODEL", "openai/gpt-oss-20b")
 GROQ_TIMEOUT_SEC = 10.0
 
 # Optional OpenRouter Provider fallback

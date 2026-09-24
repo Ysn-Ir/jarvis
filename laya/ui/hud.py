@@ -279,7 +279,7 @@ class LayaHUD(ctk.CTk):
         )
         self.result_header.pack(side="left")
 
-        # Reaction Badge Widget (Image + Text Tag)
+        # Reaction Badge Widget (Image + Text Tag) - hidden by default, pops only for reactions
         self.reaction_frame = ctk.CTkFrame(
             self.response_header_frame,
             fg_color="#18181c",
@@ -287,7 +287,6 @@ class LayaHUD(ctk.CTk):
             border_width=1,
             border_color=self.CLR_BORDER_LIGHT,
         )
-        self.reaction_frame.pack(side="right")
 
         self.reaction_img_label = ctk.CTkLabel(
             self.reaction_frame,
@@ -299,14 +298,11 @@ class LayaHUD(ctk.CTk):
 
         self.reaction_tag = ctk.CTkLabel(
             self.reaction_frame,
-            text="GIGACHAD",
+            text="",
             font=ctk.CTkFont(family="Segoe UI", size=8, weight="bold"),
             text_color=self.CLR_WHITE,
         )
         self.reaction_tag.pack(side="left", padx=(2, 6), pady=2)
-
-        # Set initial meme reaction
-        self._update_reaction_badge("gigachad")
 
         self.result_box = ctk.CTkTextbox(
             self.result_container,
@@ -656,14 +652,19 @@ class LayaHUD(ctk.CTk):
         self.step_box.see("end")
         self.step_box.configure(state="disabled")
 
-    def _update_reaction_badge(self, reaction_name: str):
+    def _update_reaction_badge(self, reaction_name: Optional[str]):
+        if not reaction_name:
+            self.reaction_frame.pack_forget()
+            return
+
         try:
             ctk_img = self.meme_engine.get_ctk_image(reaction_name, size=(30, 30))
             if ctk_img:
                 self.reaction_img_label.configure(image=ctk_img)
             self.reaction_tag.configure(text=reaction_name.upper())
+            self.reaction_frame.pack(side="right")
         except Exception:
-            pass
+            self.reaction_frame.pack_forget()
 
     def _play_startup_greeting(self):
         try:

@@ -43,46 +43,83 @@ class MemeReactionEngine:
             except Exception:
                 pass
 
-    def classify_reaction(self, query: str = "", response: str = "", is_error: bool = False) -> str:
+    def classify_reaction(self, query: str = "", response: str = "", is_error: bool = False) -> Optional[str]:
         """
-        Classify interaction context into an iconic meme reaction in <0.05ms:
-        - 'gigachad': Absolute win, clean execution, organization, praise.
-        - 'pepe': Witty comebacks, jokes, music, songs, chill vibe.
-        - 'chudjak': Sarcasm, user complaining, 'why is it slow', deadpan reaction.
-        - 'soyjak': Excited discovery, search results, mindblown.
-        - 'monkas': High-risk system actions, warnings, sweating.
-        - 'wojak': Melancholy, late night, existential questions.
+        Classify interaction context into an iconic meme reaction ONLY when warranted:
+        - 'monkas': Dangerous commands, high-tension actions, panic, system safety alerts.
+        - 'chudjak': Hot takes, user roasts, complaints, 'nothing ever happens', absurdity.
+        - 'soyjak': Mindblown discoveries, meme hype, exaggerated excitement.
+        - 'wojak': Melancholy, late night (3am), fatigue, existential pain.
+        - 'gigachad': Wholesome praise, based moments, absolute wins, king/goat compliments.
+        - 'pepe': Laughter, explicit meme/joke requests, music vibes.
+        - None: Normal routine tasks (keeps HUD clean and distraction-free).
         """
         if is_error:
             return "monkas"
 
         text = f"{query} {response}".lower()
 
-        # 1. High-tension / Danger / Sweat
-        if any(w in text for w in ["shutdown", "restart", "delete", "format", "kill", "warning", "blocked by safety", "critical"]):
+        # 1. Dangerous / Risky / Fatal / Panic -> MonkaS
+        danger_signals = [
+            "rm -rf", "format", "diskpart", "drop database", "killall",
+            "shutdown", "restart computer", "reboot", "delete all", "wipe",
+            "malware", "virus", "blocked by safety", "fatal", "critical error",
+            "sweat", "scared", "monkas", "panic", "destroy", "system32"
+        ]
+        if any(w in text for w in danger_signals):
             return "monkas"
 
-        # 2. Chudjak: user complaints, "why", deadpan, sarcastic
-        if any(w in text for w in ["why", "slow", "broken", "annoying", "stupid", "nothing ever happens", "billions must", "chud"]):
+        # 2. Hot takes / Absurdity / Roasts / Chudjak
+        hot_take_signals = [
+            "hot take", "unpopular opinion", "nothing ever happens", "billions must",
+            "chud", "chudjak", "javascript is better", "vim is trash", "python is slow",
+            "who needs tests", "push to main", "earth is flat", "skill issue",
+            "why is it slow", "so slow", "broken", "you suck", "are you dumb",
+            "are you stupid", "annoying", "useless", "trash", "boring"
+        ]
+        if any(w in text for w in hot_take_signals):
             return "chudjak"
 
-        # 3. Soyjak: excited discovery, look at this, pointing, found files
-        if any(w in text for w in ["found", "discovered", "check this out", "omg", "look at", "matches found"]):
+        # 3. Mindblown / Exaggerated Soy Hype -> Soyjak
+        soy_signals = [
+            "mind blown", "mindblown", "omg", "revolutionary", "this changes everything",
+            "soyjak", "soy", "insane discovery", "holy shit", "look at this", "no way"
+        ]
+        if any(w in text for w in soy_signals):
             return "soyjak"
 
-        # 4. Wojak: melancholy, late night, sad, lonely
-        if any(w in text for w in ["tired", "sad", "lonely", "late night", "2 am", "3 am", "depressed", "sigh"]):
+        # 4. Melancholy / Down Bad / 3 AM / Pain -> Wojak
+        wojak_signals = [
+            "3 am", "4 am", "haven't slept", "no sleep", "all nighter", "exhausted",
+            "lonely", "sad", "depressed", "i miss her", "life is pain", "down bad",
+            "feels bad", "feelsbadman", "wojak", "doomer", "why does everything suck",
+            "i hate my life", "crying"
+        ]
+        if any(w in text for w in wojak_signals):
             return "wojak"
 
-        # 5. Pepe: jokes, memes, music, spotify, songs, laughter, banter
-        if any(w in text for w in ["joke", "meme", "laugh", "song", "music", "spotify", "pepe", "haha", "cool", "fun"]):
-            return "pepe"
-
-        # 6. Gigachad: default for successful commands, clean execution, organization
-        if any(w in text for w in ["organized", "brought", "closed", "opened", "created", "volume", "ready", "done", "complete", "flawless", "thank"]):
+        # 5. Wholesome Praise / Based / Chad Victory -> GigaChad
+        gigachad_signals = [
+            "gigachad", "giga chad", "based", "you're the goat", "goat",
+            "you are awesome", "i love you", "king", "legend", "absolute cinema",
+            "we did it", "flawless", "promoted", "we won", "victory",
+            "you saved my life", "thank you so much", "pure perfection", "proud of you"
+        ]
+        if any(w in text for w in gigachad_signals):
             return "gigachad"
 
-        return "gigachad"
+        # 6. Jokes / Banter / Memes / Laughter / Vibes -> Pepe
+        pepe_signals = [
+            "haha", "hahaha", "lol", "lmao", "rofl", "kek",
+            "tell me a joke", "tell a joke", "make me laugh", "joke",
+            "tell me a meme", "show me a meme", "give me a meme", "share a meme",
+            "pepe", "feels good man", "feelsgoodman", "suggest a song", "music vibe"
+        ]
+        if any(w in text for w in pepe_signals):
+            return "pepe"
+
+        # Default for normal, routine, focused tasks: NO MEME (clean HUD)
+        return None
 
     def get_ctk_image(self, reaction_name: str, size: Tuple[int, int] = (64, 64)) -> Optional[ctk.CTkImage]:
         """Return a CTkImage for the given reaction name."""

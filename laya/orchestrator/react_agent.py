@@ -23,8 +23,8 @@ for stream in (sys.stdout, sys.stderr):
 import laya.config as cfg
 
 GROQ_API_KEY = getattr(cfg, "GROQ_API_KEY", os.getenv("GROQ_API_KEY"))
-GROQ_MODEL = getattr(cfg, "GROQ_MODEL", os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"))
-GROQ_FALLBACK_MODEL = getattr(cfg, "GROQ_FALLBACK_MODEL", os.getenv("GROQ_FALLBACK_MODEL", "llama-3.1-8b-instant"))
+GROQ_MODEL = getattr(cfg, "GROQ_MODEL", os.getenv("GROQ_MODEL", "openai/gpt-oss-120b"))
+GROQ_FALLBACK_MODEL = getattr(cfg, "GROQ_FALLBACK_MODEL", os.getenv("GROQ_FALLBACK_MODEL", "openai/gpt-oss-20b"))
 GROQ_TIMEOUT_SEC = float(getattr(cfg, "GROQ_TIMEOUT_SEC", 10.0))
 
 OPENROUTER_API_KEY = getattr(cfg, "OPENROUTER_API_KEY", os.getenv("OPENROUTER_API_KEY", ""))
