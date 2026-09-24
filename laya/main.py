@@ -50,8 +50,6 @@ class LayaAssistant:
         # Step 2: Route Dispatch
         if decision.path == ExecutionPath.BLOCKED_SAFETY:
             result_text = "Action blocked by safety gate: Destructive operations are not permitted."
-            if speak:
-                self.tts.speak("Action blocked by safety gate.")
 
         elif decision.path == ExecutionPath.FAST_PATH:
             action = decision.action
@@ -66,25 +64,31 @@ class LayaAssistant:
             else:
                 result_text = f"Fast-path action '{action}' executed."
 
-            if speak:
-                self.tts.speak(result_text)
-
         elif decision.path == ExecutionPath.REASONING_PATH:
             result_text = self.orchestrator.execute(
                 decision,
                 history=self.conversation_history,
                 step_callback=step_callback,
             )
-            if speak:
-                self.tts.speak(result_text)
 
         elif decision.path == ExecutionPath.CLARIFY:
             result_text = decision.clarification_prompt or "Could you clarify what you would like me to do?"
-            if speak:
-                self.tts.speak(result_text)
 
         else:
             result_text = f"Unhandled path: {decision.path}"
+
+        # Contextual meme vocal reaction from Jarvis
+        from laya.ui.meme_engine import get_meme_engine
+        from laya.audio.meme_audio import get_meme_voice_quip
+        reaction = get_meme_engine().classify_reaction(query, result_text, is_error=(decision.path == ExecutionPath.BLOCKED_SAFETY))
+        spoken_text = result_text
+        if reaction:
+            quip = get_meme_voice_quip(reaction)
+            if quip and not any(w in result_text.lower() for w in [reaction, "chudjak", "gigachad", "monkas", "feels bad", "feels good"]):
+                spoken_text = f"{quip}{result_text}"
+
+        if speak:
+            self.tts.speak(spoken_text)
 
         dt_total = (time.perf_counter() - t_start) * 1000
 
