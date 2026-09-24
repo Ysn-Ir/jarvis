@@ -168,12 +168,20 @@ class AppLocator:
         for key, target_path in common_paths.items():
             if q == key or q in key or key in q:
                 try:
-                    if target_path.endswith(".exe") and os.path.exists(target_path):
+                    if target_path.startswith("http") or (":" in target_path and "\\" not in target_path):
+                        try:
+                            os.startfile(target_path)
+                        except Exception:
+                            subprocess.Popen(f"start {target_path}", shell=True)
+                    elif target_path.endswith(".exe") and os.path.exists(target_path):
                         os.startfile(target_path)
-                    elif "--processStart" in target_path or target_path in ["code", "spotify", "notepad.exe", "calc.exe", "mspaint.exe", "whatsapp:"]:
+                    elif "--processStart" in target_path or target_path in ["code", "notepad.exe", "calc.exe", "mspaint.exe"]:
                         subprocess.Popen(target_path, shell=True)
                     else:
-                        os.startfile(target_path)
+                        try:
+                            os.startfile(target_path)
+                        except Exception:
+                            subprocess.Popen(f"start {target_path}", shell=True)
                     return True, f"Opening {key.title()}."
                 except Exception:
                     pass

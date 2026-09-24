@@ -318,6 +318,120 @@ class FastPathExecutor:
         return " and ".join(results)
 
     # -------------------------------------------------------------
+    # Filesystem & OS Automation Primitives (Local Fast Path)
+    # -------------------------------------------------------------
+    def create_file(self, filename: str, content: str = "", location: str = "desktop") -> str:
+        """Create a new file with optional content instantly on Desktop or in specified folder."""
+        from laya.tools.tier2_os_mcp import get_tier2_tools
+        return get_tier2_tools().create_file(filename=filename, content=content, location=location)
+
+    def create_folder(self, folder_name: str, location: str = "desktop") -> str:
+        """Create a new folder instantly on Desktop or in specified folder."""
+        from laya.tools.tier2_os_mcp import get_tier2_tools
+        return get_tier2_tools().create_folder(folder_name=folder_name, location=location)
+
+    def open_file(self, filename_or_path: str) -> str:
+        """Open any file in its default Windows application instantly."""
+        from laya.tools.filesystem_pro import get_filesystem_pro
+        return get_filesystem_pro().open_file(filename_or_path)
+
+    def write_to_file(self, filename: str, content: str) -> str:
+        """Write or append text directly to a file."""
+        from laya.tools.filesystem_pro import get_filesystem_pro
+        target = get_filesystem_pro()._resolve_path(filename)
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with open(target, "a" if target.exists() else "w", encoding="utf-8") as f:
+                f.write(content + "\n")
+            return f"Wrote to '{target.name}' successfully."
+        except Exception as e:
+            return f"Failed to write to file: {e}"
+
+    def search_files(self, pattern: str, root_dir: str = "desktop") -> str:
+        """Search files across Windows and folders."""
+        from laya.tools.filesystem_pro import get_filesystem_pro
+        return get_filesystem_pro().search_filesystem(pattern=pattern, root_dir=root_dir)
+
+    def delete_file(self, filename_or_path: str) -> str:
+        """Delete a file safely by moving it to the Windows Recycle Bin."""
+        from laya.tools.filesystem_pro import get_filesystem_pro
+        return get_filesystem_pro().delete_file(filename_or_path)
+
+    # -------------------------------------------------------------
+    # App Shifting, Splitting & Window Management
+    # -------------------------------------------------------------
+    def shift_to_app(self, app_or_title: str) -> str:
+        """Shift to / focus any running application window immediately."""
+        return self.bring_to_front(app_or_title)
+
+    def split_screen(self, layout: str = "split") -> str:
+        """Split screen side-by-side or tile active windows."""
+        return self.organize_windows(layout=layout)
+
+    # -------------------------------------------------------------
+    # Music & Spotify Automation
+    # -------------------------------------------------------------
+    def click_song(self, query: str = "") -> str:
+        """Click on / start playing a song via active media player, Spotify, or YouTube."""
+        clean_q = query.lower().strip()
+        if not clean_q or clean_q in ["a song", "song", "music", "some music", "the song"]:
+            # If media player already running, toggle play
+            win32api.keybd_event(win32con.VK_MEDIA_PLAY_PAUSE, 0, 0, 0)
+            win32api.keybd_event(win32con.VK_MEDIA_PLAY_PAUSE, 0, win32con.KEYEVENTF_KEYUP, 0)
+            return "Playing song."
+        return self.play_youtube(query)
+
+    def play_spotify(self, query: str = "") -> str:
+        """Open Spotify and start playing music."""
+        self.open_app("spotify")
+        time.sleep(0.4)
+        clean_q = query.lower().strip()
+        if clean_q and clean_q not in ["a song", "music", "song", "some music"]:
+            import urllib.parse
+            import webbrowser
+            spotify_url = f"https://open.spotify.com/search/{urllib.parse.quote(query)}"
+            webbrowser.open(spotify_url)
+            return f"Opening Spotify and playing '{query}'."
+        else:
+            win32api.keybd_event(win32con.VK_MEDIA_PLAY_PAUSE, 0, 0, 0)
+            win32api.keybd_event(win32con.VK_MEDIA_PLAY_PAUSE, 0, win32con.KEYEVENTF_KEYUP, 0)
+            return "Spotify opened and playback started."
+
+    # -------------------------------------------------------------
+    # WhatsApp Direct Automation
+    # -------------------------------------------------------------
+    def whatsapp_call(self, contact: str) -> str:
+        """Call a contact on WhatsApp instantly."""
+        self.open_app("whatsapp")
+        time.sleep(0.6)
+        pyautogui.hotkey("ctrl", "f")
+        time.sleep(0.15)
+        pyperclip.copy(contact)
+        pyautogui.hotkey("ctrl", "v")
+        time.sleep(0.3)
+        pyautogui.press("enter")
+        time.sleep(0.3)
+        pyautogui.hotkey("ctrl", "shift", "c")
+        return f"Initiated WhatsApp call to '{contact}'."
+
+    def whatsapp_message(self, contact: str, message: str) -> str:
+        """Message a contact on WhatsApp instantly."""
+        from laya.tools.tier1_native import get_tier1_tools
+        return get_tier1_tools().send_whatsapp(contact=contact, message=message)
+
+    # -------------------------------------------------------------
+    # Meme Reaction Trigger
+    # -------------------------------------------------------------
+    def trigger_meme(self, meme_name: str) -> str:
+        """Trigger meme reaction immediately."""
+        from laya.ui.meme_engine import get_meme_engine
+        from laya.audio.meme_audio import play_meme_audio, get_meme_voice_quip
+        archetype = get_meme_engine().classify_reaction(meme_name, meme_name) or "gigachad"
+        play_meme_audio(archetype)
+        quip = get_meme_voice_quip(archetype)
+        return f"{quip} Displaying {archetype.upper()} reaction."
+
+    # -------------------------------------------------------------
     # Local Time, Date & Identity
     # -------------------------------------------------------------
     def query_time(self) -> str:

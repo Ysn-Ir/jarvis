@@ -139,7 +139,43 @@ class IntentRouter:
     # Single Deterministic Fast-Path Matcher
     # -------------------------------------------------------------
     def _route_single_deterministic(self, text: str, original: str) -> Optional[RouteDecision]:
-        # YouTube direct play
+        # 1. Universal Mute & Audio Silence (<0.0ms)
+        if re.search(r"\b(?:mute|unmute|silence|be\s+quiet|shut\s+up|quiet)\b", text):
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="mute")
+
+        # 2. Volume Controls (<0.0ms)
+        rel_up = re.match(r"^(?:can\s+you\s+)?(?:raise|increase|turn\s+up)\s+(?:the\s+)?(?:volume|sound)(?:\s+by)?(?:\s*(\d+))?(?:\s*percent|%)?$", text)
+        if rel_up or text in ["volume up", "raise volume", "raise the volume", "turn up volume", "turn up the volume", "louder", "make it louder"]:
+            steps = int(rel_up.group(1)) // 2 if (rel_up and rel_up.group(1)) else 5
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="volume_up", params={"steps": max(1, steps)})
+
+        rel_down = re.match(r"^(?:can\s+you\s+)?(?:lower|decrease|turn\s+down)\s+(?:the\s+)?(?:volume|sound)(?:\s+by)?(?:\s*(\d+))?(?:\s*percent|%)?$", text)
+        if rel_down or text in ["volume down", "lower volume", "lower the volume", "turn down volume", "turn down the volume", "quieter", "make it quieter"]:
+            steps = int(rel_down.group(1)) // 2 if (rel_down and rel_down.group(1)) else 5
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="volume_down", params={"steps": max(1, steps)})
+
+        vol_match = re.match(r"^(?:set\s+volume\s+to|volume\s+to|volume|sound\s+to)\s+(\d{1,3})$", text)
+        if vol_match:
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="set_volume", params={"level": int(vol_match.group(1))})
+
+        # 3. Media & Song Controls (<0.0ms)
+        if text in ["play music", "pause music", "resume music", "toggle media", "pause", "play", "stop music"]:
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="play_media")
+        if text in ["next song", "next track", "skip"]:
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="next_track")
+        if text in ["previous song", "previous track"]:
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="prev_track")
+
+        click_song_match = re.search(r"\b(?:click\s+on\s+(?:a\s+)?song|play\s+(?:a\s+)?song|start\s+(?:a\s+)?song|play\s+some\s+music|start\s+music)\b", text)
+        if click_song_match:
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="click_song", params={"query": ""})
+
+        spot_match = re.search(r"\b(?:open\s+spotify\s+(?:and\s+)?(?:play|launch|start)|play\s+(.+?)\s+on\s+spotify|play\s+spotify)\s*(.+)?$", text)
+        if spot_match:
+            song_q = (spot_match.group(1) or spot_match.group(2) or "").strip()
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="play_spotify", params={"query": song_q})
+
+        # 4. YouTube Direct Play & Search (<0.0ms)
         yt_play_match = re.match(
             r"^(?:can\s+you\s+|could\s+you\s+|please\s+)?(?:play|start|listen\s+to)\s+(.+?)(?:\s+(?:on|from|in)\s+youtube)?$",
             text,
@@ -153,7 +189,6 @@ class IntentRouter:
                 raw_query = "synthwave lofi chillhop mix"
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="play_youtube", params={"query": raw_query})
 
-        # YouTube search
         yt_search_match = re.search(
             r"(?:open\s+youtube\s+(?:and\s+search\s+for|to\s+search|to\s+look\s+for|and\s+search)|search\s+(?:on\s+)?youtube\s+for|search\s+for\s+(.+?)\s+on\s+youtube)\s*(.+)?",
             text,
@@ -164,12 +199,33 @@ class IntentRouter:
             q = re.sub(r"^(?:like|for\s+like|some|uh|um)\s+", "", q, flags=re.IGNORECASE).strip()
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="browser_search", params={"query": q, "engine": "youtube"})
 
-        # Direct Domain Opening
+        # 5. Direct Popular Websites (<0.0ms)
+        website_match = re.search(r"^(?:open|go\s+to|visit|launch)\s+(youtube|google|reddit|github|twitter|x|netflix|amazon|twitch|wikipedia|chatgpt|spotify|gmail)(?:\.com|\.org|\.tv)?$", text)
+        if website_match:
+            site = website_match.group(1).strip().lower()
+            site_urls = {
+                "youtube": "https://youtube.com",
+                "google": "https://google.com",
+                "reddit": "https://reddit.com",
+                "github": "https://github.com",
+                "twitter": "https://x.com",
+                "x": "https://x.com",
+                "netflix": "https://netflix.com",
+                "amazon": "https://amazon.com",
+                "twitch": "https://twitch.tv",
+                "wikipedia": "https://wikipedia.org",
+                "chatgpt": "https://chatgpt.com",
+                "spotify": "https://open.spotify.com",
+                "gmail": "https://mail.google.com",
+            }
+            url = site_urls.get(site, f"https://{site}.com")
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="browser_open_url", params={"url": url})
+
         domain_match = re.match(r"^(?:open|go\s+to|visit)\s+([a-zA-Z0-9\-]+\.(?:com|org|net|io|tv|ai|gov|edu|dev|app|me)(?:/[^\s]*)?)$", text)
         if domain_match:
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="browser_open_url", params={"url": "https://" + domain_match.group(1).strip()})
 
-        # General Browser Search & Web Lookups
+        # 6. General Browser Search & Web Lookups (<0.0ms)
         browser_search_match = re.search(r"(?:open\s+(?:a\s+)?browser\s+(?:and\s+search\s+for|to\s+search|to\s+look\s+for|and\s+search)|search\s+(?:google|web|the\s+web)\s+for|search\s+for|look\s+(?:in|into)\s+(?:a\s+)?browser\s+for|google)\s+(.+)", text)
         if browser_search_match:
             query = browser_search_match.group(1).strip()
@@ -177,26 +233,93 @@ class IntentRouter:
             if query and not query.startswith("youtube"):
                 return RouteDecision(path=ExecutionPath.FAST_PATH, action="browser_search", params={"query": query, "engine": "google"})
 
-        # Direct Math & Calculations (<0.1ms)
+        # 7. Filesystem: Create, Open, Write, Search, Delete (<0.0ms)
+        create_file_match = re.search(r"\b(?:create|make|new)\s+(?:a\s+)?(?:new\s+)?file\s+(?:called\s+|named\s+)?([^\s,]+)(?:\s+(?:with|containing)\s+(.+))?", text)
+        if create_file_match:
+            fname = create_file_match.group(1).strip()
+            fcontent = (create_file_match.group(2) or "").strip()
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="create_file", params={"filename": fname, "content": fcontent})
+
+        create_file_direct = re.match(r"^(?:create|make)\s+([a-zA-Z0-9_\-\.]+\.(?:txt|py|md|json|csv|html|css|js))\s*(?:with\s+(.+))?$", text)
+        if create_file_direct:
+            fname = create_file_direct.group(1).strip()
+            fcontent = (create_file_direct.group(2) or "").strip()
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="create_file", params={"filename": fname, "content": fcontent})
+
+        create_folder_match = re.search(r"\b(?:create|make|new)\s+(?:a\s+)?(?:new\s+)?folder\s+(?:called\s+|named\s+)?([a-zA-Z0-9_\-\.\s]+)$", text)
+        if create_folder_match:
+            fol_name = create_folder_match.group(1).strip()
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="create_folder", params={"folder_name": fol_name})
+
+        open_file_match = re.search(r"\b(?:open|read|view|show)\s+(?:the\s+)?file\s+(.+)$", text)
+        if open_file_match:
+            target_f = open_file_match.group(1).strip()
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="open_file", params={"filename_or_path": target_f})
+
+        write_file_match = re.search(r"\b(?:write|append|add|put)\s+(.+?)\s+(?:to|into|in)\s+(?:the\s+)?(?:file\s+)?([a-zA-Z0-9_\-\.\/\\]+)$", text)
+        if write_file_match:
+            content = write_file_match.group(1).strip()
+            target_f = write_file_match.group(2).strip()
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="write_to_file", params={"filename": target_f, "content": content})
+
+        search_file_match = re.search(r"\b(?:search\s+(?:for\s+)?(?:files?|folders?|documents?)|find\s+(?:file|folder)|locate\s+(?:file|folder))\s+(?:called\s+|named\s+)?([^\s,]+)", text)
+        if search_file_match:
+            pat = search_file_match.group(1).strip()
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="search_files", params={"pattern": pat})
+
+        search_win_match = re.search(r"\bsearch\s+(?:in\s+windows|in\s+folders?|windows|folders?)\s+(?:for\s+)?(.+)", text)
+        if search_win_match:
+            pat = search_win_match.group(1).strip()
+            pat = re.sub(r"^for\s+", "", pat).strip()
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="search_files", params={"pattern": pat})
+
+        delete_file_match = re.search(r"\b(?:delete|remove)\s+(?:the\s+)?file\s+([^\s,]+)$", text)
+        if delete_file_match:
+            target_f = delete_file_match.group(1).strip()
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="delete_file", params={"filename_or_path": target_f})
+
+        # 8. WhatsApp Direct Calling & Messaging (<0.0ms)
+        wa_call_match = re.search(r"\b(?:call|phone|ring)\s+(.+?)\s+(?:on|via|through)\s+whatsapp\b|\bwhatsapp\s+call\s+(.+)\b", text)
+        if wa_call_match:
+            target_c = (wa_call_match.group(1) or wa_call_match.group(2) or "").strip()
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="whatsapp_call", params={"contact": target_c})
+
+        wa_msg_match = re.search(r"\b(?:message|text|send\s+whatsapp\s+to)\s+(.+?)\s+(?:on|via)\s+whatsapp\s*(?:saying\s+|with\s+)?(.*)", text)
+        if wa_msg_match:
+            target_c = wa_msg_match.group(1).strip()
+            target_m = wa_msg_match.group(2).strip() or "Hello from Laya"
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="whatsapp_message", params={"contact": target_c, "message": target_m})
+
+        # 9. App Shifting, Window Splitting & Geometry (<0.0ms)
+        shift_app_match = re.search(r"\b(?:shift\s+to|switch\s+to|focus|bring\s+up|go\s+to|bring\s+to\s+front)\s+(?:the\s+)?([a-zA-Z0-9\s_\-\.]+?)(?:\s+window|\s+app)?$", text)
+        if shift_app_match:
+            target_app = shift_app_match.group(1).strip()
+            if target_app not in ["this", "it", "window", "app"]:
+                return RouteDecision(path=ExecutionPath.FAST_PATH, action="shift_to_app", params={"app_or_title": target_app})
+
+        split_match = re.search(r"\b(?:split\s+screens?|split\s+the\s+screen|tile\s+windows?|side\s+by\s+side|organize\s+(?:my\s+|the\s+)?windows?|arrange\s+(?:my\s+|the\s+)?windows?)\b", text)
+        if split_match:
+            layout = "split" if any(w in text for w in ["split", "side by side", "tile"]) else "grid"
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="split_screen", params={"layout": layout})
+
+        # 10. Direct Math & Calculations (<0.1ms)
         if any(text.startswith(p) for p in ["what is ", "calculate ", "how much is ", "eval "]):
             expr = re.sub(r"^(?:what\s+is|calculate|how\s+much\s+is|eval)\s+", "", text).strip("? ")
             if re.search(r"\d+", expr) and any(op in expr for op in ["+", "-", "*", "/", "times", "divided", "plus", "minus", "x", "^", "%"]):
                 return RouteDecision(path=ExecutionPath.FAST_PATH, action="calculate_math", params={"expression": expr})
 
-        # Direct Text Typing / Writing (<0.1ms)
+        # 11. Direct Text Typing & Key Pressing (<0.1ms)
         type_match = re.match(r"^(?:can\s+you\s+)?(?:type|write|enter|paste|input)\s+(?:the\s+words?\s+|the\s+text\s+|words?\s+|text\s+)?(.+)$", text)
         if type_match:
             raw_text = type_match.group(1).strip()
-            # Guard against open-ended reasoning tasks like "write an email" or "write code" or "write a report"
-            if not any(raw_text.startswith(w) for w in ["an email", "email", "a letter", "code", "a script", "a story", "an essay", "notebook", "a post", "a document"]):
+            if not any(raw_text.startswith(w) for w in ["an email", "email", "a letter", "code", "a script", "a story", "an essay", "notebook", "a post", "a document", "to file", "into file"]):
                 return RouteDecision(path=ExecutionPath.FAST_PATH, action="type_text", params={"text": raw_text})
 
-        # Direct Key Pressing
         key_match = re.match(r"^(?:press|hit)\s+(?:the\s+)?(enter|return|space|tab|escape|esc|backspace|delete)$", text)
         if key_match:
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="press_key", params={"key": key_match.group(1).strip()})
 
-        # Drawing Autonomy (e.g. "draw a circle", "draw a red heart in paint", "sketch a star")
+        # 12. Drawing Autonomy (<0.0ms)
         draw_match = re.search(r"\b(?:draw|paint|sketch)\s+(?:a\s+|an\s+)?([a-z]+(?:\s+[a-z]+)?)\s*(?:in\s+paint|on\s+paint)?\b", text)
         if draw_match:
             raw_shape = draw_match.group(1).strip()
@@ -204,41 +327,11 @@ class IntentRouter:
                 if s in raw_shape:
                     return RouteDecision(path=ExecutionPath.FAST_PATH, action="draw_shape", params={"shape": s, "title_keyword": "Paint"})
 
-        # Window Organization (e.g. "organize my windows in grid", "tile windows", "split windows")
-        org_match = re.search(r"\b(?:organize|tile|arrange|split)\s+(?:my\s+|the\s+)?windows?\s*(?:in\s+|as\s+|into\s+)?(grid|split|columns|cascade|focus|creative)?\b", text)
-        if org_match or text in ["organize windows", "tile windows", "split screen", "side by side"]:
-            layout = org_match.group(1) if (org_match and org_match.group(1)) else "grid"
-            if "side" in text:
-                layout = "split"
-            return RouteDecision(path=ExecutionPath.FAST_PATH, action="organize_windows", params={"layout": layout})
+        # 13. Window Close & Window Management (<0.0ms)
+        if text in ["close this", "close this window", "close active window", "close window"]:
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="close_active_window")
 
-        # Volume Controls
-        rel_up = re.match(r"^(?:raise|increase|turn up)\s+(?:the\s+)?volume(?:\s+by)?(?:\s*(\d+))?(?:\s*percent|%)?$", text)
-        if rel_up or text in ["volume up", "raise volume", "raise the volume", "turn up volume", "turn up the volume", "louder"]:
-            steps = int(rel_up.group(1)) // 2 if (rel_up and rel_up.group(1)) else 5
-            return RouteDecision(path=ExecutionPath.FAST_PATH, action="volume_up", params={"steps": max(1, steps)})
-
-        rel_down = re.match(r"^(?:lower|decrease|turn down)\s+(?:the\s+)?volume(?:\s+by)?(?:\s*(\d+))?(?:\s*percent|%)?$", text)
-        if rel_down or text in ["volume down", "lower volume", "lower the volume", "turn down volume", "turn down the volume", "quieter"]:
-            steps = int(rel_down.group(1)) // 2 if (rel_down and rel_down.group(1)) else 5
-            return RouteDecision(path=ExecutionPath.FAST_PATH, action="volume_down", params={"steps": max(1, steps)})
-
-        vol_match = re.match(r"^(?:set\s+volume\s+to|volume\s+to|volume)\s+(\d{1,3})$", text)
-        if vol_match:
-            return RouteDecision(path=ExecutionPath.FAST_PATH, action="set_volume", params={"level": int(vol_match.group(1))})
-
-        if text in ["mute", "mute audio", "unmute", "unmute audio"]:
-            return RouteDecision(path=ExecutionPath.FAST_PATH, action="mute")
-
-        # Media controls
-        if text in ["play music", "pause music", "resume music", "toggle media", "pause"]:
-            return RouteDecision(path=ExecutionPath.FAST_PATH, action="play_media")
-        if text in ["next song", "next track", "skip"]:
-            return RouteDecision(path=ExecutionPath.FAST_PATH, action="next_track")
-        if text in ["previous song", "previous track"]:
-            return RouteDecision(path=ExecutionPath.FAST_PATH, action="prev_track")
-
-        # Telemetry & System Diagnostics
+        # 14. Telemetry & Diagnostics (<0.0ms)
         if "battery" in text and not any(w in text for w in ["buy", "order", "replace"]):
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="check_battery")
         if any(w in text for w in ["check ram", "ram usage", "how much ram", "memory usage"]):
@@ -248,7 +341,6 @@ class IntentRouter:
         if any(w in text for w in ["check ip", "what is my ip", "my ip address"]):
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="check_ip")
 
-        # Screen & Display
         if any(w in text for w in ["lock pc", "lock the pc", "lock my pc", "lock workstation", "lock computer"]):
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="lock_workstation")
         if any(w in text for w in ["take a screenshot", "screenshot", "capture screen"]):
@@ -258,18 +350,12 @@ class IntentRouter:
         if any(w in text for w in ["brightness down", "lower brightness", "dimmer"]):
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="brightness_down")
 
-        # Window Focus & Bring to front
-        focus_match = re.match(r"^(?:bring\s+to\s+front|focus|bring\s+up|switch\s+to)\s+(?:the\s+)?([a-zA-Z0-9\s_\-\.]+?)(?:\s+window|\s+app)?$", text)
-        if focus_match:
-            raw_win = focus_match.group(1).strip()
-            if raw_win not in ["this", "it", "window"]:
-                return RouteDecision(path=ExecutionPath.FAST_PATH, action="bring_to_front", params={"app_or_title": raw_win})
+        # 15. Memes & Archetype Triggers (<0.0ms)
+        meme_match = re.search(r"\b(gigachad|based|chudjak|nothing\s+ever\s+happens|pepe|monkas|wojak|feels\s+good|feels\s+bad|galaxy\s+brain|it's\s+over|cringe)\b", text)
+        if meme_match and ("meme" in text or text.startswith(("you are", "you're", "that's", "thats", "show", "tell")) or len(text.split()) <= 4):
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="trigger_meme", params={"meme_name": meme_match.group(1).strip()})
 
-        # Close Active Window
-        if text in ["close this", "close this window", "close active window", "close window"]:
-            return RouteDecision(path=ExecutionPath.FAST_PATH, action="close_active_window")
-
-        # Underspecified Meta Instructions
+        # 16. Underspecified Meta Instructions
         if text in ["open this and do this", "open that and do that", "open this and do that", "open something and do something", "open this"]:
             return RouteDecision(
                 path=ExecutionPath.CLARIFY,
@@ -277,7 +363,7 @@ class IntentRouter:
                 clarification_prompt="Which application would you like me to open, and what task would you like me to perform?",
             )
 
-        # Open App (e.g. "open spotify", "launch chrome", "bring up chrome", "open paint", "start notepad")
+        # 17. Open App (<0.0ms)
         if " and " not in text and " then " not in text:
             open_match = re.match(
                 r"^(?:can\s+you\s+please\s+|could\s+you\s+please\s+|can\s+you\s+|could\s+you\s+|please\s+)?(?:open\s+up|bring\s+up|open|launch|start|run)\s+(?:the\s+)?([a-zA-Z0-9\s_\-\.]+?)(?:\s+app|\s+application|\s+program)?$",
@@ -287,11 +373,11 @@ class IntentRouter:
             if open_match:
                 raw_target = open_match.group(1).strip()
                 raw_target = re.sub(r"^up\s+", "", raw_target).strip()
-                if not any(w in raw_target for w in [" and ", " then ", " do ", " this", " that", " something"]):
+                if not any(w in raw_target for w in [" and ", " then ", " do ", " this", " that", " something", "file "]):
                     if raw_target not in ["a", "the", "it", "this", "new folder", "something", "an app"]:
                         return RouteDecision(path=ExecutionPath.FAST_PATH, action="open_app", params={"app_name": raw_target})
 
-        # Close App
+        # 18. Close App (<0.0ms)
         close_match = re.match(
             r"^(?:can\s+you\s+|could\s+you\s+|please\s+)?(?:close\s+down|shut\s+down|close|quit|exit|kill)\s+(?:the\s+)?([a-zA-Z0-9\s_\-\.]+?)(?:\s+app|\s+application|\s+program)?$",
             text,
@@ -303,7 +389,7 @@ class IntentRouter:
             if raw_close not in ["this", "it", "window", "active window", "the window", "computer", "pc"]:
                 return RouteDecision(path=ExecutionPath.FAST_PATH, action="close_window", params={"title_keyword": raw_close})
 
-        # Local Time, Date, Jokes & Personal
+        # 19. Local Time, Date, Jokes & Personal Banter (<0.0ms)
         if any(w in text for w in ["what time is it", "tell me the time", "current time", "the time"]):
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="query_time")
         if any(w in text for w in ["what is today's date", "what is the date", "today's date", "what day is it"]):
@@ -316,6 +402,8 @@ class IntentRouter:
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="suggest_songs")
         if any(w in text for w in ["who am i", "what is my name", "do you know me"]):
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="who_am_i")
+        if any(w in text for w in ["who are you", "what is your name", "who made you"]):
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="query_identity")
 
         return None
 
