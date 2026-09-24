@@ -46,7 +46,7 @@ class LayaHUD(ctk.CTk):
         # Geometry Settings
         self.title("Laya AI")
         self.hud_width = 440
-        self.hud_height = 490
+        self.hud_height = 530
         self.pill_height = 64
 
         # Position at top-right of screen

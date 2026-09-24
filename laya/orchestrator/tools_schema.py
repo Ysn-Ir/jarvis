@@ -835,6 +835,43 @@ TOOLS_SCHEMA: List[Dict[str, Any]] = [
                 "required": ["query"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "drag_window_relative",
+            "description": "Drag the mouse from a relative start coordinate to a relative end coordinate inside a window (0.0 to 1.0 percentages).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title_keyword": {"type": "string", "description": "Target window title substring"},
+                    "start_rel_x": {"type": "number", "description": "Starting relative X ratio (0.0 to 1.0)"},
+                    "start_rel_y": {"type": "number", "description": "Starting relative Y ratio (0.0 to 1.0)"},
+                    "end_rel_x": {"type": "number", "description": "Ending relative X ratio (0.0 to 1.0)"},
+                    "end_rel_y": {"type": "number", "description": "Ending relative Y ratio (0.0 to 1.0)"},
+                    "duration": {"type": "number", "description": "Drag movement duration in seconds, default 0.4"}
+                },
+                "required": ["title_keyword", "start_rel_x", "start_rel_y", "end_rel_x", "end_rel_y"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "draw_relative_shape",
+            "description": "Draw a clean geometric shape (square, circle, triangle, star, heart) inside a drawing window canvas (e.g. Paint) using relative percentages.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title_keyword": {"type": "string", "description": "Drawing window title substring (e.g. 'Paint')"},
+                    "shape": {"type": "string", "enum": ["square", "circle", "triangle", "star", "heart"], "description": "Geometric shape to draw"},
+                    "center_rel_x": {"type": "number", "description": "Relative X center ratio (0.0 to 1.0), default 0.5"},
+                    "center_rel_y": {"type": "number", "description": "Relative Y center ratio (0.0 to 1.0), default 0.5"},
+                    "size_rel": {"type": "number", "description": "Relative size ratio of the shape (0.05 to 0.5), default 0.25"}
+                },
+                "required": ["title_keyword", "shape"]
+            }
+        }
     }
 ]
 

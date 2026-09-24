@@ -295,6 +295,25 @@ class OrchestratorEngine:
                     rel_x=float(args.get("rel_x", 0.5)),
                     rel_y=float(args.get("rel_y", 0.5))
                 )
+            elif tool == "drag_window_relative":
+                from laya.tools.window_geometry import get_window_geometry_manager
+                return get_window_geometry_manager().drag_window_relative(
+                    title_keyword=args.get("title_keyword", ""),
+                    start_rel_x=float(args.get("start_rel_x", 0.5)),
+                    start_rel_y=float(args.get("start_rel_y", 0.5)),
+                    end_rel_x=float(args.get("end_rel_x", 0.5)),
+                    end_rel_y=float(args.get("end_rel_y", 0.5)),
+                    duration=float(args.get("duration", 0.4)),
+                )
+            elif tool in ["draw_relative_shape", "draw_shape_relative"]:
+                from laya.tools.window_geometry import get_window_geometry_manager
+                return get_window_geometry_manager().draw_relative_shape(
+                    title_keyword=args.get("title_keyword", "Paint"),
+                    shape=args.get("shape", "square"),
+                    center_rel_x=float(args.get("center_rel_x", 0.5)),
+                    center_rel_y=float(args.get("center_rel_y", 0.5)),
+                    size_rel=float(args.get("size_rel", 0.25)),
+                )
 
             # Jupyter Notebook Autonomy
             elif tool in ["write_notebook_cell", "write_notebook"]:

@@ -103,6 +103,7 @@ class IntentRouter:
         )
         if yt_search_match:
             q = (yt_search_match.group(1) or yt_search_match.group(2) or "").strip()
+            q = re.sub(r"^(?:like|for\s+like|some|uh|um)\s+", "", q, flags=re.IGNORECASE).strip()
             return RouteDecision(
                 path=ExecutionPath.FAST_PATH,
                 action="browser_search",
@@ -124,6 +125,7 @@ class IntentRouter:
         browser_search_match = re.search(r"(?:open\s+(?:a\s+)?browser\s+(?:and\s+search\s+for|to\s+search|to\s+look\s+for|and\s+look\s+for|and\s+search)|search\s+(?:google|web|the\s+web)\s+for|look\s+(?:in|into)\s+(?:a\s+)?browser\s+for)\s+(.+)", text)
         if browser_search_match:
             query = browser_search_match.group(1).strip()
+            query = re.sub(r"^(?:like|for\s+like|some|uh|um)\s+", "", query, flags=re.IGNORECASE).strip()
             return RouteDecision(
                 path=ExecutionPath.FAST_PATH,
                 action="browser_search",

@@ -95,6 +95,8 @@ Core Execution Paradigms:
    - Open websites: `browser_open_url(url)`.
    - Window Geometry: `get_window_geometry(title_keyword)` (gets position, dimensions, center).
    - Relative Window Clicking: `click_window_relative(title_keyword, rel_x, rel_y)` (clicks relative percentages 0.0-1.0 inside any window, e.g. YouTube thumbnails or UI elements!).
+   - Relative Window Dragging: `drag_window_relative(title_keyword, start_rel_x, start_rel_y, end_rel_x, end_rel_y)` (drags relative coordinates).
+   - Canvas Drawing: `draw_relative_shape(title_keyword="Paint", shape="square"|"circle"|"triangle"|"star"|"heart", center_rel_x=0.5, center_rel_y=0.5)`.
 
 4. CREATIVE WINDOW MANAGEMENT:
    - Use `organize_windows(layout="grid"|"split"|"columns"|"golden_ratio"|"cascade"|"focus"|"creative")`
