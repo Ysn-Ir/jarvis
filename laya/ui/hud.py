@@ -21,6 +21,7 @@ from laya.audio.wake_word import get_wake_word_detector, WakeWordDetector
 from laya.fast_path.executor import get_fast_path_executor
 from laya.ui.meme_engine import get_meme_engine
 from laya.orchestrator.memory import get_memory_store
+from laya.audio.meme_audio import play_meme_audio
 
 
 class LayaHUD(ctk.CTk):
@@ -279,30 +280,46 @@ class LayaHUD(ctk.CTk):
         )
         self.result_header.pack(side="left")
 
-        # Reaction Badge Widget (Image + Text Tag) - hidden by default, pops only for reactions
+        # Reaction Badge Widget (Image + Title + Subtitle) - hidden by default, pops only for reactions
         self.reaction_frame = ctk.CTkFrame(
             self.response_header_frame,
-            fg_color="#18181c",
-            corner_radius=10,
-            border_width=1,
-            border_color=self.CLR_BORDER_LIGHT,
+            fg_color="#181820",
+            corner_radius=12,
+            border_width=2,
+            border_color="#3b82f6",
         )
 
         self.reaction_img_label = ctk.CTkLabel(
             self.reaction_frame,
             text="",
-            width=32,
-            height=32,
+            width=46,
+            height=46,
         )
-        self.reaction_img_label.pack(side="left", padx=(4, 2), pady=2)
+        self.reaction_img_label.pack(side="left", padx=(6, 4), pady=4)
+
+        self.reaction_text_frame = ctk.CTkFrame(
+            self.reaction_frame,
+            fg_color="transparent",
+        )
+        self.reaction_text_frame.pack(side="left", padx=(2, 10), pady=4)
 
         self.reaction_tag = ctk.CTkLabel(
-            self.reaction_frame,
+            self.reaction_text_frame,
             text="",
-            font=ctk.CTkFont(family="Segoe UI", size=8, weight="bold"),
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
             text_color=self.CLR_WHITE,
+            anchor="w",
         )
-        self.reaction_tag.pack(side="left", padx=(2, 6), pady=2)
+        self.reaction_tag.pack(anchor="w")
+
+        self.reaction_desc = ctk.CTkLabel(
+            self.reaction_text_frame,
+            text="",
+            font=ctk.CTkFont(family="Segoe UI", size=8),
+            text_color=self.CLR_TEXT_DIM,
+            anchor="w",
+        )
+        self.reaction_desc.pack(anchor="w")
 
         self.result_box = ctk.CTkTextbox(
             self.result_container,
@@ -652,18 +669,64 @@ class LayaHUD(ctk.CTk):
         self.step_box.see("end")
         self.step_box.configure(state="disabled")
 
+    MEME_METADATA = {
+        "gigachad": {
+            "title": "✦ GIGACHAD",
+            "desc": "BASED MOMENT",
+            "border": "#10b981",
+        },
+        "monkas": {
+            "title": "⚠️ MONKAS",
+            "desc": "SWEATING INTENSELY",
+            "border": "#ef4444",
+        },
+        "chudjak": {
+            "title": "☕ CHUDJAK",
+            "desc": "SPICY HOT TAKE",
+            "border": "#f59e0b",
+        },
+        "wojak": {
+            "title": "🌧️ WOJAK",
+            "desc": "FEELS GUY",
+            "border": "#6366f1",
+        },
+        "soyjak": {
+            "title": "😲 SOYJAK",
+            "desc": "MIND BLOWN",
+            "border": "#ec4899",
+        },
+        "pepe": {
+            "title": "🐸 PEPE",
+            "desc": "FEELS GOOD MAN",
+            "border": "#22c55e",
+        },
+    }
+
     def _update_reaction_badge(self, reaction_name: Optional[str]):
         if not reaction_name:
             self.reaction_frame.pack_forget()
             return
 
+        clean = reaction_name.lower().strip()
+        meta = self.MEME_METADATA.get(clean, {
+            "title": f"✦ {clean.upper()}",
+            "desc": "REACTION DETECTED",
+            "border": "#3b82f6",
+        })
+
         try:
-            ctk_img = self.meme_engine.get_ctk_image(reaction_name, size=(30, 30))
+            ctk_img = self.meme_engine.get_ctk_image(clean, size=(46, 46))
             if ctk_img:
                 self.reaction_img_label.configure(image=ctk_img)
-            self.reaction_tag.configure(text=reaction_name.upper())
-            self.reaction_frame.pack(side="right")
-        except Exception:
+            self.reaction_tag.configure(text=meta["title"])
+            self.reaction_desc.configure(text=meta["desc"])
+            self.reaction_frame.configure(border_color=meta["border"])
+            self.reaction_frame.pack(side="right", padx=(0, 6))
+
+            # Play iconic procedural meme sound
+            play_meme_audio(clean)
+        except Exception as e:
+            print(f"[Meme Badge Note] {e}")
             self.reaction_frame.pack_forget()
 
     def _play_startup_greeting(self):
