@@ -306,6 +306,10 @@ class FastPathExecutor:
         from laya.tools.browser_automator import get_browser_automator
         return get_browser_automator().open_url(url)
 
+    def play_youtube(self, query: str) -> str:
+        from laya.tools.browser_automator import get_browser_automator
+        return get_browser_automator().play_youtube(query)
+
 
 def get_fast_path_executor() -> FastPathExecutor:
     return FastPathExecutor.get_instance()

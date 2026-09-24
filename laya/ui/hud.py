@@ -256,7 +256,63 @@ class LayaHUD(ctk.CTk):
         )
         self.step_box.pack(fill="x", padx=6, pady=(0, 6))
         self.step_box.insert("end", "Autonomous desktop agent online. RTX 4050 active.\n")
-        self.step_box.configure(state="disabled")
+        # B2. Center Meme Spotlight Card (Pops up in the middle when a reaction is triggered!)
+        self.center_meme_spotlight = ctk.CTkFrame(
+            self.body_container,
+            fg_color="#121218",
+            corner_radius=16,
+            border_width=2,
+            border_color="#10b981",
+        )
+
+        self.center_meme_inner = ctk.CTkFrame(
+            self.center_meme_spotlight,
+            fg_color="transparent",
+        )
+        self.center_meme_inner.pack(padx=16, pady=10)
+
+        self.center_meme_img = ctk.CTkLabel(
+            self.center_meme_inner,
+            text="",
+            width=84,
+            height=84,
+        )
+        self.center_meme_img.pack(side="left", padx=(0, 14))
+
+        self.center_meme_text_box = ctk.CTkFrame(
+            self.center_meme_inner,
+            fg_color="transparent",
+        )
+        self.center_meme_text_box.pack(side="left", fill="both", expand=True)
+
+        self.center_meme_title = ctk.CTkLabel(
+            self.center_meme_text_box,
+            text="✦ GIGACHAD ✦",
+            font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"),
+            text_color="#ffffff",
+            anchor="w",
+        )
+        self.center_meme_title.pack(anchor="w")
+
+        self.center_meme_tagline = ctk.CTkLabel(
+            self.center_meme_text_box,
+            text="BASED MOMENT",
+            font=ctk.CTkFont(family="Segoe UI", size=9, weight="bold"),
+            text_color="#10b981",
+            anchor="w",
+        )
+        self.center_meme_tagline.pack(anchor="w", pady=(1, 0))
+
+        self.center_meme_caption = ctk.CTkLabel(
+            self.center_meme_text_box,
+            text="\"Absolute cinema. Pure GigaChad energy, sir.\"",
+            font=ctk.CTkFont(family="Segoe UI", size=11, slant="italic"),
+            text_color="#d1d5db",
+            anchor="w",
+            wraplength=250,
+            justify="left",
+        )
+        self.center_meme_caption.pack(anchor="w", pady=(3, 0))
 
         # C. Assistant Response Card
         self.result_container = ctk.CTkFrame(
@@ -565,8 +621,10 @@ class LayaHUD(ctk.CTk):
             self.msg_queue.put(("reset_idle", None))
 
     def _start_command_execution(self, query: str):
-        # Silence speech before executing new command
+        # Silence speech and clear previous meme reaction before executing new command
         self.tts.stop()
+        self.center_meme_spotlight.pack_forget()
+        self.reaction_frame.pack_forget()
         self.last_query = query
         self._expand_if_collapsed()
         if self.wake_detector:
@@ -671,50 +729,69 @@ class LayaHUD(ctk.CTk):
 
     MEME_METADATA = {
         "gigachad": {
-            "title": "✦ GIGACHAD",
+            "title": "✦ GIGACHAD ✦",
             "desc": "BASED MOMENT",
             "border": "#10b981",
+            "quote": "Absolute cinema. Pure GigaChad energy, sir.",
         },
         "monkas": {
-            "title": "⚠️ MONKAS",
+            "title": "⚠️ MONKAS ⚠️",
             "desc": "SWEATING INTENSELY",
             "border": "#ef4444",
+            "quote": "MonkaS... are we sure about this?",
         },
         "chudjak": {
-            "title": "☕ CHUDJAK",
+            "title": "☕ CHUDJAK ☕",
             "desc": "SPICY HOT TAKE",
             "border": "#f59e0b",
+            "quote": "Nothing ever happens, sir. Absolute cinema.",
         },
         "wojak": {
-            "title": "🌧️ WOJAK",
-            "desc": "FEELS GUY",
+            "title": "🌧️ WOJAK 🌧️",
+            "desc": "FEELS GUY / 3 AM",
             "border": "#6366f1",
+            "quote": "Feels bad man. Real Wojak 3 AM hours.",
         },
         "soyjak": {
-            "title": "😲 SOYJAK",
+            "title": "😲 SOYJAK 😲",
             "desc": "MIND BLOWN",
             "border": "#ec4899",
+            "quote": "Holy soy! Pointing at the screen right now.",
         },
         "pepe": {
-            "title": "🐸 PEPE",
+            "title": "🐸 PEPE 🐸",
             "desc": "FEELS GOOD MAN",
             "border": "#22c55e",
+            "quote": "Feels good man. Pepe approved.",
         },
     }
 
     def _update_reaction_badge(self, reaction_name: Optional[str]):
         if not reaction_name:
+            self.center_meme_spotlight.pack_forget()
             self.reaction_frame.pack_forget()
             return
 
         clean = reaction_name.lower().strip()
         meta = self.MEME_METADATA.get(clean, {
-            "title": f"✦ {clean.upper()}",
+            "title": f"✦ {clean.upper()} ✦",
             "desc": "REACTION DETECTED",
             "border": "#3b82f6",
+            "quote": "Contextual reaction.",
         })
 
         try:
+            # 1. Update Center Spotlight Card (Large 84x84 portrait in the middle)
+            center_img = self.meme_engine.get_ctk_image(clean, size=(84, 84))
+            if center_img:
+                self.center_meme_img.configure(image=center_img)
+            self.center_meme_title.configure(text=meta["title"])
+            self.center_meme_tagline.configure(text=meta["desc"], text_color=meta["border"])
+            self.center_meme_caption.configure(text=f'"{meta.get("quote", "")}"')
+            self.center_meme_spotlight.configure(border_color=meta["border"])
+            self.center_meme_spotlight.pack(fill="x", pady=(0, 6), before=self.result_container)
+
+            # 2. Update Header Badge
             ctk_img = self.meme_engine.get_ctk_image(clean, size=(46, 46))
             if ctk_img:
                 self.reaction_img_label.configure(image=ctk_img)
@@ -723,10 +800,11 @@ class LayaHUD(ctk.CTk):
             self.reaction_frame.configure(border_color=meta["border"])
             self.reaction_frame.pack(side="right", padx=(0, 6))
 
-            # Play iconic procedural meme sound
+            # 3. Play authentic real meme music track!
             play_meme_audio(clean)
         except Exception as e:
-            print(f"[Meme Badge Note] {e}")
+            print(f"[Meme Spotlight Note] {e}")
+            self.center_meme_spotlight.pack_forget()
             self.reaction_frame.pack_forget()
 
     def _play_startup_greeting(self):

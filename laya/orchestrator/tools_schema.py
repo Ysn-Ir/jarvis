@@ -791,6 +791,51 @@ TOOLS_SCHEMA: List[Dict[str, Any]] = [
                 "required": ["directory"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_window_geometry",
+            "description": "Get the exact screen position, dimensions (width, height), and center coordinates of any visible window.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title_keyword": {"type": "string", "description": "Window title substring (e.g. 'Chrome', 'Paint', 'Spotify', 'Notepad')"}
+                },
+                "required": ["title_keyword"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "click_window_relative",
+            "description": "Bring target window to front and click at relative percentage coordinates (0.0 to 1.0). For example, (0.5, 0.5) is exact center; (0.36, 0.30) is top YouTube video.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title_keyword": {"type": "string", "description": "Target window title substring"},
+                    "rel_x": {"type": "number", "description": "Relative X coordinate percentage from 0.0 to 1.0"},
+                    "rel_y": {"type": "number", "description": "Relative Y coordinate percentage from 0.0 to 1.0"}
+                },
+                "required": ["title_keyword", "rel_x", "rel_y"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "play_youtube",
+            "description": "Search YouTube for a song, video, or topic and automatically start playing the top video using relative window navigation.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Song title, artist, or video search query"}
+                },
+                "required": ["query"]
+            }
+        }
     }
 ]
+
 

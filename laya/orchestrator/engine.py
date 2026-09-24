@@ -283,6 +283,18 @@ class OrchestratorEngine:
             elif tool in ["browser_open_url", "open_url"]:
                 url = args.get("url", "")
                 return self.fast_path.browser_open_url(url=url)
+            elif tool in ["play_youtube", "youtube_play"]:
+                return self.fast_path.play_youtube(query=args.get("query", ""))
+            elif tool == "get_window_geometry":
+                from laya.tools.window_geometry import get_window_geometry_manager
+                return str(get_window_geometry_manager().get_window_geometry(args.get("title_keyword", "")))
+            elif tool == "click_window_relative":
+                from laya.tools.window_geometry import get_window_geometry_manager
+                return get_window_geometry_manager().click_window_relative(
+                    title_keyword=args.get("title_keyword", ""),
+                    rel_x=float(args.get("rel_x", 0.5)),
+                    rel_y=float(args.get("rel_y", 0.5))
+                )
 
             # Jupyter Notebook Autonomy
             elif tool in ["write_notebook_cell", "write_notebook"]:

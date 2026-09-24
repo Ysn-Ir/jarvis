@@ -116,6 +116,30 @@ class BrowserAutomator:
         pyautogui.hotkey("ctrl", "r")
         return "Refreshed browser page."
 
+    def play_youtube(self, query: str) -> str:
+        """
+        Open YouTube, search for the query, and click the first video result using relative window geometry.
+        """
+        clean_q = query.strip()
+        encoded = urllib.parse.quote_plus(clean_q)
+        url = f"https://www.youtube.com/results?search_query={encoded}"
+
+        webbrowser.open(url)
+        time.sleep(1.0)
+        self._focus_browser()
+        time.sleep(0.5)
+
+        # In standard YouTube desktop layout, the top video result is at rel_x=0.36, rel_y=0.30
+        from laya.tools.window_geometry import get_window_geometry_manager
+        geo_mgr = get_window_geometry_manager()
+
+        for b_name in ["Chrome", "Edge", "Firefox", "Brave", "YouTube"]:
+            res = geo_mgr.click_window_relative(b_name, rel_x=0.36, rel_y=0.30)
+            if "error" not in res:
+                return f"Started playing '{clean_q}' on YouTube."
+
+        return f"Opened YouTube search for '{clean_q}'."
+
 
 def get_browser_automator() -> BrowserAutomator:
     return BrowserAutomator.get_instance()

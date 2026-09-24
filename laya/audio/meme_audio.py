@@ -39,6 +39,8 @@ def _generate_music_wavs():
 
     def write_wav(filename: str, audio_float: np.ndarray):
         p = SOUNDS_DIR / filename
+        if p.exists() and p.stat().st_size > 50000:
+            return  # Authentic downloaded song already present
         audio_int16 = (np.clip(audio_float, -1.0, 1.0) * 32767).astype(np.int16)
         with wave.open(str(p), "w") as wf:
             wf.setnchannels(1)

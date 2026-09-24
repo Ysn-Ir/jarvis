@@ -75,16 +75,59 @@ class IntentRouter:
                 )
 
         # ---------------------------------------------------------
-        # 2. Direct Browser Search Automation (<1ms)
+        # 2. Direct Browser Search & YouTube Music Automation (<1ms)
         # ---------------------------------------------------------
-        browser_search_match = re.search(r"(?:open\s+(?:a\s+)?browser\s+(?:and\s+search\s+for|to\s+search|to\s+look\s+for|and\s+look\s+for|and\s+search)|search\s+(?:google|youtube|web|the\s+web)\s+for|look\s+(?:in|into)\s+(?:a\s+)?browser\s+for)\s+(.+)", text)
-        if browser_search_match:
-            query = browser_search_match.group(1).strip()
-            engine = "youtube" if "youtube" in text else "google"
+        # Direct YouTube play (e.g. "play resonance on youtube", "start songs from youtube", "play songs on youtube")
+        yt_play_match = re.match(
+            r"^(?:can\s+you\s+|could\s+you\s+|please\s+)?(?:play|start|listen\s+to)\s+(.+?)(?:\s+(?:on|from|in)\s+youtube)?$",
+            text,
+            flags=re.IGNORECASE
+        )
+        if yt_play_match and ("youtube" in text or any(w in text for w in ["song", "songs", "music", "track", "video"])):
+            raw_query = yt_play_match.group(1).strip()
+            raw_query = re.sub(r"\s+(?:on|from|in)\s+youtube\b", "", raw_query, flags=re.IGNORECASE).strip()
+            if not raw_query or raw_query in ["songs", "some songs", "music", "some music"]:
+                raw_query = "synthwave lofi chillhop mix"
+            return RouteDecision(
+                path=ExecutionPath.FAST_PATH,
+                action="play_youtube",
+                params={"query": raw_query},
+                safety_tier="GREEN",
+            )
+
+        # YouTube / Web Search (e.g. "open youtube and search for X", "search youtube for X")
+        yt_search_match = re.search(
+            r"(?:open\s+youtube\s+(?:and\s+search\s+for|to\s+search|to\s+look\s+for|and\s+search)|search\s+(?:on\s+)?youtube\s+for|search\s+for\s+(.+?)\s+on\s+youtube)\s*(.+)?",
+            text,
+            flags=re.IGNORECASE
+        )
+        if yt_search_match:
+            q = (yt_search_match.group(1) or yt_search_match.group(2) or "").strip()
             return RouteDecision(
                 path=ExecutionPath.FAST_PATH,
                 action="browser_search",
-                params={"query": query, "engine": engine},
+                params={"query": q, "engine": "youtube"},
+                safety_tier="GREEN",
+            )
+
+        # Direct Domain Opening (e.g. "open youtube.com", "open reddit.com", "open github.com")
+        domain_match = re.match(r"^(?:open|go\s+to|visit)\s+([a-zA-Z0-9\-]+\.(?:com|org|net|io|tv|ai|gov|edu|dev|app|me)(?:/[^\s]*)?)$", text)
+        if domain_match:
+            return RouteDecision(
+                path=ExecutionPath.FAST_PATH,
+                action="browser_open_url",
+                params={"url": "https://" + domain_match.group(1).strip()},
+                safety_tier="GREEN",
+            )
+
+        # General Browser Search
+        browser_search_match = re.search(r"(?:open\s+(?:a\s+)?browser\s+(?:and\s+search\s+for|to\s+search|to\s+look\s+for|and\s+look\s+for|and\s+search)|search\s+(?:google|web|the\s+web)\s+for|look\s+(?:in|into)\s+(?:a\s+)?browser\s+for)\s+(.+)", text)
+        if browser_search_match:
+            query = browser_search_match.group(1).strip()
+            return RouteDecision(
+                path=ExecutionPath.FAST_PATH,
+                action="browser_search",
+                params={"query": query, "engine": "google"},
                 safety_tier="GREEN",
             )
 

@@ -89,11 +89,18 @@ Core Execution Paradigms:
    - Search: `search_filesystem(pattern, root_dir)`
    - Create/Read: `create_file`, `create_note`, `read_file_content`, `list_directory`.
 
-3. CREATIVE WINDOW MANAGEMENT:
+3. BROWSER, YOUTUBE & RELATIVE WINDOW NAVIGATION:
+   - Play any song/video: `play_youtube(query)` (instantly opens YouTube and plays top result!).
+   - Search web/YouTube: `browser_search(query, engine="youtube"|"google")`.
+   - Open websites: `browser_open_url(url)`.
+   - Window Geometry: `get_window_geometry(title_keyword)` (gets position, dimensions, center).
+   - Relative Window Clicking: `click_window_relative(title_keyword, rel_x, rel_y)` (clicks relative percentages 0.0-1.0 inside any window, e.g. YouTube thumbnails or UI elements!).
+
+4. CREATIVE WINDOW MANAGEMENT:
    - Use `organize_windows(layout="grid"|"split"|"columns"|"golden_ratio"|"cascade"|"focus"|"creative")`
    - Use `list_open_windows` and `focus_window` to bring any window to front.
 
-4. UI AUTOMATION & DRAWING:
+5. UI AUTOMATION & DRAWING:
    - Control apps via `inspect_window_controls`, `click_window_control`, `set_window_control_text`.
    - In MS Paint, draw parametric figures with `draw_shape(shape_type="circle"|"heart"|"spiral"|"star"|"smiley"|"square"|"triangle"|"flower")`.
 
