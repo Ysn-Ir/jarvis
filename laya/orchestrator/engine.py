@@ -263,6 +263,19 @@ class OrchestratorEngine:
                 return self.computer_use.clipboard_copy(text=args.get("text", ""))
             elif tool == "clipboard_read":
                 return self.computer_use.clipboard_read()
+            elif tool == "draw_shape":
+                return self.computer_use.draw_shape(
+                    shape_type=args.get("shape_type", "circle"),
+                    center_x=args.get("center_x"),
+                    center_y=args.get("center_y"),
+                    radius=args.get("radius", 80),
+                    custom_points=args.get("custom_points")
+                )
+            elif tool in ["organize_windows", "tile_windows", "arrange_windows"]:
+                return self.fast_path.organize_windows(
+                    layout=args.get("layout", "grid"),
+                    target_apps=args.get("apps")
+                )
             elif tool in ["browser_search", "web_browser_search"]:
                 q = args.get("query", "")
                 engine = args.get("engine", "google")
@@ -327,8 +340,9 @@ class OrchestratorEngine:
                 return self.ufo_controller.set_window_control_text(args.get("name", ""), args.get("text", ""))
             elif tool in ["list_open_windows", "get_open_windows"]:
                 return self.ufo_controller.list_open_windows()
-            elif tool in ["focus_window", "switch_to_window"]:
-                return self.ufo_controller.focus_window(args.get("title", ""))
+            elif tool in ["focus_window", "switch_to_window", "bring_to_front"]:
+                target = args.get("title", "") or args.get("name", "") or args.get("app", "")
+                return self.fast_path.bring_to_front(target)
 
             # Deep Filesystem Intelligence
             elif tool in ["read_file_content", "read_file", "view_file"]:

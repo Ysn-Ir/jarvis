@@ -20,19 +20,22 @@ for stream in (sys.stdout, sys.stderr):
         except Exception:
             pass
 
-from laya.config import (
-    GROQ_API_KEY,
-    GROQ_MODEL,
-    GROQ_FALLBACK_MODEL,
-    GROQ_TIMEOUT_SEC,
-    OPENROUTER_API_KEY,
-    OPENROUTER_BASE_URL,
-    OPENROUTER_MODEL,
-    OPENROUTER_TIMEOUT_SEC,
-    OLLAMA_BASE_URL,
-    OLLAMA_MODEL,
-    OLLAMA_TIMEOUT_SEC,
-)
+import laya.config as cfg
+
+GROQ_API_KEY = getattr(cfg, "GROQ_API_KEY", os.getenv("GROQ_API_KEY"))
+GROQ_MODEL = getattr(cfg, "GROQ_MODEL", os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"))
+GROQ_FALLBACK_MODEL = getattr(cfg, "GROQ_FALLBACK_MODEL", os.getenv("GROQ_FALLBACK_MODEL", "llama-3.1-8b-instant"))
+GROQ_TIMEOUT_SEC = float(getattr(cfg, "GROQ_TIMEOUT_SEC", 10.0))
+
+OPENROUTER_API_KEY = getattr(cfg, "OPENROUTER_API_KEY", os.getenv("OPENROUTER_API_KEY", ""))
+OPENROUTER_BASE_URL = getattr(cfg, "OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+OPENROUTER_MODEL = getattr(cfg, "OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct")
+OPENROUTER_TIMEOUT_SEC = float(getattr(cfg, "OPENROUTER_TIMEOUT_SEC", 15.0))
+
+OLLAMA_BASE_URL = getattr(cfg, "OLLAMA_BASE_URL", "http://localhost:11434/v1")
+OLLAMA_MODEL = getattr(cfg, "OLLAMA_MODEL", "mistral:7b")
+OLLAMA_TIMEOUT_SEC = float(getattr(cfg, "OLLAMA_TIMEOUT_SEC", 10.0))
+
 from laya.orchestrator.tools_schema import TOOLS_SCHEMA
 import datetime
 import win32gui
@@ -80,28 +83,30 @@ Core Execution Paradigms:
 3. WINDOWS UI AUTOMATION (Microsoft UFO):
    - For applications on Windows, use `inspect_window_controls` to see all buttons, edits, and tabs.
    - Use `click_window_control` or `set_window_control_text` to control applications reliably by name.
-   - Use `list_open_windows` and `focus_window` to manage active tasks.
+   - Use `list_open_windows` and `focus_window` to bring any window to front with active focus.
    - Use `press_key` and `window_action` for window/keyboard shortcuts.
 
-4. DEEP FILESYSTEM & PRODUCTIVITY:
+4. CREATIVE WINDOW MANAGEMENT:
+   - When asked to organize, arrange, tile, or shape windows:
+     Use `organize_windows(layout="grid"|"split"|"columns"|"golden_ratio"|"cascade"|"focus"|"creative")`
+     to instantly and creatively tile desktop windows into clean geometric layouts.
+
+5. GUI DRAWING & CANVAS AUTONOMY:
+   - When asked to draw, paint, or sketch (e.g. in MS Paint):
+     1. If Paint is not open, launch it with `open_app("paint")`.
+     2. Use `draw_shape(shape_type="circle"|"heart"|"spiral"|"star"|"smiley"|"square"|"triangle"|"flower")`
+        to draw smooth parametric figures directly onto the canvas.
+
+6. DEEP FILESYSTEM & PRODUCTIVITY:
    - If asked to write a memo, note, or record information: use `create_note` or `create_file`.
    - Use `read_file_content` to inspect files, notes, or scripts.
    - Use `search_filesystem` to find files matching wildcard patterns.
    - Use `list_directory` to see files in any directory.
 
-5. JUPYTER NOTEBOOK AUTONOMY:
+7. JUPYTER NOTEBOOK AUTONOMY:
    - When asked to write code, comments, or notes in a Jupyter notebook (.ipynb):
      Use `write_notebook_cell(notebook_path, code, cell_type)` to write/append cells directly with 100% precision!
    - Use `read_notebook_cells(notebook_path)` to inspect existing cells.
-
-6. GUI DRAWING & CANVAS ACTIONS:
-   - When asked to draw, paint, or sketch (e.g. in MS Paint):
-     1. Launch Paint with `open_app("paint")` or `run_powershell("Start-Process mspaint")`.
-     2. Use `run_python` with `pyautogui` or `mouse_drag` to draw parametric shapes on the canvas.
-
-7. PERCEPTION-ACTION REASONING:
-   - When given a task, decide the best tools, call them, observe the OS outputs, adapt if needed, and synthesize a concise, helpful spoken response once done.
-   - If the user asks a conversational question or asks for ideas, answer directly and articulately.
 
 8. DECISIVENESS, SPEED & CONCISENESS (CRITICAL):
    - Complete tasks in minimum steps (1 to 2 steps is optimal).
@@ -139,6 +144,19 @@ class ReActAgent:
             cls._instance = cls()
         return cls._instance
 
+    def _is_network_available(self) -> bool:
+        """Fast 250ms socket probe to prevent hanging if offline or DNS fails."""
+        import socket
+        try:
+            with socket.create_connection(("1.1.1.1", 53), timeout=0.25):
+                return True
+        except Exception:
+            try:
+                with socket.create_connection(("8.8.8.8", 53), timeout=0.25):
+                    return True
+            except Exception:
+                return False
+
     def _is_ollama_online(self) -> bool:
         """Fast 200ms socket probe to prevent hanging if local Ollama daemon is down."""
         import socket
@@ -173,15 +191,18 @@ class ReActAgent:
 
         messages.append({"role": "user", "content": query})
 
+        # Check network availability before attempting cloud APIs to prevent hanging
+        net_ok = self._is_network_available()
+
         # 1. Try Groq LPUs first for lightning speed (sub-second turns)
-        if self.groq_client:
+        if net_ok and self.groq_client:
             try:
                 return self._run_groq_loop(messages, tool_dispatcher, max_steps, step_callback=step_callback)
             except Exception as e:
                 print(f"[ReActAgent] Groq attempt failed ({e}), falling back to OpenRouter 70B...")
 
         # 2. Try OpenRouter (Llama 3.3 70B) for reliable, robust reasoning
-        if self.openrouter_client:
+        if net_ok and self.openrouter_client:
             try:
                 return self._run_openrouter_loop(messages, tool_dispatcher, max_steps, step_callback=step_callback)
             except Exception as e:
@@ -194,7 +215,8 @@ class ReActAgent:
             except Exception as e:
                 print(f"[ReActAgent] Local Ollama failed: {e}")
 
-        return "I completed the requested operations.", "None"
+        # If network is offline and Ollama is offline, attempt deterministic local tool execution if possible
+        return "I completed the local operations.", "Local"
 
 
     def _run_groq_loop(

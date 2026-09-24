@@ -18,22 +18,22 @@ DATA_DIR = ROOT_DIR / "data"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 MEMORY_DB_PATH = DATA_DIR / "laya_memory.db"
 
-# LLM Providers (Multi-Tier Brain: Groq LPUs -> OpenRouter 70B -> Local GPU Ollama)
+# LLM Providers (Dual-Backend: Cloud Ultra-Fast Groq + Local Private Ollama)
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-GROQ_MODEL = os.getenv("GROQ_MODEL", "qwen/qwen3.8-27b")
-GROQ_FALLBACK_MODEL = os.getenv("GROQ_FALLBACK_MODEL", "openai/gpt-oss-120b")
-GROQ_TIMEOUT_SEC = 12.0  # Fast failover if Groq stalls
+# Default to Groq Flagship 70B (llama-3.3-70b-versatile) for deep reasoning; llama-3.1-8b-instant for fast fallback
+GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+GROQ_FALLBACK_MODEL = os.getenv("GROQ_FALLBACK_MODEL", "llama-3.1-8b-instant")
+GROQ_TIMEOUT_SEC = 10.0
 
-# OpenRouter SOTA (True Llama-3.3-70B, DeepSeek, Claude)
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY") or os.getenv("ANTHROPIC_API_KEY")
-OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+# Optional OpenRouter Provider fallback
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct")
 OPENROUTER_TIMEOUT_SEC = 15.0
 
 OLLAMA_BASE_URL = "http://localhost:11434/v1"
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "mistral:7b")
 OLLAMA_TIMEOUT_SEC = 10.0
-
 
 
 # Audio Pipeline Settings

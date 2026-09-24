@@ -48,35 +48,9 @@ class UFOController:
         """Bring a specific application window to the foreground."""
         if not title_query or not title_query.strip():
             return "No window title specified."
-
-        q = title_query.strip().lower()
-        matched_hwnd = None
-        matched_title = ""
-
-        def enum_handler(hwnd, extra):
-            nonlocal matched_hwnd, matched_title
-            if win32gui.IsWindowVisible(hwnd):
-                title = win32gui.GetWindowText(hwnd).strip()
-                if q in title.lower():
-                    matched_hwnd = hwnd
-                    matched_title = title
-                    return False
-            return True
-
-        try:
-            win32gui.EnumWindows(enum_handler, None)
-        except Exception:
-            pass
-
-        if matched_hwnd:
-            try:
-                win32gui.ShowWindow(matched_hwnd, win32con.SW_RESTORE)
-                win32gui.SetForegroundWindow(matched_hwnd)
-                return f"Brought window '{matched_title}' to foreground."
-            except Exception as e:
-                return f"Found window '{matched_title}', but could not set foreground: {e}"
-
-        return f"Could not find an open window matching '{title_query}'."
+        from laya.tools.win32_utils import bring_window_to_front
+        ok, msg = bring_window_to_front(title_query)
+        return msg
 
     def inspect_window_controls(self, max_depth: int = 3) -> str:
         """

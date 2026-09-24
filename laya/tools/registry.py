@@ -113,6 +113,26 @@ class ToolRegistry:
             parameters={"query": "optional string"},
         )
 
+        from laya.tools.window_organizer import get_window_organizer
+        wo = get_window_organizer()
+        self.register(
+            name="organize_windows",
+            description="Organize and tile open desktop application windows into a specified geometric layout ('grid', 'split', 'columns', 'golden_ratio', 'cascade', 'focus', 'creative').",
+            tier=2,
+            handler=wo.organize,
+            parameters={"layout": "optional string", "target_apps": "optional list"},
+        )
+
+        from laya.tools.computer_use import get_computer_use_tools
+        cu = get_computer_use_tools()
+        self.register(
+            name="draw_shape",
+            description="Draw parametric geometric shapes and sketches (circle, heart, spiral, star, square, triangle, smiley, flower) in MS Paint or active canvas.",
+            tier=2,
+            handler=cu.draw_shape,
+            parameters={"shape_type": "string", "radius": "optional integer", "center_x": "optional integer", "center_y": "optional integer"},
+        )
+
     def search_tools(self, query: str) -> List[Dict[str, Any]]:
         """Dynamic tool discovery to avoid over-tooling prompt degradation."""
         q = query.lower()

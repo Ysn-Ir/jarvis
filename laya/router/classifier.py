@@ -175,6 +175,40 @@ class IntentRouter:
         if any(p in text for p in ["tell me a joke", "make me laugh", "joke"]):
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="tell_joke")
 
+        # Bring window to front / Focus (e.g. "bring spotify to front", "focus chrome", "switch to discord")
+        bring_front_match = re.match(
+            r"^(?:can\s+you\s+|could\s+you\s+|please\s+)?(?:bring\s+(?:the\s+)?([a-zA-Z0-9\s_\-\.]+?)\s+to\s+(?:the\s+)?front|focus\s+(?:on\s+)?(?:the\s+)?([a-zA-Z0-9\s_\-\.]+?)|switch\s+to\s+(?:the\s+)?([a-zA-Z0-9\s_\-\.]+?))(?:\s+window|\s+app|\s+application)?$",
+            text,
+            flags=re.IGNORECASE
+        )
+        if bring_front_match:
+            target = (bring_front_match.group(1) or bring_front_match.group(2) or bring_front_match.group(3) or "").strip()
+            if target in ["something", "a window", "an app", "window", "app"]:
+                return RouteDecision(
+                    path=ExecutionPath.CLARIFY,
+                    action="none",
+                    clarification_prompt="Which application or window would you like me to bring to the front?"
+                )
+            if target not in ["a", "the", "it", "this"]:
+                return RouteDecision(path=ExecutionPath.FAST_PATH, action="bring_to_front", params={"app_or_title": target})
+
+        # Creative Window Organization (e.g. "organize my windows", "tile my windows", "organize windows in a grid", "split screen")
+        if any(w in text for w in ["organize my windows", "organize windows", "arrange my windows", "arrange windows", "tile my windows", "tile windows", "tile the windows", "split screen", "cascade windows", "cascade my windows"]):
+            layout = "grid"
+            if any(w in text for w in ["split", "side by side", "halves", "half"]):
+                layout = "split"
+            elif any(w in text for w in ["column", "columns", "three columns", "triple"]):
+                layout = "columns"
+            elif any(w in text for w in ["cascade", "staggered", "diagonal"]):
+                layout = "cascade"
+            elif any(w in text for w in ["golden", "ratio", "master", "dev"]):
+                layout = "golden_ratio"
+            elif any(w in text for w in ["focus", "cinema", "center"]):
+                layout = "focus"
+            elif any(w in text for w in ["shape", "some shape", "creative", "smart", "auto"]):
+                layout = "creative"
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="organize_windows", params={"layout": layout})
+
         # Direct app launch & control (e.g. "open up spotify", "can you open chrome", "launch notepad", "start up paint")
         open_match = re.match(
             r"^(?:can\s+you\s+|could\s+you\s+|please\s+)?(?:open\s+up|start\s+up|fire\s+up|bring\s+up|open|launch|start|run)\s+(?:the\s+)?([a-zA-Z0-9\s_\-\.]+?)(?:\s+app|\s+application|\s+program)?$",

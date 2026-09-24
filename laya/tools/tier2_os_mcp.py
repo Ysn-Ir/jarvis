@@ -70,25 +70,14 @@ class Tier2OSAutomationTools:
         return windows
 
     def focus_window(self, title_query: str) -> str:
-        q = title_query.lower()
-        windows = self.list_windows()
-        for win in windows:
-            if q in win["title"].lower():
-                hwnd = win["hwnd"]
-                win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
-                win32gui.SetForegroundWindow(hwnd)
-                return f"Brought window '{win['title']}' to foreground."
-        return f"No visible window matching '{title_query}' found."
+        from laya.tools.win32_utils import bring_window_to_front
+        ok, msg = bring_window_to_front(title_query)
+        return msg
 
     def close_window(self, title_query: str) -> str:
-        q = title_query.lower()
-        windows = self.list_windows()
-        for win in windows:
-            if q in win["title"].lower():
-                hwnd = win["hwnd"]
-                win32gui.PostMessage(hwnd, win32con.WM_CLOSE, 0, 0)
-                return f"Closed window '{win['title']}'."
-        return f"Window matching '{title_query}' not found."
+        from laya.tools.win32_utils import close_window_by_query
+        ok, msg = close_window_by_query(title_query)
+        return msg
 
     # -------------------------------------------------------------
     # 2. UI Automation (UIA) Tree Inspection & Clicking

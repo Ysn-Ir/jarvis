@@ -180,6 +180,166 @@ class ComputerUseTools:
             return f"Failed capturing screenshot: {e}"
 
 
+    def draw_shape(
+        self,
+        shape_type: str = "circle",
+        center_x: Optional[int] = None,
+        center_y: Optional[int] = None,
+        radius: int = 80,
+        custom_points: Optional[List[Tuple[int, int]]] = None
+    ) -> str:
+        """
+        Draw parametric geometric shapes or sketches in MS Paint or any canvas.
+        Supported shapes: 'circle', 'heart', 'spiral', 'star', 'square', 'triangle', 'smiley', 'flower'.
+        """
+        import math
+        try:
+            # 1. Determine drawing center
+            cx, cy = center_x, center_y
+            if cx is None or cy is None:
+                from laya.tools.win32_utils import find_window_by_query, robust_bring_to_front
+                paint_win = find_window_by_query("paint")
+                if paint_win:
+                    robust_bring_to_front(paint_win["hwnd"])
+                    time.sleep(0.15)
+                    rect = paint_win["rect"]
+                    # MS Paint canvas is positioned below the ribbon (approx +130px from top)
+                    cx = (rect[0] + rect[2]) // 2
+                    cy = max(rect[1] + 160, (rect[1] + rect[3]) // 2 + 30)
+                else:
+                    sz = pyautogui.size()
+                    cx = sz.width // 2
+                    cy = sz.height // 2
+
+            r = max(20, min(400, int(radius)))
+            clean_shape = str(shape_type).lower().strip()
+
+            def _stroke(points_list: List[Tuple[int, int]], pause_sec: float = 0.012):
+                if not points_list:
+                    return
+                pyautogui.moveTo(int(points_list[0][0]), int(points_list[0][1]))
+                time.sleep(0.04)
+                pyautogui.mouseDown(button="left")
+                for px, py in points_list[1:]:
+                    pyautogui.moveTo(int(px), int(py))
+                    time.sleep(pause_sec)
+                pyautogui.mouseUp(button="left")
+                time.sleep(0.04)
+
+            # 2. Compute stroke coordinates
+            if custom_points:
+                _stroke(custom_points)
+                return f"Drew custom path with {len(custom_points)} points at ({cx}, {cy})."
+
+            if clean_shape in ["circle", "round", "oval"]:
+                pts = [
+                    (cx + r * math.cos(2 * math.pi * i / 40), cy + r * math.sin(2 * math.pi * i / 40))
+                    for i in range(41)
+                ]
+                _stroke(pts)
+
+            elif clean_shape in ["heart", "love"]:
+                # Parametric cardioid heart
+                scale = r / 16.0
+                pts = []
+                for i in range(50):
+                    t = 2 * math.pi * i / 49
+                    hx = cx + (16 * (math.sin(t) ** 3)) * scale
+                    hy = cy - (13 * math.cos(t) - 5 * math.cos(2 * t) - 2 * math.cos(3 * t) - math.cos(4 * t)) * scale
+                    pts.append((hx, hy))
+                _stroke(pts)
+
+            elif clean_shape in ["spiral"]:
+                pts = []
+                loops = 3
+                steps = 60
+                for i in range(steps + 1):
+                    t = (2 * math.pi * loops) * (i / steps)
+                    cur_r = (i / steps) * r
+                    pts.append((cx + cur_r * math.cos(t), cy + cur_r * math.sin(t)))
+                _stroke(pts)
+
+            elif clean_shape in ["star"]:
+                # 5-pointed star
+                pts = []
+                inner_r = r * 0.42
+                for i in range(11):
+                    angle = (i * math.pi / 5) - math.pi / 2
+                    cur_r = r if i % 2 == 0 else inner_r
+                    pts.append((cx + cur_r * math.cos(angle), cy + cur_r * math.sin(angle)))
+                _stroke(pts, pause_sec=0.03)
+
+            elif clean_shape in ["square", "rectangle", "box"]:
+                pts = [
+                    (cx - r, cy - r),
+                    (cx + r, cy - r),
+                    (cx + r, cy + r),
+                    (cx - r, cy + r),
+                    (cx - r, cy - r),
+                ]
+                _stroke(pts, pause_sec=0.04)
+
+            elif clean_shape in ["triangle"]:
+                pts = [
+                    (cx, cy - r),
+                    (cx + int(r * 0.866), cy + int(r * 0.5)),
+                    (cx - int(r * 0.866), cy + int(r * 0.5)),
+                    (cx, cy - r),
+                ]
+                _stroke(pts, pause_sec=0.04)
+
+            elif clean_shape in ["smiley", "smile", "happy"]:
+                # 1. Outer Face
+                face_pts = [
+                    (cx + r * math.cos(2 * math.pi * i / 36), cy + r * math.sin(2 * math.pi * i / 36))
+                    for i in range(37)
+                ]
+                _stroke(face_pts)
+                # 2. Left Eye
+                eye_r = max(4, r // 8)
+                left_eye_cx, left_eye_cy = cx - r // 3, cy - r // 4
+                eye_pts = [
+                    (left_eye_cx + eye_r * math.cos(2 * math.pi * i / 12), left_eye_cy + eye_r * math.sin(2 * math.pi * i / 12))
+                    for i in range(13)
+                ]
+                _stroke(eye_pts, pause_sec=0.005)
+                # 3. Right Eye
+                right_eye_cx, right_eye_cy = cx + r // 3, cy - r // 4
+                eye_pts_r = [
+                    (right_eye_cx + eye_r * math.cos(2 * math.pi * i / 12), right_eye_cy + eye_r * math.sin(2 * math.pi * i / 12))
+                    for i in range(13)
+                ]
+                _stroke(eye_pts_r, pause_sec=0.005)
+                # 4. Smile Arc
+                smile_pts = []
+                smile_r = int(r * 0.6)
+                for i in range(21):
+                    angle = math.pi * 0.15 + (math.pi * 0.70) * (i / 20)
+                    smile_pts.append((cx + smile_r * math.cos(angle), cy + smile_r * math.sin(angle) - r // 8))
+                _stroke(smile_pts, pause_sec=0.015)
+
+            elif clean_shape in ["flower", "rose"]:
+                pts = []
+                for i in range(80):
+                    t = 2 * math.pi * i / 79
+                    cur_r = r * math.cos(4 * t)
+                    pts.append((cx + cur_r * math.cos(t), cy + cur_r * math.sin(t)))
+                _stroke(pts)
+
+            else:
+                # Default to circle
+                pts = [
+                    (cx + r * math.cos(2 * math.pi * i / 36), cy + r * math.sin(2 * math.pi * i / 36))
+                    for i in range(37)
+                ]
+                _stroke(pts)
+
+            return f"Successfully drew a {clean_shape} (radius {r}px) on canvas at ({cx}, {cy})."
+        except Exception as e:
+            return f"Failed drawing shape: {e}"
+
+
 def get_computer_use_tools() -> ComputerUseTools:
     return ComputerUseTools.get_instance()
+
 

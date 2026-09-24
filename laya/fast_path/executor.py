@@ -205,6 +205,29 @@ class FastPathExecutor:
             return "Closed active window."
         return "No active window found."
 
+    def bring_to_front(self, app_or_title: str) -> str:
+        """Bring a specific application or window to the front with active focus."""
+        from laya.tools.win32_utils import bring_window_to_front
+        ok, msg = bring_window_to_front(app_or_title)
+        if not ok:
+            # If not already open, try launching it
+            return self.open_app(app_or_title)
+        return msg
+
+    def close_window(self, title_keyword: str) -> str:
+        """Close an open window matching the specified keyword."""
+        from laya.tools.win32_utils import close_window_by_query
+        ok, msg = close_window_by_query(title_keyword)
+        if not ok:
+            # Fall back to process termination
+            return self.close_app(title_keyword)
+        return msg
+
+    def organize_windows(self, layout: str = "grid", target_apps: Optional[list] = None) -> str:
+        """Organize open desktop windows into a specified geometric layout (grid, split, columns, cascade, focus)."""
+        from laya.tools.window_organizer import get_window_organizer
+        return get_window_organizer().organize(layout=layout, target_apps=target_apps)
+
     def close_app(self, process_name: str) -> str:
         key = process_name.lower().strip()
         if not key.endswith(".exe"):

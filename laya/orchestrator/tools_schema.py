@@ -97,6 +97,58 @@ TOOLS_SCHEMA: List[Dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "organize_windows",
+            "description": "Organize and tile open desktop application windows into a specified clean geometric layout ('grid', 'split', 'columns', 'golden_ratio', 'cascade', 'focus', 'creative').",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "layout": {
+                        "type": "string",
+                        "enum": ["grid", "split", "columns", "golden_ratio", "cascade", "focus", "creative"],
+                        "description": "Geometric layout pattern to arrange open windows"
+                    },
+                    "apps": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional specific application names or titles to include in the arrangement"
+                    }
+                }
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "draw_shape",
+            "description": "Draw parametric geometric figures and sketches (circle, heart, spiral, star, square, triangle, smiley, flower) directly onto the MS Paint canvas or active drawing window.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "shape_type": {
+                        "type": "string",
+                        "enum": ["circle", "heart", "spiral", "star", "square", "triangle", "smiley", "flower"],
+                        "description": "Type of geometric shape or sketch to draw"
+                    },
+                    "radius": {
+                        "type": "integer",
+                        "description": "Radius or size of the shape in pixels (default: 80)"
+                    },
+                    "center_x": {
+                        "type": "integer",
+                        "description": "Optional center X pixel coordinate (auto-detected if omitted)"
+                    },
+                    "center_y": {
+                        "type": "integer",
+                        "description": "Optional center Y pixel coordinate (auto-detected if omitted)"
+                    }
+                },
+                "required": ["shape_type"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "close_app",
             "description": "Close an application by process name or active window.",
             "parameters": {
