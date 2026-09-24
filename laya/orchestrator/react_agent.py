@@ -171,7 +171,7 @@ class ReActAgent:
         query: str,
         tool_dispatcher: Any,
         history: Optional[List[Dict[str, str]]] = None,
-        max_steps: int = 4,
+        max_steps: int = 2,
         step_callback: Optional[Callable[[str], None]] = None,
     ) -> Tuple[str, str]:
         """
@@ -199,14 +199,14 @@ class ReActAgent:
             try:
                 return self._run_groq_loop(messages, tool_dispatcher, max_steps, step_callback=step_callback)
             except Exception as e:
-                print(f"[ReActAgent] Groq attempt failed ({e}), falling back to OpenRouter 70B...")
+                print(f"[ReActAgent] Groq attempt failed ({e})...")
 
-        # 2. Try OpenRouter (Llama 3.3 70B) for reliable, robust reasoning
-        if net_ok and self.openrouter_client:
+        # 2. Try OpenRouter (Llama 3.3 70B) only if valid key is set
+        if net_ok and self.openrouter_client and OPENROUTER_API_KEY and len(OPENROUTER_API_KEY) > 10:
             try:
                 return self._run_openrouter_loop(messages, tool_dispatcher, max_steps, step_callback=step_callback)
             except Exception as e:
-                print(f"[ReActAgent] OpenRouter fallback failed ({e}), falling back to local Ollama...")
+                print(f"[ReActAgent] OpenRouter fallback failed ({e})...")
 
         # 3. Try Local GPU Ollama if running (no 40s freeze if port is closed)
         if self._is_ollama_online():

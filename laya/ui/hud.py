@@ -42,6 +42,7 @@ class LayaHUD(ctk.CTk):
         self.is_processing = False
         self.is_collapsed = False
         self.current_state = "IDLE"  # IDLE, LISTENING, PROCESSING, SPEAKING
+        self._meme_dismiss_timer = None
 
         # Geometry Settings
         self.title("Laya AI")
@@ -218,7 +219,7 @@ class LayaHUD(ctk.CTk):
 
         self.query_text = ctk.CTkLabel(
             self.bubble_frame,
-            text="Listening for voice... (Say 'Hey Laya' or 'Jarvis')",
+            text="Listening for voice... (Say 'Hey Laya')",
             font=ctk.CTkFont(family="Segoe UI", size=12, slant="italic"),
             text_color=self.CLR_TEXT_DIM,
             wraplength=400,
@@ -256,64 +257,6 @@ class LayaHUD(ctk.CTk):
         )
         self.step_box.pack(fill="x", padx=6, pady=(0, 6))
         self.step_box.insert("end", "Autonomous desktop agent online. RTX 4050 active.\n")
-        # B2. Center Meme Spotlight Card (Pops up in the middle when a reaction is triggered!)
-        self.center_meme_spotlight = ctk.CTkFrame(
-            self.body_container,
-            fg_color="#121218",
-            corner_radius=16,
-            border_width=2,
-            border_color="#10b981",
-        )
-
-        self.center_meme_inner = ctk.CTkFrame(
-            self.center_meme_spotlight,
-            fg_color="transparent",
-        )
-        self.center_meme_inner.pack(padx=16, pady=10)
-
-        self.center_meme_img = ctk.CTkLabel(
-            self.center_meme_inner,
-            text="",
-            width=84,
-            height=84,
-        )
-        self.center_meme_img.pack(side="left", padx=(0, 14))
-
-        self.center_meme_text_box = ctk.CTkFrame(
-            self.center_meme_inner,
-            fg_color="transparent",
-        )
-        self.center_meme_text_box.pack(side="left", fill="both", expand=True)
-
-        self.center_meme_title = ctk.CTkLabel(
-            self.center_meme_text_box,
-            text="✦ GIGACHAD ✦",
-            font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"),
-            text_color="#ffffff",
-            anchor="w",
-        )
-        self.center_meme_title.pack(anchor="w")
-
-        self.center_meme_tagline = ctk.CTkLabel(
-            self.center_meme_text_box,
-            text="BASED MOMENT",
-            font=ctk.CTkFont(family="Segoe UI", size=9, weight="bold"),
-            text_color="#10b981",
-            anchor="w",
-        )
-        self.center_meme_tagline.pack(anchor="w", pady=(1, 0))
-
-        self.center_meme_caption = ctk.CTkLabel(
-            self.center_meme_text_box,
-            text="\"Absolute cinema. Pure GigaChad energy, sir.\"",
-            font=ctk.CTkFont(family="Segoe UI", size=11, slant="italic"),
-            text_color="#d1d5db",
-            anchor="w",
-            wraplength=250,
-            justify="left",
-        )
-        self.center_meme_caption.pack(anchor="w", pady=(3, 0))
-
         # C. Assistant Response Card
         self.result_container = ctk.CTkFrame(
             self.body_container,
@@ -324,7 +267,6 @@ class LayaHUD(ctk.CTk):
         )
         self.result_container.pack(fill="both", expand=True, pady=(0, 6))
 
-        # Response header frame with embedded meme reaction badge
         self.response_header_frame = ctk.CTkFrame(self.result_container, fg_color="transparent")
         self.response_header_frame.pack(fill="x", padx=10, pady=(6, 2))
 
@@ -335,47 +277,6 @@ class LayaHUD(ctk.CTk):
             text_color=self.CLR_SILVER,
         )
         self.result_header.pack(side="left")
-
-        # Reaction Badge Widget (Image + Title + Subtitle) - hidden by default, pops only for reactions
-        self.reaction_frame = ctk.CTkFrame(
-            self.response_header_frame,
-            fg_color="#181820",
-            corner_radius=12,
-            border_width=2,
-            border_color="#3b82f6",
-        )
-
-        self.reaction_img_label = ctk.CTkLabel(
-            self.reaction_frame,
-            text="",
-            width=46,
-            height=46,
-        )
-        self.reaction_img_label.pack(side="left", padx=(6, 4), pady=4)
-
-        self.reaction_text_frame = ctk.CTkFrame(
-            self.reaction_frame,
-            fg_color="transparent",
-        )
-        self.reaction_text_frame.pack(side="left", padx=(2, 10), pady=4)
-
-        self.reaction_tag = ctk.CTkLabel(
-            self.reaction_text_frame,
-            text="",
-            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
-            text_color=self.CLR_WHITE,
-            anchor="w",
-        )
-        self.reaction_tag.pack(anchor="w")
-
-        self.reaction_desc = ctk.CTkLabel(
-            self.reaction_text_frame,
-            text="",
-            font=ctk.CTkFont(family="Segoe UI", size=8),
-            text_color=self.CLR_TEXT_DIM,
-            anchor="w",
-        )
-        self.reaction_desc.pack(anchor="w")
 
         self.result_box = ctk.CTkTextbox(
             self.result_container,
@@ -388,9 +289,9 @@ class LayaHUD(ctk.CTk):
         self.result_box.insert(
             "end",
             "I am ready. Try saying:\n"
-            "• 'Hey Jarvis, write print hello in Untitled.ipynb'\n"
-            "• 'Hey Jarvis, open paint and draw a circle'\n"
-            "• 'Hey Jarvis, raise the volume by 10 percent'"
+            "• 'Hey Laya, open paint and draw a circle'\n"
+            "• 'Hey Laya, open spotify and play music'\n"
+            "• 'Hey Laya, raise the volume by 10 percent'"
         )
         self.result_box.configure(state="disabled")
 
@@ -423,7 +324,7 @@ class LayaHUD(ctk.CTk):
         # Text Prompt Field
         self.input_field = ctk.CTkEntry(
             self.input_pill,
-            placeholder_text="Ask Jarvis or type a command...",
+            placeholder_text="Ask Laya or type a command...",
             fg_color="transparent",
             border_width=0,
             text_color=self.CLR_WHITE,
@@ -446,6 +347,75 @@ class LayaHUD(ctk.CTk):
             command=self._on_submit_text,
         )
         self.send_btn.pack(side="right", padx=(4, 6), pady=7)
+
+        # E. Centered Floating Meme Pop Modal (Physically POPS on top in center, not a static holder)
+        self.meme_pop_modal = ctk.CTkFrame(
+            self,
+            fg_color="#0c0c12",
+            corner_radius=20,
+            border_width=3,
+            border_color="#10b981",
+            width=340,
+            height=270,
+        )
+        self.meme_pop_modal.pack_propagate(False)
+
+        # Close button in top-right corner
+        self.meme_close_btn = ctk.CTkButton(
+            self.meme_pop_modal,
+            text="✕",
+            width=24,
+            height=24,
+            fg_color="#181820",
+            hover_color="#e11d48",
+            text_color="#9ca3af",
+            font=ctk.CTkFont(size=11, weight="bold"),
+            corner_radius=12,
+            command=self._hide_meme_modal,
+        )
+        self.meme_close_btn.place(relx=0.91, rely=0.08, anchor="center")
+
+        # Archetype Glowing Badge Pill (Top Center)
+        self.meme_badge = ctk.CTkLabel(
+            self.meme_pop_modal,
+            text="✦ GIGACHAD ✦",
+            font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
+            text_color="#10b981",
+        )
+        self.meme_badge.pack(pady=(16, 4))
+
+        # Big 110x110 High-Def Centered Avatar
+        self.meme_avatar_label = ctk.CTkLabel(
+            self.meme_pop_modal,
+            text="",
+            width=110,
+            height=110,
+        )
+        self.meme_avatar_label.pack(pady=4)
+
+        # Tagline / Subtitle
+        self.meme_subtitle = ctk.CTkLabel(
+            self.meme_pop_modal,
+            text="BASED MOMENT",
+            font=ctk.CTkFont(family="Segoe UI", size=9, weight="bold"),
+            text_color="#10b981",
+        )
+        self.meme_subtitle.pack(pady=(2, 2))
+
+        # Witty Quote
+        self.meme_quote = ctk.CTkLabel(
+            self.meme_pop_modal,
+            text='"Absolute cinema. Pure based energy!"',
+            font=ctk.CTkFont(family="Segoe UI", size=11, slant="italic"),
+            text_color="#e5e7eb",
+            wraplength=290,
+            justify="center",
+        )
+        self.meme_quote.pack(pady=(2, 8))
+
+        # Clicking modal dismisses it
+        self.meme_pop_modal.bind("<Button-1>", lambda e: self._hide_meme_modal())
+        self.meme_avatar_label.bind("<Button-1>", lambda e: self._hide_meme_modal())
 
     # -------------------------------------------------------------
     # 3. Monochromatic Audio Waveform Visualizer
@@ -623,8 +593,8 @@ class LayaHUD(ctk.CTk):
     def _start_command_execution(self, query: str):
         # Silence speech and clear previous meme reaction before executing new command
         self.tts.stop()
-        self.center_meme_spotlight.pack_forget()
-        self.reaction_frame.pack_forget()
+        self._hide_meme_modal()
+        # reaction_frame removed
         self.last_query = query
         self._expand_if_collapsed()
         if self.wake_detector:
@@ -696,7 +666,7 @@ class LayaHUD(ctk.CTk):
                 elif kind == "reset_idle":
                     self.current_state = "IDLE"
                     self._set_state_badge("● READY", self.CLR_SILVER, "#18181c")
-                    self.query_text.configure(text="Listening for voice... (Say 'Hey Laya' or 'Jarvis')", text_color=self.CLR_TEXT_DIM)
+                    self.query_text.configure(text="Listening for voice... (Say 'Hey Laya')", text_color=self.CLR_TEXT_DIM)
                     if self.wake_detector:
                         self.wake_detector.resume()
 
@@ -713,7 +683,7 @@ class LayaHUD(ctk.CTk):
         if self.current_state == "SPEAKING" and not self.tts.is_speaking():
             self.current_state = "IDLE"
             self._set_state_badge("● READY", self.CLR_SILVER, "#18181c")
-            self.query_text.configure(text="Listening for voice... (Say 'Hey Laya' or 'Jarvis')", text_color=self.CLR_TEXT_DIM)
+            self.query_text.configure(text="Listening for voice... (Say 'Hey Laya')", text_color=self.CLR_TEXT_DIM)
 
         self.after(35, self._drain_queue)
 
@@ -732,7 +702,7 @@ class LayaHUD(ctk.CTk):
             "title": "✦ GIGACHAD ✦",
             "desc": "BASED MOMENT",
             "border": "#10b981",
-            "quote": "Absolute cinema. Pure GigaChad energy, sir.",
+            "quote": "Absolute cinema. Pure based energy!",
         },
         "monkas": {
             "title": "⚠️ MONKAS ⚠️",
@@ -744,32 +714,65 @@ class LayaHUD(ctk.CTk):
             "title": "☕ CHUDJAK ☕",
             "desc": "SPICY HOT TAKE",
             "border": "#f59e0b",
-            "quote": "Nothing ever happens, sir. Absolute cinema.",
+            "quote": "Nothing ever happens. Absolute cinema.",
         },
         "wojak": {
             "title": "🌧️ WOJAK 🌧️",
-            "desc": "FEELS GUY / 3 AM",
+            "desc": "FEELS GUY",
             "border": "#6366f1",
-            "quote": "Feels bad man. Real Wojak 3 AM hours.",
+            "quote": "Feels bad man. True 3 AM thoughts.",
         },
         "soyjak": {
             "title": "😲 SOYJAK 😲",
             "desc": "MIND BLOWN",
             "border": "#ec4899",
-            "quote": "Holy soy! Pointing at the screen right now.",
+            "quote": "Mind blown! Pointing at the screen right now!",
         },
         "pepe": {
             "title": "🐸 PEPE 🐸",
-            "desc": "FEELS GOOD MAN",
+            "desc": "FEELS GOOD",
             "border": "#22c55e",
-            "quote": "Feels good man. Pepe approved.",
+            "quote": "Feels good man. Pepe certified!",
         },
     }
 
+    def _hide_meme_modal(self):
+        if hasattr(self, "_meme_dismiss_timer") and self._meme_dismiss_timer:
+            try:
+                self.after_cancel(self._meme_dismiss_timer)
+            except Exception:
+                pass
+            self._meme_dismiss_timer = None
+        if hasattr(self, "meme_pop_modal"):
+            self.meme_pop_modal.place_forget()
+
+    def _show_meme_pop_modal(self, clean: str, meta: dict):
+        self._hide_meme_modal()
+        try:
+            avatar_img = self.meme_engine.get_ctk_image(clean, size=(110, 110))
+            if avatar_img:
+                self.meme_avatar_label.configure(image=avatar_img)
+            self.meme_badge.configure(text=meta["title"], text_color=meta["border"])
+            self.meme_subtitle.configure(text=meta["desc"], text_color=meta["border"])
+            self.meme_quote.configure(text=f'"{meta.get("quote", "")}"')
+            self.meme_pop_modal.configure(border_color=meta["border"])
+
+            # Physically POP in center over the HUD
+            self.meme_pop_modal.place(relx=0.5, rely=0.50, anchor="center")
+            self.meme_pop_modal.lift()
+
+            # Play music
+            play_meme_audio(clean)
+
+            # Auto-dismiss after 4.5s
+            self._meme_dismiss_timer = self.after(4500, self._hide_meme_modal)
+        except Exception as e:
+            print(f"[Meme Pop Note] {e}")
+            self._hide_meme_modal()
+
     def _update_reaction_badge(self, reaction_name: Optional[str]):
         if not reaction_name:
-            self.center_meme_spotlight.pack_forget()
-            self.reaction_frame.pack_forget()
+            self._hide_meme_modal()
             return
 
         clean = reaction_name.lower().strip()
@@ -779,33 +782,7 @@ class LayaHUD(ctk.CTk):
             "border": "#3b82f6",
             "quote": "Contextual reaction.",
         })
-
-        try:
-            # 1. Update Center Spotlight Card (Large 84x84 portrait in the middle)
-            center_img = self.meme_engine.get_ctk_image(clean, size=(84, 84))
-            if center_img:
-                self.center_meme_img.configure(image=center_img)
-            self.center_meme_title.configure(text=meta["title"])
-            self.center_meme_tagline.configure(text=meta["desc"], text_color=meta["border"])
-            self.center_meme_caption.configure(text=f'"{meta.get("quote", "")}"')
-            self.center_meme_spotlight.configure(border_color=meta["border"])
-            self.center_meme_spotlight.pack(fill="x", pady=(0, 6), before=self.result_container)
-
-            # 2. Update Header Badge
-            ctk_img = self.meme_engine.get_ctk_image(clean, size=(46, 46))
-            if ctk_img:
-                self.reaction_img_label.configure(image=ctk_img)
-            self.reaction_tag.configure(text=meta["title"])
-            self.reaction_desc.configure(text=meta["desc"])
-            self.reaction_frame.configure(border_color=meta["border"])
-            self.reaction_frame.pack(side="right", padx=(0, 6))
-
-            # 3. Play authentic real meme music track!
-            play_meme_audio(clean)
-        except Exception as e:
-            print(f"[Meme Spotlight Note] {e}")
-            self.center_meme_spotlight.pack_forget()
-            self.reaction_frame.pack_forget()
+        self._show_meme_pop_modal(clean, meta)
 
     def _play_startup_greeting(self):
         try:

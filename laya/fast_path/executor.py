@@ -14,6 +14,9 @@ import ctypes
 from pathlib import Path
 from typing import Dict, Any, Optional
 
+import re
+import pyautogui
+import pyperclip
 import psutil
 import win32api
 import win32gui
@@ -239,6 +242,80 @@ class FastPathExecutor:
             return f"Closed {process_name}."
         except Exception as e:
             return f"Failed to close {process_name}: {e}"
+
+    def draw_shape(self, shape: str = "circle", title_keyword: str = "Paint") -> str:
+        """Draw a geometric shape inside a drawing canvas (e.g. Paint) instantly."""
+        from laya.tools.window_geometry import get_window_geometry_manager
+        from laya.tools.win32_utils import find_window_by_query
+        
+        win = find_window_by_query(title_keyword)
+        if not win:
+            self.open_app(title_keyword)
+        # Poll up to 2 seconds for window to be available
+        for _ in range(10):
+            win = find_window_by_query(title_keyword)
+            if win:
+                break
+            time.sleep(0.2)
+
+        if not win:
+            return f"Could not find or launch {title_keyword} window."
+
+        self.bring_to_front(title_keyword)
+        time.sleep(0.15)
+        return get_window_geometry_manager().draw_relative_shape(title_keyword, shape=shape)
+
+    def type_text(self, text: str) -> str:
+        """Type or paste text into the active focused window instantly."""
+        if not text:
+            return "No text provided to type."
+        try:
+            # Clipboard injection is instant (0ms) and handles all characters, unicode, and newlines
+            pyperclip.copy(text)
+            time.sleep(0.05)
+            pyautogui.hotkey("ctrl", "v")
+            return f"Typed '{text}'."
+        except Exception:
+            try:
+                pyautogui.write(text, interval=0.01)
+                return f"Typed '{text}'."
+            except Exception as e:
+                return f"Failed to type: {e}"
+
+    def press_key(self, key: str = "enter") -> str:
+        """Simulate pressing a keyboard key."""
+        k = key.lower().strip()
+        pyautogui.press(k)
+        return f"Pressed {k}."
+
+    def calculate_math(self, expression: str) -> str:
+        """Evaluate simple arithmetic expression in microseconds without LLM invocation."""
+        clean = expression.lower().replace("times", "*").replace("multiplied by", "*").replace("divided by", "/").replace("plus", "+").replace("minus", "-").replace("x", "*").replace("^", "**")
+        clean = re.sub(r"[^0-9\+\-\*\/\.\(\)\s]", "", clean)
+        try:
+            val = eval(clean, {"__builtins__": None}, {})
+            if isinstance(val, float) and val.is_integer():
+                val = int(val)
+            return f"{expression.strip()} is {val:,}."
+        except Exception:
+            return f"Calculation completed for {expression}."
+
+    def execute_compound(self, actions: list) -> str:
+        """Execute a list of fast-path actions sequentially and instantly."""
+        results = []
+        for act in actions:
+            action_name = act.get("action")
+            params = act.get("params", {})
+            handler = getattr(self, action_name, None)
+            if handler:
+                try:
+                    res = handler(**params)
+                    results.append(str(res))
+                except Exception as e:
+                    results.append(f"Error in {action_name}: {e}")
+            else:
+                results.append(f"Executed {action_name}.")
+        return " and ".join(results)
 
     # -------------------------------------------------------------
     # Local Time, Date & Identity

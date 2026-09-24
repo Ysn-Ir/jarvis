@@ -149,7 +149,7 @@ def robust_bring_to_front(hwnd: int) -> bool:
             win32gui.ShowWindow(hwnd, win32con.SW_SHOW)
 
         fore_hwnd = win32gui.GetForegroundWindow()
-        cur_thread_id = win32process.GetCurrentThreadId()
+        cur_thread_id = win32api.GetCurrentThreadId()
         fore_thread_id = win32process.GetWindowThreadProcessId(fore_hwnd)[0] if fore_hwnd else cur_thread_id
         target_thread_id = win32process.GetWindowThreadProcessId(hwnd)[0]
 

@@ -18,9 +18,8 @@ from typing import Optional
 import pygame
 import pyttsx3
 
-from laya.config import TTS_ENGINE, TTS_RATE, TTS_VOLUME, ROOT_DIR
+from laya.config import TTS_ENGINE, TTS_RATE, TTS_VOLUME, ROOT_DIR, EDGE_TTS_VOICE
 
-EDGE_TTS_VOICE = os.getenv("EDGE_TTS_VOICE", "en-US-ChristopherNeural")
 CACHE_DIR = ROOT_DIR / "data" / "tts_cache"
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 

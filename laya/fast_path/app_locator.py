@@ -158,6 +158,8 @@ class AppLocator:
             "vs code": "code",
             "visual studio code": "code",
             "notepad": "notepad.exe",
+            "paint": "mspaint.exe",
+            "mspaint": "mspaint.exe",
             "calc": "calc.exe",
             "calculator": "calc.exe",
             "spotify": "spotify",
@@ -168,7 +170,7 @@ class AppLocator:
                 try:
                     if target_path.endswith(".exe") and os.path.exists(target_path):
                         os.startfile(target_path)
-                    elif "--processStart" in target_path or target_path in ["code", "spotify", "notepad.exe", "calc.exe", "whatsapp:"]:
+                    elif "--processStart" in target_path or target_path in ["code", "spotify", "notepad.exe", "calc.exe", "mspaint.exe", "whatsapp:"]:
                         subprocess.Popen(target_path, shell=True)
                     else:
                         os.startfile(target_path)

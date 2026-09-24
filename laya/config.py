@@ -20,20 +20,20 @@ MEMORY_DB_PATH = DATA_DIR / "laya_memory.db"
 
 # LLM Providers (Dual-Backend: Cloud Ultra-Fast Groq + Local Private Ollama)
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-# Default to Groq Flagship 120B (openai/gpt-oss-120b) for deep reasoning (<900ms); openai/gpt-oss-20b (<600ms) for fast fallback
-GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
-GROQ_FALLBACK_MODEL = os.getenv("GROQ_FALLBACK_MODEL", "openai/gpt-oss-20b")
-GROQ_TIMEOUT_SEC = 10.0
+# Default to ultra-fast Groq 20B (openai/gpt-oss-20b) for sub-300ms reflex speed; 120B fallback
+GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-20b")
+GROQ_FALLBACK_MODEL = os.getenv("GROQ_FALLBACK_MODEL", "openai/gpt-oss-120b")
+GROQ_TIMEOUT_SEC = 4.0
 
 # Optional OpenRouter Provider fallback
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct")
-OPENROUTER_TIMEOUT_SEC = 15.0
+OPENROUTER_TIMEOUT_SEC = 6.0
 
 OLLAMA_BASE_URL = "http://localhost:11434/v1"
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "mistral:7b")
-OLLAMA_TIMEOUT_SEC = 10.0
+OLLAMA_TIMEOUT_SEC = 6.0
 
 
 # Audio Pipeline Settings
@@ -42,10 +42,10 @@ AUDIO_CHANNELS = 1
 AUDIO_BLOCK_SIZE = 1024
 
 # Voice Activity Detection (VAD) Settings
-# 1.6s of trailing silence allows natural human speech pauses without cutting off
+# 0.85s of trailing silence provides instant reflex response without hanging
 VAD_ENERGY_THRESHOLD = 0.005       # Speech onset sensitivity
-VAD_SILENCE_LIMIT_SEC = 1.6        # Generous silence window before finalizing speech
-VAD_MIN_SPEECH_SEC = 0.30         # Minimum speech length to avoid noise spikes
+VAD_SILENCE_LIMIT_SEC = 0.85       # Snappy reflex silence limit
+VAD_MIN_SPEECH_SEC = 0.25         # Minimum speech length to avoid noise spikes
 
 # Speech-to-Text (STT) Settings
 WHISPER_MODEL_NAME = os.getenv("WHISPER_MODEL", "small.en")
@@ -53,9 +53,9 @@ WHISPER_DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 WHISPER_COMPUTE_TYPE = "float16" if torch.cuda.is_available() else "int8"
 
 # Text-to-Speech (TTS) Settings
-TTS_ENGINE = os.getenv("TTS_ENGINE", "edge-tts")      # "edge-tts" (Neural JARVIS) with "sapi5" fallback
-EDGE_TTS_VOICE = os.getenv("EDGE_TTS_VOICE", "en-US-ChristopherNeural")  # Neural JARVIS voice
-TTS_RATE = 190                    # Conversational speaking rate (words/min)
+TTS_ENGINE = os.getenv("TTS_ENGINE", "edge-tts")      # "edge-tts" (Neural Laya) with "sapi5" fallback
+EDGE_TTS_VOICE = os.getenv("EDGE_TTS_VOICE", "en-US-AriaNeural")  # Sleek, charismatic Laya voice
+TTS_RATE = 195                    # Conversational speaking rate (words/min)
 TTS_VOLUME = 1.0
 
 # Latency Budgets (ms)

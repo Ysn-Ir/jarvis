@@ -25,12 +25,12 @@ SOUNDS_DIR = ROOT_DIR / "data" / "sounds"
 SAMPLE_RATE = 44100
 
 VOICE_MEME_QUIPS = {
-    "gigachad": "Absolute cinema. Pure GigaChad energy, sir. ",
-    "monkas": "MonkaS... Sweating intensely over here. ",
-    "chudjak": "Chudjak take detected. Nothing ever happens, sir. ",
-    "wojak": "Feels bad man. Real Wojak 3 AM hours. ",
-    "soyjak": "Holy soy! Pointing at the screen in pure excitement. ",
-    "pepe": "Feels good man. Pepe approved. ",
+    "gigachad": "Absolute cinema. Pure based energy! ",
+    "monkas": "MonkaS... Sweating intensely over here! ",
+    "chudjak": "Chudjak take detected. Nothing ever happens! ",
+    "wojak": "Feels bad man. True 3 AM thoughts. ",
+    "soyjak": "Mind blown! Pointing at the screen right now! ",
+    "pepe": "Feels good. Pepe certified! ",
 }
 
 
