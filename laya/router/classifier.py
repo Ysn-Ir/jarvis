@@ -278,17 +278,45 @@ class IntentRouter:
             target_f = delete_file_match.group(1).strip()
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="delete_file", params={"filename_or_path": target_f})
 
-        # 8. WhatsApp Direct Calling & Messaging (<0.0ms)
-        wa_call_match = re.search(r"\b(?:call|phone|ring)\s+(.+?)\s+(?:on|via|through)\s+whatsapp\b|\bwhatsapp\s+call\s+(.+)\b", text)
+        # 8. WhatsApp & Telegram Calling & Messaging (<0.0ms)
+        # WhatsApp Calling
+        wa_call_match = re.search(r"\b(?:make\s+a\s+)?(?:voice\s+|video\s+)?(?:call|ring|phone)\s+(?:to\s+)?(.+?)\s+(?:on|via|through)\s+whatsapp\b|\b(?:make\s+a\s+)?whatsapp\s+(?:voice\s+|video\s+)?call\s+(?:to\s+)?(.+)\b", text, re.I)
         if wa_call_match:
             target_c = (wa_call_match.group(1) or wa_call_match.group(2) or "").strip()
-            return RouteDecision(path=ExecutionPath.FAST_PATH, action="whatsapp_call", params={"contact": target_c})
+            call_type = "video" if "video" in text.lower() else "voice"
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="whatsapp_call", params={"contact": target_c, "call_type": call_type})
 
-        wa_msg_match = re.search(r"\b(?:message|text|send\s+whatsapp\s+to)\s+(.+?)\s+(?:on|via)\s+whatsapp\s*(?:saying\s+|with\s+)?(.*)", text)
+        # Telegram Calling
+        tg_call_match = re.search(r"\b(?:make\s+a\s+)?(?:voice\s+|video\s+)?(?:call|ring|phone)\s+(?:to\s+)?(.+?)\s+(?:on|via|through)\s+telegram\b|\b(?:make\s+a\s+)?telegram\s+(?:voice\s+|video\s+)?call\s+(?:to\s+)?(.+)\b", text, re.I)
+        if tg_call_match:
+            target_c = (tg_call_match.group(1) or tg_call_match.group(2) or "").strip()
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="telegram_call", params={"contact": target_c})
+
+        # WhatsApp Messaging
+        wa_msg_match = re.search(r"\b(?:send\s+(?:a\s+)?message\s+(?:to\s+)?|message\s+|text\s+)(.+?)\s+(?:on|via|through)\s+whatsapp\s*(?:saying\s+|that\s+|with\s+|:\s*)?(.*)", text, re.I)
         if wa_msg_match:
             target_c = wa_msg_match.group(1).strip()
             target_m = wa_msg_match.group(2).strip() or "Hello from Laya"
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="whatsapp_message", params={"contact": target_c, "message": target_m})
+
+        wa_quick_match = re.search(r"\b(?:send\s+whatsapp\s+to|whatsapp)\s+([a-zA-Z0-9_\-\.]+)\s+(?:saying\s+|that\s+|with\s+|:\s*)?(.*)", text, re.I)
+        if wa_quick_match:
+            target_c = wa_quick_match.group(1).strip()
+            target_m = wa_quick_match.group(2).strip() or "Hello from Laya"
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="whatsapp_message", params={"contact": target_c, "message": target_m})
+
+        # Telegram Messaging
+        tg_msg_match = re.search(r"\b(?:send\s+(?:a\s+)?message\s+(?:to\s+)?|message\s+|text\s+)(.+?)\s+(?:on|via|through)\s+telegram\s*(?:saying\s+|that\s+|with\s+|:\s*)?(.*)", text, re.I)
+        if tg_msg_match:
+            target_c = tg_msg_match.group(1).strip()
+            target_m = tg_msg_match.group(2).strip() or "Hello from Laya"
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="telegram_message", params={"contact": target_c, "message": target_m})
+
+        tg_quick_match = re.search(r"\b(?:send\s+telegram\s+to|telegram)\s+([a-zA-Z0-9_\-\.]+)\s+(?:saying\s+|that\s+|with\s+|:\s*)?(.*)", text, re.I)
+        if tg_quick_match:
+            target_c = tg_quick_match.group(1).strip()
+            target_m = tg_quick_match.group(2).strip() or "Hello from Laya"
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="telegram_message", params={"contact": target_c, "message": target_m})
 
         # 9. App Shifting, Window Splitting & Geometry (<0.0ms)
         shift_app_match = re.search(r"\b(?:shift\s+to|switch\s+to|focus|bring\s+up|go\s+to|bring\s+to\s+front)\s+(?:the\s+)?([a-zA-Z0-9\s_\-\.]+?)(?:\s+window|\s+app)?$", text)
@@ -404,6 +432,17 @@ class IntentRouter:
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="who_am_i")
         if any(w in text for w in ["who are you", "what is your name", "who made you"]):
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="query_identity")
+
+        # 20. System Power (Red Tier) (<0.0ms)
+        if any(w in text for w in ["shut down the computer", "shutdown computer", "turn off the pc", "turn off computer", "shut down pc", "restart computer", "reboot pc", "reboot computer"]):
+            return RouteDecision(
+                path=ExecutionPath.FAST_PATH,
+                action="shutdown_system" if any(w in text for w in ["shut", "off"]) else "restart_system",
+                params={},
+                safety_tier="RED",
+                confidence=1.0,
+                reasoning="Requires user confirmation before power action."
+            )
 
         return None
 

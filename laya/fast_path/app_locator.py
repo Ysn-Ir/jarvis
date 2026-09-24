@@ -164,15 +164,16 @@ class AppLocator:
             "calculator": "calc.exe",
             "spotify": "spotify",
             "whatsapp": "whatsapp:",
+            "minecraft": "minecraft:",
+            "mine craft": "minecraft:",
+            "mine cleft": "minecraft:",
+            "minecraft bedrock": "minecraft:",
         }
         for key, target_path in common_paths.items():
             if q == key or q in key or key in q:
                 try:
                     if target_path.startswith("http") or (":" in target_path and "\\" not in target_path):
-                        try:
-                            os.startfile(target_path)
-                        except Exception:
-                            subprocess.Popen(f"start {target_path}", shell=True)
+                        subprocess.Popen(f'start "" "{target_path}"', shell=True)
                     elif target_path.endswith(".exe") and os.path.exists(target_path):
                         os.startfile(target_path)
                     elif "--processStart" in target_path or target_path in ["code", "notepad.exe", "calc.exe", "mspaint.exe"]:
@@ -181,7 +182,7 @@ class AppLocator:
                         try:
                             os.startfile(target_path)
                         except Exception:
-                            subprocess.Popen(f"start {target_path}", shell=True)
+                            subprocess.Popen(f'start "" "{target_path}"', shell=True)
                     return True, f"Opening {key.title()}."
                 except Exception:
                     pass
@@ -208,7 +209,7 @@ class AppLocator:
             return True, f"Opened '{q}'."
         except Exception:
             try:
-                subprocess.Popen(f"start {q}", shell=True)
+                subprocess.Popen(f'start "" "{q}"', shell=True)
                 return True, f"Started '{q}'."
             except Exception as ex:
                 return False, f"Could not find or launch application '{name_or_query}'."

@@ -193,25 +193,15 @@ class Tier1NativeTools:
     # -------------------------------------------------------------
     # 4. WhatsApp Automation
     # -------------------------------------------------------------
+    # 4. WhatsApp & Telegram Automation
+    # -------------------------------------------------------------
     def send_whatsapp(self, contact: str, message: str) -> str:
-        import pyautogui
-        import win32clipboard
+        from laya.fast_path.executor import get_fast_path_executor
+        return get_fast_path_executor().whatsapp_message(contact=contact, message=message)
 
-        # Inject into Windows clipboard to support Unicode / Arabic / Emoji flawlessly
-        win32clipboard.OpenClipboard()
-        win32clipboard.EmptyClipboard()
-        win32clipboard.SetClipboardText(message, win32clipboard.CF_UNICODETEXT)
-        win32clipboard.CloseClipboard()
-
-        # Launch WhatsApp URI or protocol
-        url = f"whatsapp://send?text={urllib.parse.quote(message)}"
-        try:
-            os.startfile(url)
-            time.sleep(1.2)
-            pyautogui.press("enter")
-            return f"Dispatched WhatsApp message to '{contact}': {message}"
-        except Exception as e:
-            return f"WhatsApp protocol invocation returned: {e}"
+    def send_telegram(self, contact: str, message: str) -> str:
+        from laya.fast_path.executor import get_fast_path_executor
+        return get_fast_path_executor().telegram_message(contact=contact, message=message)
 
     # -------------------------------------------------------------
     # 5. Email Drafting

@@ -398,26 +398,182 @@ class FastPathExecutor:
             return "Spotify opened and playback started."
 
     # -------------------------------------------------------------
-    # WhatsApp Direct Automation
+    # WhatsApp & Telegram Direct Automation (<50ms trigger, zero LLM)
     # -------------------------------------------------------------
-    def whatsapp_call(self, contact: str) -> str:
-        """Call a contact on WhatsApp instantly."""
-        self.open_app("whatsapp")
-        time.sleep(0.6)
-        pyautogui.hotkey("ctrl", "f")
-        time.sleep(0.15)
-        pyperclip.copy(contact)
-        pyautogui.hotkey("ctrl", "v")
-        time.sleep(0.3)
-        pyautogui.press("enter")
-        time.sleep(0.3)
-        pyautogui.hotkey("ctrl", "shift", "c")
-        return f"Initiated WhatsApp call to '{contact}'."
+    def whatsapp_call(self, contact: str, call_type: str = "voice") -> str:
+        """Call a contact on WhatsApp instantly (voice or video) with zero LLM delay."""
+        contact = contact.strip()
+        from laya.tools.win32_utils import ensure_desktop_access, robust_bring_to_front, find_window_by_query
+        ensure_desktop_access()
+
+        win = find_window_by_query("whatsapp")
+        if not win or not win.get("hwnd"):
+            try:
+                os.startfile("whatsapp:")
+            except Exception:
+                subprocess.Popen('start "" "whatsapp:"', shell=True)
+            time.sleep(1.2)
+            win = find_window_by_query("whatsapp")
+
+        if win and win.get("hwnd"):
+            hwnd = win["hwnd"]
+            robust_bring_to_front(hwnd)
+            time.sleep(0.25)
+            pyautogui.press("escape")
+            time.sleep(0.1)
+            pyautogui.hotkey("ctrl", "f")
+            time.sleep(0.2)
+            pyperclip.copy(contact)
+            pyautogui.hotkey("ctrl", "v")
+            time.sleep(0.6)
+            pyautogui.press("enter")
+            time.sleep(0.5)
+
+            if "video" in call_type.lower():
+                pyautogui.hotkey("ctrl", "shift", "v")
+                return f"Initiated WhatsApp video call to '{contact}'."
+            else:
+                pyautogui.hotkey("ctrl", "shift", "c")
+                return f"Initiated WhatsApp voice call to '{contact}'."
+        else:
+            return f"Could not locate or launch WhatsApp to call '{contact}'."
 
     def whatsapp_message(self, contact: str, message: str) -> str:
-        """Message a contact on WhatsApp instantly."""
-        from laya.tools.tier1_native import get_tier1_tools
-        return get_tier1_tools().send_whatsapp(contact=contact, message=message)
+        """Send a message to a specific contact on WhatsApp instantly with zero LLM delay."""
+        contact = contact.strip()
+        message = message.strip()
+
+        # Check if contact is a direct phone number
+        digits = re.sub(r"[^\d]", "", contact)
+        if len(digits) >= 7 and (contact.startswith("+") or len(digits) == len(contact.replace(" ", "").replace("-", ""))):
+            url = f"whatsapp://send?phone={digits}&text={urllib.parse.quote(message)}"
+            try:
+                os.startfile(url)
+                time.sleep(1.0)
+                pyautogui.press("enter")
+                return f"Dispatched WhatsApp message to {contact}: '{message}'"
+            except Exception:
+                pass
+
+        # Named contact lookup via WhatsApp desktop
+        from laya.tools.win32_utils import ensure_desktop_access, robust_bring_to_front, find_window_by_query
+        ensure_desktop_access()
+
+        win = find_window_by_query("whatsapp")
+        if not win or not win.get("hwnd"):
+            try:
+                os.startfile("whatsapp:")
+            except Exception:
+                subprocess.Popen('start "" "whatsapp:"', shell=True)
+            time.sleep(1.2)
+            win = find_window_by_query("whatsapp")
+
+        if win and win.get("hwnd"):
+            hwnd = win["hwnd"]
+            robust_bring_to_front(hwnd)
+            time.sleep(0.25)
+            pyautogui.press("escape")
+            time.sleep(0.1)
+            pyautogui.hotkey("ctrl", "f")
+            time.sleep(0.2)
+            pyperclip.copy(contact)
+            pyautogui.hotkey("ctrl", "v")
+            time.sleep(0.6)
+            pyautogui.press("enter")
+            time.sleep(0.4)
+
+            if message:
+                pyperclip.copy(message)
+                pyautogui.hotkey("ctrl", "v")
+                time.sleep(0.15)
+                pyautogui.press("enter")
+                return f"Dispatched WhatsApp message to '{contact}': {message}"
+            else:
+                return f"Opened WhatsApp chat with '{contact}'."
+        else:
+            # Fallback to WhatsApp Web
+            url = f"https://web.whatsapp.com/send?text={urllib.parse.quote(message)}"
+            os.startfile(url)
+            return f"Opened WhatsApp to send message to '{contact}'."
+
+    def telegram_message(self, contact: str, message: str) -> str:
+        """Send a message to a specific contact on Telegram with zero LLM delay."""
+        contact = contact.strip()
+        message = message.strip()
+
+        from laya.tools.win32_utils import ensure_desktop_access, robust_bring_to_front, find_window_by_query
+        ensure_desktop_access()
+
+        win = find_window_by_query("telegram")
+        if win and win.get("hwnd"):
+            hwnd = win["hwnd"]
+            robust_bring_to_front(hwnd)
+            time.sleep(0.25)
+            pyautogui.press("escape")
+            time.sleep(0.1)
+            pyautogui.hotkey("ctrl", "f")
+            time.sleep(0.2)
+            pyperclip.copy(contact)
+            pyautogui.hotkey("ctrl", "v")
+            time.sleep(0.5)
+            pyautogui.press("enter")
+            time.sleep(0.3)
+            if message:
+                pyperclip.copy(message)
+                pyautogui.hotkey("ctrl", "v")
+                time.sleep(0.15)
+                pyautogui.press("enter")
+                return f"Dispatched Telegram message to '{contact}': {message}"
+            else:
+                return f"Opened Telegram chat with '{contact}'."
+
+        clean_user = contact.lstrip("@")
+        try:
+            tg_url = f"tg://msg?to={clean_user}&text={urllib.parse.quote(message)}"
+            os.startfile(tg_url)
+            return f"Dispatched Telegram message to '{contact}' via Telegram protocol."
+        except Exception:
+            pass
+
+        if clean_user:
+            web_url = f"https://t.me/{clean_user}"
+            os.startfile(web_url)
+            return f"Opened Telegram for '{contact}'."
+        else:
+            os.startfile("https://web.telegram.org")
+            return "Opened Telegram Web."
+
+    def telegram_call(self, contact: str) -> str:
+        """Call a contact on Telegram instantly with zero LLM delay."""
+        contact = contact.strip()
+
+        from laya.tools.win32_utils import ensure_desktop_access, robust_bring_to_front, find_window_by_query
+        ensure_desktop_access()
+
+        win = find_window_by_query("telegram")
+        if win and win.get("hwnd"):
+            hwnd = win["hwnd"]
+            robust_bring_to_front(hwnd)
+            time.sleep(0.25)
+            pyautogui.press("escape")
+            time.sleep(0.1)
+            pyautogui.hotkey("ctrl", "f")
+            time.sleep(0.2)
+            pyperclip.copy(contact)
+            pyautogui.hotkey("ctrl", "v")
+            time.sleep(0.5)
+            pyautogui.press("enter")
+            time.sleep(0.4)
+            pyautogui.hotkey("ctrl", "u")
+            return f"Initiated Telegram voice call to '{contact}'."
+
+        clean_user = contact.lstrip("@")
+        try:
+            os.startfile(f"tg://resolve?domain={clean_user}")
+            return f"Opened Telegram to call '{contact}'."
+        except Exception:
+            os.startfile(f"https://t.me/{clean_user}")
+            return f"Opened Telegram profile for '{contact}'."
 
     # -------------------------------------------------------------
     # Meme Reaction Trigger
