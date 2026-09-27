@@ -1,13 +1,14 @@
 """
 Laya Monochromatic Luxury Glass HUD
-State-of-the-art minimal transparent interface (Obsidian Black, Charcoal Gray, and Pure White).
+State-of-the-art minimal transparent glass interface (Obsidian Black, Charcoal Gray, and Pure White).
 Features:
-- Floating dynamic island capsule with smooth glass transparency (-alpha 0.94)
-- Minimalist monochromatic audio waveform visualizer (smooth vertical breathing bars)
-- Single-pass continuous wake word ("Clanker", "Call", "Jarvis"), dynamic VAD, and instant barge-in interrupt
+- Floating dynamic island capsule with smooth glass transparency (-alpha 0.94) and native Windows Acrylic blur
+- Fluid holographic multi-harmonic sine wave visualizer with Gaussian amplitude envelope
+- Eased height transition animation between Full HUD (450x540) & Compact Floating Island (450x64)
+- Pulsing mic glow animation during voice recording
+- Single-pass continuous wake word ("Clanker", "Call", "Jarvis"), dynamic VAD, and instant barge-in vocal interrupt
 - Native Email Checking & Executive Reporting integration (voice & one-click chip)
-- Collapsible dual-state mode: Full Glass HUD (450x540) & Compact Floating Island (450x64)
-- Instant fast-path dispatch, live step streaming, and multi-turn response readout
+- Minimalist frosted action chips, live step streaming, and multi-turn response readout
 """
 
 import sys
@@ -31,6 +32,12 @@ for stream in (sys.stdout, sys.stderr):
 
 import customtkinter as ctk
 
+try:
+    import pywinstyles
+    HAS_PYWINSTYLES = True
+except ImportError:
+    HAS_PYWINSTYLES = False
+
 from laya.audio.tts import get_tts_engine
 from laya.audio.capture import AudioCapture
 from laya.fast_path.executor import get_fast_path_executor
@@ -45,6 +52,78 @@ from laya.tools.interrupt_manager import (
 from laya.config import UI_VISIBILITY_MODE, WAKE_PHRASES
 
 
+# -------------------------------------------------------------
+# 1. Fluid Holographic Multi-Harmonic Waveform Canvas
+# -------------------------------------------------------------
+class FluidGlassWaveform(ctk.CTkCanvas):
+    def __init__(self, parent, width=130, height=28, **kwargs):
+        super().__init__(parent, width=width, height=height, bg="#0f0f13", highlightthickness=0, **kwargs)
+        self.w = width
+        self.h = height
+        self.phase = 0.0
+
+    def draw_wave(self, state="IDLE"):
+        self.delete("all")
+        mid_y = self.h / 2
+        w = self.w
+
+        if state == "LISTENING":
+            speed = 0.16
+            amp_main = 10.0
+            amp_sub = 6.0
+        elif state == "PROCESSING":
+            speed = 0.22
+            amp_main = 7.0
+            amp_sub = 5.0
+        elif state == "SPEAKING":
+            speed = 0.18
+            amp_main = 11.0
+            amp_sub = 7.0
+        elif state == "STOPPED":
+            speed = 0.02
+            amp_main = 2.0
+            amp_sub = 1.0
+        else:  # IDLE
+            speed = 0.06
+            amp_main = 4.0
+            amp_sub = 2.5
+
+        self.phase += speed
+
+        pts1 = []
+        pts2 = []
+        pts3 = []
+
+        step = 3
+        for x in range(0, w + step, step):
+            nx = (2.0 * x / w) - 1.0
+            env = math.exp(-2.8 * (nx ** 2))
+
+            y1 = mid_y + math.sin(x * 0.12 + self.phase) * amp_main * env
+            y2 = mid_y + math.cos(x * 0.09 - self.phase * 0.8) * amp_sub * env
+            y3 = mid_y + math.sin(x * 0.15 + self.phase * 1.3) * (amp_sub * 0.6) * env
+
+            pts1.extend([x, y1])
+            pts2.extend([x, y2])
+            pts3.extend([x, y3])
+
+        # Background subtle wave
+        if len(pts3) >= 4:
+            self.create_line(pts3, fill="#383842", width=1, smooth=True)
+        # Secondary platinum wave
+        if len(pts2) >= 4:
+            self.create_line(pts2, fill="#a1a1aa", width=1, smooth=True)
+        # Primary brilliant white wave
+        if len(pts1) >= 4:
+            col = "#ffffff" if state in ["LISTENING", "SPEAKING"] else "#e4e4e7"
+            if state == "STOPPED":
+                col = "#f43f5e"
+            self.create_line(pts1, fill=col, width=2, smooth=True)
+
+
+# -------------------------------------------------------------
+# 2. Main Laya Monochromatic Luxury Glass HUD
+# -------------------------------------------------------------
 class LayaHUD(ctk.CTk):
     _active_instance: Optional["LayaHUD"] = None
 
@@ -54,7 +133,7 @@ class LayaHUD(ctk.CTk):
 
         self.assistant = assistant_instance
         self.tts = get_tts_engine()
-        self.stt = None  # Loaded asynchronously in background thread for instant GUI launch
+        self.stt = None
         self.capture = AudioCapture()
         self.meme_engine = get_meme_engine()
         self.memory_store = get_memory_store()
@@ -69,7 +148,7 @@ class LayaHUD(ctk.CTk):
         self.is_collapsed = False
         self.is_pinned_top = True
         self.current_state = "STARTUP"
-        self._meme_dismiss_timer = None
+        self._animating_collapse = False
 
         # Unique Windows App ID for distinct Taskbar grouping
         try:
@@ -94,17 +173,20 @@ class LayaHUD(ctk.CTk):
         self.attributes("-topmost", self.is_pinned_top)
         self.attributes("-alpha", 0.94)
 
+        # Apply Windows 11 Native Acrylic Blur if available
+        self._apply_acrylic_blur()
         self._setup_taskbar_icon()
 
         ctk.set_appearance_mode("Dark")
         ctk.set_default_color_theme("blue")
 
-        # Monochromatic Luxury Color Palette (Black, Gray, Pure White)
-        self.CLR_BG = "#050507"              # Deep Void Black
-        self.CLR_CAPSULE = "#0f0f12"         # Frosted Obsidian Charcoal
-        self.CLR_CARD = "#141417"            # Dark Zinc Glass Card
-        self.CLR_BORDER = "#222226"          # Subtle Slate Border
-        self.CLR_BORDER_LIGHT = "#333338"    # Lighter Slate Rim
+        # Refined Monochromatic Luxury Color Palette (Black, Gray, Pure White)
+        self.CLR_BG = "#060608"              # Deep Void Black
+        self.CLR_CAPSULE = "#0f0f13"         # Frosted Obsidian Charcoal
+        self.CLR_CARD = "#131317"            # Dark Zinc Glass Card
+        self.CLR_CARD_INNER = "#0a0a0d"      # Subtle Inner Well
+        self.CLR_BORDER = "#24242c"          # Subtle Slate Border
+        self.CLR_BORDER_GLOW = "#383844"     # Luminous Glass Rim
         self.CLR_WHITE = "#ffffff"           # Pure Brilliant White
         self.CLR_SILVER = "#e4e4e7"          # Crisp Platinum
         self.CLR_TEXT_DIM = "#8e8e93"        # Neutral Silver Subtext
@@ -117,7 +199,6 @@ class LayaHUD(ctk.CTk):
         # Drag tracking
         self._drag_x = 0
         self._drag_y = 0
-        self._wave_phase = 0.0
 
         # Build Interface
         self._build_top_island()
@@ -132,7 +213,19 @@ class LayaHUD(ctk.CTk):
 
         # Periodic Event & Waveform Animation Loops
         self.after(35, self._drain_queue)
-        self.after(40, self._animate_waveform)
+        self.after(35, self._animation_loop)
+
+    def _apply_acrylic_blur(self):
+        """Apply Windows native Acrylic blur for true background diffusion."""
+        if HAS_PYWINSTYLES:
+            try:
+                pywinstyles.apply_style(self, "acrylic")
+                pywinstyles.change_header_color(self, "#060608")
+            except Exception:
+                try:
+                    pywinstyles.apply_style(self, "mica")
+                except Exception:
+                    pass
 
     # -------------------------------------------------------------
     # 1. Floating Dynamic Island Capsule (Top Header)
@@ -164,17 +257,15 @@ class LayaHUD(ctk.CTk):
         self.brand_label.bind("<Button-1>", self._start_drag)
         self.brand_label.bind("<B1-Motion>", self._on_drag)
 
-        # Monochromatic Audio Waveform Visualizer
-        self.canvas_wave = ctk.CTkCanvas(
+        # Fluid Holographic Audio Waveform Visualizer
+        self.waveform = FluidGlassWaveform(
             self.island_frame,
-            width=115,
-            height=26,
-            bg=self.CLR_CAPSULE,
-            highlightthickness=0,
+            width=125,
+            height=28,
         )
-        self.canvas_wave.pack(side="left", padx=(4, 6), pady=14)
-        self.canvas_wave.bind("<Button-1>", self._start_drag)
-        self.canvas_wave.bind("<B1-Motion>", self._on_drag)
+        self.waveform.pack(side="left", padx=(4, 6), pady=13)
+        self.waveform.bind("<Button-1>", self._start_drag)
+        self.waveform.bind("<B1-Motion>", self._on_drag)
 
         # Minimalist State Badge (Monochrome Glass Pill)
         self.state_badge = ctk.CTkLabel(
@@ -204,7 +295,7 @@ class LayaHUD(ctk.CTk):
         )
         self.close_btn.pack(side="right", padx=(3, 10))
 
-        # Collapse Button (Toggle Island / Full HUD)
+        # Collapse Button (Toggle Island / Full HUD with smooth glide animation)
         self.collapse_btn = ctk.CTkButton(
             self.island_frame,
             text="—",
@@ -215,7 +306,7 @@ class LayaHUD(ctk.CTk):
             text_color=self.CLR_TEXT_DIM,
             font=ctk.CTkFont(size=10, weight="bold"),
             corner_radius=13,
-            command=self._toggle_collapse,
+            command=self._toggle_collapse_animated,
         )
         self.collapse_btn.pack(side="right", padx=2)
 
@@ -266,7 +357,7 @@ class LayaHUD(ctk.CTk):
         # B. Real-Time Action Ticker (Live Step Stream)
         self.step_container = ctk.CTkFrame(
             self.body_container,
-            fg_color="#0b0b0d",
+            fg_color=self.CLR_CARD_INNER,
             corner_radius=12,
             border_width=1,
             border_color=self.CLR_BORDER,
@@ -384,7 +475,7 @@ class LayaHUD(ctk.CTk):
         self.input_pill.pack(fill="x")
         self.input_pill.pack_propagate(False)
 
-        # Minimalist Mic Trigger
+        # Minimalist Mic Trigger with dynamic glow
         self.mic_btn = ctk.CTkButton(
             self.input_pill,
             text="🎙️",
@@ -392,6 +483,8 @@ class LayaHUD(ctk.CTk):
             height=32,
             fg_color="#18181c",
             hover_color="#2b2b32",
+            border_width=1,
+            border_color="#2a2a32",
             font=ctk.CTkFont(size=13),
             corner_radius=16,
             command=self._on_mic_click,
@@ -426,52 +519,28 @@ class LayaHUD(ctk.CTk):
         self.send_btn.pack(side="right", padx=(4, 6), pady=7)
 
     # -------------------------------------------------------------
-    # 3. Monochromatic Audio Waveform Visualizer
+    # 3. Dynamic Waveform & Mic Glow Animation Loop
     # -------------------------------------------------------------
-    def _animate_waveform(self):
-        """Draws animated monochromatic vertical bars on the canvas based on active state."""
-        self._wave_phase += 0.22
-        w = 115
-        h = 26
-        bar_count = 15
-        bar_width = 4
-        bar_spacing = 3
+    def _animation_loop(self):
+        try:
+            self.waveform.draw_wave(self.current_state)
 
-        self.canvas_wave.delete("all")
-
-        for i in range(bar_count):
-            if self.current_state == "IDLE":
-                bh = int(3 + 3 * math.sin(self._wave_phase * 0.7 + i * 0.45))
-                color = "#38383f"
-            elif self.current_state == "LISTENING":
-                bh = int(4 + 9 * abs(math.sin(self._wave_phase * 1.5 + i * 0.75)))
-                color = self.CLR_WHITE if i % 2 == 0 else self.CLR_SILVER
-            elif self.current_state == "PROCESSING":
-                sweep_pos = (math.sin(self._wave_phase * 1.1) + 1.0) * 0.5 * bar_count
-                dist = abs(i - sweep_pos)
-                bh = int(max(3, 13 - dist * 3.5))
-                color = self.CLR_WHITE if dist < 1.5 else "#52525b"
-            elif self.current_state == "SPEAKING":
-                bh = int(4 + 9 * abs(math.cos(self._wave_phase * 1.3 + i * 0.55)))
-                color = self.CLR_SILVER
-            elif self.current_state == "STOPPED":
-                bh = 2
-                color = self.CLR_ROSE
+            # Mic button pulsing glow when recording
+            if self.current_state == "LISTENING":
+                pulse = (math.sin(time.time() * 6) + 1) / 2
+                glow_val = int(80 + pulse * 175)
+                hex_col = f"#{glow_val:02x}{glow_val:02x}{glow_val:02x}"
+                self.mic_btn.configure(border_color=hex_col, border_width=2)
             else:
-                bh = 4
-                color = "#38383f"
+                self.mic_btn.configure(border_color="#2a2a32", border_width=1)
 
-            x0 = 6 + i * (bar_width + bar_spacing)
-            y0 = (h - bh) // 2
-            x1 = x0 + bar_width
-            y1 = y0 + bh
+        except Exception:
+            pass
 
-            self.canvas_wave.create_rectangle(x0, y0, x1, y1, fill=color, outline="")
-
-        self.after(40, self._animate_waveform)
+        self.after(35, self._animation_loop)
 
     # -------------------------------------------------------------
-    # 4. Drag & Window Controls
+    # 4. Drag, Eased Collapse Animation & Window Controls
     # -------------------------------------------------------------
     def _setup_taskbar_icon(self):
         try:
@@ -516,21 +585,46 @@ class LayaHUD(ctk.CTk):
         self.lift()
         self.attributes("-topmost", True)
 
-    def _toggle_collapse(self):
+    def _toggle_collapse_animated(self):
+        """Eased height interpolation between Full HUD (540px) and Capsule (64px)."""
+        if self._animating_collapse:
+            return
+
+        self._animating_collapse = True
+        target_h = self.pill_height if not self.is_collapsed else self.hud_height
+        curr_h = self.winfo_height() or (self.hud_height if not self.is_collapsed else self.pill_height)
+
+        steps = 8
+        step_diff = (target_h - curr_h) / steps
+        pos_x = self.winfo_x()
+        pos_y = self.winfo_y()
+
+        def step_anim(i=0):
+            nonlocal curr_h
+            if i < steps:
+                curr_h += step_diff
+                self.geometry(f"{self.hud_width}x{int(curr_h)}+{pos_x}+{pos_y}")
+                self.after(16, lambda: step_anim(i + 1))
+            else:
+                self.geometry(f"{self.hud_width}x{target_h}+{pos_x}+{pos_y}")
+                if not self.is_collapsed:
+                    self.body_container.pack_forget()
+                    self.collapse_btn.configure(text="□")
+                    self.is_collapsed = True
+                else:
+                    self.body_container.pack(fill="both", expand=True, padx=10, pady=(2, 10))
+                    self.collapse_btn.configure(text="—")
+                    self.is_collapsed = False
+                self._animating_collapse = False
+
         if not self.is_collapsed:
             self.body_container.pack_forget()
-            self.geometry(f"{self.hud_width}x{self.pill_height}")
-            self.collapse_btn.configure(text="□")
-            self.is_collapsed = True
-        else:
-            self.geometry(f"{self.hud_width}x{self.hud_height}")
-            self.body_container.pack(fill="both", expand=True, padx=10, pady=(2, 10))
-            self.collapse_btn.configure(text="—")
-            self.is_collapsed = False
+
+        step_anim()
 
     def _expand_if_collapsed(self):
         if self.is_collapsed:
-            self._toggle_collapse()
+            self._toggle_collapse_animated()
 
     # -------------------------------------------------------------
     # 5. Email Checking Handler
