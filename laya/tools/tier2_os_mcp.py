@@ -155,8 +155,13 @@ class Tier2OSAutomationTools:
         elif "document" in loc_lower or "docs" in loc_lower:
             return DOCS_DIR
 
+        if "bureau" in loc_lower or "desktop" in loc_lower:
+            from laya.config import REAL_DESKTOP_DIR
+            return REAL_DESKTOP_DIR
+
         # Check if it's an existing folder name on desktop or in last_created_dir
-        check_desktop = Path.home() / "Desktop" / loc
+        from laya.config import REAL_DESKTOP_DIR
+        check_desktop = REAL_DESKTOP_DIR / loc
         if check_desktop.exists():
             return check_desktop
 
@@ -168,7 +173,7 @@ class Tier2OSAutomationTools:
         if check_direct.exists():
             return check_direct
 
-        return Path.home() / "Desktop"
+        return REAL_DESKTOP_DIR
 
 
     def create_folder(self, folder_name: str, location: Optional[str] = None) -> str:

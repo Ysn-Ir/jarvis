@@ -1,7 +1,7 @@
 """
 Laya Real-Time Meme Reaction Engine
 Classifies user queries and assistant responses into iconic internet meme reactions:
-Gigachad, Pepe the Frog, Chudjak, Soyjak, MonkaS, and Wojak (Feels Guy).
+Foid Alert, Chud Destruct, Lockdown, Pepe the Frog, Chudjak, Soyjak, MonkaS, and Wojak.
 Loads local optimized assets for zero-latency HUD rendering.
 """
 
@@ -45,12 +45,13 @@ class MemeReactionEngine:
 
     def classify_reaction(self, query: str = "", response: str = "", is_error: bool = False) -> Optional[str]:
         """
-        Classify interaction context into an iconic meme reaction ONLY when warranted:
+        Classify interaction context into an iconic reaction ONLY when warranted:
+        - 'foid_alert': Foid detection, cortisol alerts, emergency woman alert.
+        - 'chud_destruct': User insults, chud takes, initiating self-destruction.
+        - 'lockdown': Extreme lock-in mode, cortisol peak, rage focus.
         - 'monkas': Dangerous commands, high-tension actions, panic, system safety alerts.
-        - 'chudjak': Hot takes, user roasts, complaints, 'nothing ever happens', absurdity.
         - 'soyjak': Mindblown discoveries, meme hype, exaggerated excitement.
         - 'wojak': Melancholy, late night (3am), fatigue, existential pain.
-        - 'gigachad': Wholesome praise, based moments, absolute wins, king/goat compliments.
         - 'pepe': Laughter, explicit meme/joke requests, music vibes.
         - None: Normal routine tasks (keeps HUD clean and distraction-free).
         """
@@ -59,7 +60,34 @@ class MemeReactionEngine:
 
         text = f"{query} {response}".lower()
 
-        # 1. Dangerous / Risky / Fatal / Panic -> MonkaS
+        # 1. Foid Alert Mode (Emergency Siren + Red Light)
+        foid_signals = [
+            "foid", "foid nearby", "foid detected", "foid alert",
+            "woman nearby", "girl nearby", "female detected", "females detected",
+            "woman alert", "strike my cortisol"
+        ]
+        if any(w in text for w in foid_signals):
+            return "foid_alert"
+
+        # 2. Chud Take & Insult Mode (Self-Destruction Sequence + Chud Image)
+        chud_signals = [
+            "you suck", "you're stupid", "you are stupid", "shut up idiot", "retarded",
+            "trash bot", "useless bot", "you're dumb", "you are dumb", "fuck you",
+            "chud take", "chud mode", "chudjak", "nothing ever happens", "billions must",
+            "chud take detected", "self destruction", "self-destruction"
+        ]
+        if any(w in text for w in chud_signals):
+            return "chud_destruct"
+
+        # 3. Extreme Lockdown Mode (Cyber Alarm + Lock In)
+        lockdown_signals = [
+            "lock in", "lockdown mode", "extreme mode", "rage mode", "it's over",
+            "lock down", "locking in", "hyper focus"
+        ]
+        if any(w in text for w in lockdown_signals):
+            return "lockdown"
+
+        # 4. Dangerous / Risky / Fatal / Panic -> MonkaS
         danger_signals = [
             "rm -rf", "format", "diskpart", "drop database", "killall",
             "shutdown", "restart computer", "reboot", "delete all", "wipe",
@@ -69,18 +97,7 @@ class MemeReactionEngine:
         if any(w in text for w in danger_signals):
             return "monkas"
 
-        # 2. Hot takes / Absurdity / Roasts / Chudjak
-        hot_take_signals = [
-            "hot take", "unpopular opinion", "nothing ever happens", "billions must",
-            "chud", "chudjak", "javascript is better", "vim is trash", "python is slow",
-            "who needs tests", "push to main", "earth is flat", "skill issue",
-            "why is it slow", "so slow", "broken", "you suck", "are you dumb",
-            "are you stupid", "annoying", "useless", "trash", "boring"
-        ]
-        if any(w in text for w in hot_take_signals):
-            return "chudjak"
-
-        # 3. Mindblown / Exaggerated Soy Hype -> Soyjak
+        # 5. Mindblown / Exaggerated Soy Hype -> Soyjak
         soy_signals = [
             "mind blown", "mindblown", "omg", "revolutionary", "this changes everything",
             "soyjak", "soy", "insane discovery", "holy shit", "look at this", "no way"
@@ -88,7 +105,7 @@ class MemeReactionEngine:
         if any(w in text for w in soy_signals):
             return "soyjak"
 
-        # 4. Melancholy / Down Bad / 3 AM / Pain -> Wojak
+        # 6. Melancholy / Down Bad / 3 AM / Pain -> Wojak
         wojak_signals = [
             "3 am", "4 am", "haven't slept", "no sleep", "all nighter", "exhausted",
             "lonely", "sad", "depressed", "i miss her", "life is pain", "down bad",
@@ -98,17 +115,7 @@ class MemeReactionEngine:
         if any(w in text for w in wojak_signals):
             return "wojak"
 
-        # 5. Wholesome Praise / Based / Chad Victory -> GigaChad
-        gigachad_signals = [
-            "gigachad", "giga chad", "based", "you're the goat", "goat",
-            "you are awesome", "i love you", "king", "legend", "absolute cinema",
-            "we did it", "flawless", "promoted", "we won", "victory",
-            "you saved my life", "thank you so much", "pure perfection", "proud of you"
-        ]
-        if any(w in text for w in gigachad_signals):
-            return "gigachad"
-
-        # 6. Jokes / Banter / Memes / Laughter / Vibes -> Pepe
+        # 7. Jokes / Banter / Memes / Laughter / Vibes -> Pepe
         pepe_signals = [
             "haha", "hahaha", "lol", "lmao", "rofl", "kek",
             "tell me a joke", "tell a joke", "make me laugh", "joke",
@@ -124,11 +131,18 @@ class MemeReactionEngine:
     def get_ctk_image(self, reaction_name: str, size: Tuple[int, int] = (64, 64)) -> Optional[ctk.CTkImage]:
         """Return a CTkImage for the given reaction name."""
         clean_name = reaction_name.lower().strip()
-        pil_img = self._cache.get(clean_name)
+        # Map aliases to local PNG image assets
+        alias_map = {
+            "chud_destruct": "chudjak",
+            "foid_alert": "monkas",
+            "lockdown": "wojak",
+        }
+        target_asset = alias_map.get(clean_name, clean_name)
+        pil_img = self._cache.get(target_asset)
 
         if not pil_img and self._cache:
-            # Fallback to gigachad or first available
-            pil_img = self._cache.get("gigachad") or next(iter(self._cache.values()))
+            # Fallback to chudjak or first available asset
+            pil_img = self._cache.get("chudjak") or next(iter(self._cache.values()))
 
         if pil_img:
             resized = pil_img.resize(size, Image.Resampling.LANCZOS)

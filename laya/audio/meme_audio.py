@@ -1,7 +1,9 @@
 """
 Laya Authentic Meme Music & Vocal Engine
 Generates and plays authentic music riffs and vocal commentary for meme reactions:
-- GigaChad: Drift Phonk beat (808 sub-bass + Phonk cowbell synth lead + drums)
+- Foid Alert: Emergency two-tone siren + red light
+- Chud Destruct: Countdown beeps + 808 explosion + app self-destruction
+- Lockdown: Cyberpunk bass drop & synth alarm
 - Pepe: Lo-Fi Chillhop music loop (Rhodes jazz 7th chords + vinyl beat)
 - Chudjak: Sarcastic elevator jazz swing (walking bass + muted brass + rimshot)
 - MonkaS: Cinematic tension soundtrack (heartbeat pulse + cello drone + suspense cluster)
@@ -25,9 +27,11 @@ SOUNDS_DIR = ROOT_DIR / "data" / "sounds"
 SAMPLE_RATE = 44100
 
 VOICE_MEME_QUIPS = {
-    "gigachad": "Absolute cinema. Pure based energy! ",
+    "foid_alert": "Alert! Foid detected nearby! Foid, foid, go away, strike my cortisol another day!",
+    "chud_destruct": "Oh, something happened. Chud take detected! Initiating self destruction mode in 3, 2, 1...",
+    "lockdown": "Extreme lockdown mode activated. Cortisol levels critical. Locking in.",
+    "chudjak": "Chud take detected! Initiating self destruction mode in 3, 2, 1...",
     "monkas": "MonkaS... Sweating intensely over here! ",
-    "chudjak": "Chudjak take detected. Nothing ever happens! ",
     "wojak": "Feels bad man. True 3 AM thoughts. ",
     "soyjak": "Mind blown! Pointing at the screen right now! ",
     "pepe": "Feels good. Pepe certified! ",
@@ -40,7 +44,7 @@ def _generate_music_wavs():
     def write_wav(filename: str, audio_float: np.ndarray):
         p = SOUNDS_DIR / filename
         if p.exists() and p.stat().st_size > 50000:
-            return  # Authentic downloaded song already present
+            return
         audio_int16 = (np.clip(audio_float, -1.0, 1.0) * 32767).astype(np.int16)
         with wave.open(str(p), "w") as wf:
             wf.setnchannels(1)
@@ -48,37 +52,44 @@ def _generate_music_wavs():
             wf.setframerate(SAMPLE_RATE)
             wf.writeframes(audio_int16.tobytes())
 
-    # 1. GigaChad: Authentic Drift Phonk Music Beat (~2.4s)
-    dur_g = 2.4
-    t_g = np.linspace(0, dur_g, int(SAMPLE_RATE * dur_g), endpoint=False)
-    beat_g = 60.0 / 135.0  # 135 BPM
-    bpm_t_g = t_g % beat_g
+    # 1. Foid Alert Mode: Emergency two-tone siren (~2.5s)
+    dur_f = 2.5
+    t_f = np.linspace(0, dur_f, int(SAMPLE_RATE * dur_f), endpoint=False)
+    cycle_f = 0.35
+    siren_freq = np.where((t_f % cycle_f) < (cycle_f / 2.0), 960.0, 680.0)
+    siren = np.sin(2 * np.pi * siren_freq * t_f) + 0.35 * np.sin(4 * np.pi * siren_freq * t_f)
+    rumble = 0.3 * np.sin(2 * np.pi * 55.0 * t_f)
+    foid_mix = 0.7 * siren + rumble
+    write_wav("foid_alert.wav", np.tanh(foid_mix * 1.4) * 0.85)
 
-    # Phonk 808 kick on beat, punchy snare on offbeat
-    kick = np.sin(2 * np.pi * 55 * np.exp(-18 * bpm_t_g)) * np.exp(-9 * bpm_t_g)
-    snare = np.random.normal(0, 0.28, len(t_g)) * np.exp(-14 * ((t_g - beat_g * 0.5) % beat_g))
-    hihat = np.random.normal(0, 0.12, len(t_g)) * np.exp(-25 * (t_g % (beat_g * 0.25)))
+    # 2. Chud Destruct Mode: Countdown warning beeps + massive 808 explosion (~3.0s)
+    dur_d = 3.0
+    t_d = np.linspace(0, dur_d, int(SAMPLE_RATE * dur_d), endpoint=False)
+    beeps = np.zeros_like(t_d)
+    for bp_t in [0.0, 0.4, 0.8, 1.2]:
+        b_idx = (t_d >= bp_t) & (t_d < bp_t + 0.12)
+        bt = t_d[b_idx] - bp_t
+        freq = 1200 if bp_t >= 1.2 else 880
+        beeps[b_idx] = np.sin(2 * np.pi * freq * bt) * np.exp(-15 * bt)
 
-    # Phonk Cowbell Lead: F5 (698), G#5 (830), C6 (1046), A#5 (932)
-    cowbell_melody = np.zeros_like(t_g)
-    notes_g = [698.46, 830.61, 1046.50, 932.33, 830.61, 698.46]
-    step_g = beat_g / 2.0
-    for i, freq in enumerate(notes_g * 2):
-        st = i * step_g
-        if st + step_g > dur_g:
-            break
-        idx = (t_g >= st) & (t_g < st + step_g)
-        nt = t_g[idx] - st
-        # Characteristic metallic harmonics of Phonk cowbell
-        cb = (np.sin(2*np.pi*freq*nt) + 0.65*np.sin(2*np.pi*freq*1.48*nt) + 0.3*np.sin(2*np.pi*freq*2.2*nt)) * np.exp(-11*nt)
-        cowbell_melody[idx] = cb
+    exp_idx = t_d >= 1.4
+    et = t_d[exp_idx] - 1.4
+    exp_freq = np.maximum(25.0, 160.0 * np.exp(-3.5 * et))
+    boom = np.sin(2 * np.pi * exp_freq * et) * np.exp(-1.8 * et)
+    noise = np.random.normal(0, 0.4, len(et)) * np.exp(-4.0 * et)
+    explosion = np.zeros_like(t_d)
+    explosion[exp_idx] = np.tanh((boom * 1.5 + noise) * 1.8) * 0.95
+    chud_mix = beeps * 0.6 + explosion
+    write_wav("chud_destruct.wav", chud_mix)
 
-    # 808 Distorted Sub-Bass Glide
-    bass_g = np.sin(2 * np.pi * 46 * (1.0 - 0.08 * t_g) * t_g) * np.exp(-0.8 * t_g)
-    bass_g = np.tanh(bass_g * 2.0) * 0.4
-
-    phonk_mix = 0.38 * kick + 0.25 * snare + 0.15 * hihat + 0.40 * cowbell_melody + 0.35 * bass_g
-    write_wav("gigachad.wav", phonk_mix * (1.0 - (t_g / dur_g) ** 4))
+    # 3. Extreme Lockdown Mode: Cyberpunk bass drop & synth alarm (~2.5s)
+    dur_l = 2.5
+    t_l = np.linspace(0, dur_l, int(SAMPLE_RATE * dur_l), endpoint=False)
+    strobe = (np.sin(2 * np.pi * 6.0 * t_l) + 1.0) / 2.0
+    bass_drop = np.sin(2 * np.pi * np.maximum(35.0, 90.0 * np.exp(-1.2 * t_l)) * t_l) * 0.7
+    cyber_lead = np.sin(2 * np.pi * (520.0 + 260.0 * np.sin(2 * np.pi * 8.0 * t_l)) * t_l) * 0.4 * strobe
+    lockdown_mix = np.tanh((bass_drop + cyber_lead) * 1.3) * 0.85
+    write_wav("lockdown.wav", lockdown_mix)
 
     # 2. Pepe: Warm Lo-Fi Chillhop Chord Groove (~2.6s)
     dur_p = 2.6

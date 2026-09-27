@@ -186,7 +186,60 @@ class TelegramManager:
     # 1. Send Message
     # -------------------------------------------------------------
     def send_message(self, recipient: str, message: str) -> str:
-        """Send a message to a contact or username."""
+        """Send a message to a contact, username, or active conversation."""
+        recipient = (recipient or "").strip()
+        message = (message or "").strip()
+
+        # Check if recipient is targeting the current/latest conversation
+        is_latest = recipient.lower() in [
+            "latest", "recent", "current", "latest conversation", "last conversation",
+            "current chat", "last chat", "this chat", "the latest conversation",
+            "active chat", "active conversation", "the active chat", ""
+        ]
+
+        from laya.tools.win32_utils import ensure_desktop_access, robust_bring_to_front
+        win = self._ensure_telegram_window()
+        if not win or not win.get("hwnd"):
+            # Launch Telegram Desktop
+            tg_paths = [
+                os.path.expandvars(r"%APPDATA%\Telegram Desktop\Telegram.exe"),
+                os.path.expandvars(r"%LOCALAPPDATA%\Programs\Telegram Desktop\Telegram.exe"),
+            ]
+            for tp in tg_paths:
+                if os.path.exists(tp):
+                    os.startfile(tp)
+                    time.sleep(1.2)
+                    win = self._ensure_telegram_window()
+                    break
+
+        import pyperclip
+        import pyautogui
+
+        if is_latest:
+            if win and win.get("hwnd"):
+                hwnd = win["hwnd"]
+                robust_bring_to_front(hwnd)
+                time.sleep(0.3)
+                pyautogui.press("escape")
+                time.sleep(0.1)
+                import win32gui
+                try:
+                    rect = win32gui.GetWindowRect(hwnd)
+                except Exception:
+                    rect = None
+                if rect:
+                    input_x = rect[0] + int((rect[2] - rect[0]) * 0.6)
+                    input_y = rect[3] - 40
+                    pyautogui.click(input_x, input_y)
+                    time.sleep(0.1)
+                if message:
+                    pyperclip.copy(message)
+                    pyautogui.hotkey("ctrl", "v")
+                    time.sleep(0.15)
+                    pyautogui.press("enter")
+                    return f"Dispatched message to active Telegram conversation: '{message}'"
+                return "Focused active Telegram conversation."
+
         target, contact = self._resolve_target(recipient)
         display_name = contact["name"] if contact else target
 
@@ -200,46 +253,36 @@ class TelegramManager:
                 print(f"[TelegramManager] Headless send fallback: {e}")
 
         # --- Telegram Desktop UI Automation ---
-        from laya.tools.win32_utils import ensure_desktop_access, robust_bring_to_front
-        win = self._ensure_telegram_window()
-
-        import pyperclip
-        import pyautogui
         clean_target = target.lstrip("@").strip()
 
-        # Step 1: Navigate to chat via tg:// protocol (reliable for usernames)
+        # Step 1: Navigate to chat via tg:// protocol (reliable for usernames/phones)
         resolved = False
         if re.match(r"^[a-zA-Z0-9_]{3,32}$", clean_target):
             try:
                 os.startfile(f"tg://resolve?domain={urllib.parse.quote(clean_target)}")
-                time.sleep(0.9)
+                time.sleep(0.8)
                 resolved = True
             except Exception:
                 pass
         elif re.match(r"^\+?\d{8,15}$", clean_target):
             try:
                 os.startfile(f"tg://resolve?phone={urllib.parse.quote(clean_target)}")
-                time.sleep(0.9)
+                time.sleep(0.8)
                 resolved = True
             except Exception:
                 pass
 
-        # Step 2: Re-fetch window handle after protocol navigation
+        # Step 2: Re-fetch window handle and bring to front
         win = win or self._ensure_telegram_window()
         if win and win.get("hwnd"):
             hwnd = win["hwnd"]
             robust_bring_to_front(hwnd)
             time.sleep(0.2)
 
-        # Step 3: If protocol didn't resolve (display name only), use search bar
-        if not resolved and win and win.get("hwnd"):
-            rect = win32gui_get_rect(win["hwnd"])
-            if rect:
-                # Search bar in Telegram Desktop is at roughly 25% from left, 5% from top
-                search_x = rect[0] + int((rect[2] - rect[0]) * 0.25)
-                search_y = rect[1] + int((rect[3] - rect[1]) * 0.05)
-                pyautogui.click(search_x, search_y)
-                time.sleep(0.2)
+            # Step 3: If protocol didn't resolve (display name only), use Ctrl+F search
+            if not resolved:
+                pyautogui.hotkey("ctrl", "f")
+                time.sleep(0.15)
                 pyautogui.hotkey("ctrl", "a")
                 time.sleep(0.05)
                 pyperclip.copy(target)
@@ -248,14 +291,20 @@ class TelegramManager:
                 pyautogui.press("enter")
                 time.sleep(0.4)
 
-        # Step 4: Paste message and send
-        if message:
-            pyperclip.copy(message)
-            pyautogui.hotkey("ctrl", "v")
-            time.sleep(0.2)
-            pyautogui.press("enter")
-            return f"Dispatched Telegram message to {display_name}: '{message}'"
-        elif win:
+            # Step 4: Click bottom input area and paste message
+            rect = win32gui_get_rect(hwnd)
+            if rect:
+                input_x = rect[0] + int((rect[2] - rect[0]) * 0.6)
+                input_y = rect[3] - 40
+                pyautogui.click(input_x, input_y)
+                time.sleep(0.1)
+
+            if message:
+                pyperclip.copy(message)
+                pyautogui.hotkey("ctrl", "v")
+                time.sleep(0.2)
+                pyautogui.press("enter")
+                return f"Dispatched Telegram message to {display_name}: '{message}'"
             return f"Opened Telegram chat with {display_name}."
 
         # Browser / Web Fallback

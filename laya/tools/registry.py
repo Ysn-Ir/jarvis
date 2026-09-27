@@ -55,9 +55,16 @@ class ToolRegistry:
         )
         self.register(
             name="send_whatsapp",
-            description="Send a WhatsApp message to a contact with full Unicode and multilingual support.",
+            description="Send a WhatsApp message to a contact or active conversation with full Unicode support.",
             tier=1,
             handler=t1.send_whatsapp,
+            parameters={"contact": "string", "message": "string"},
+        )
+        self.register(
+            name="send_telegram",
+            description="Send a Telegram message to a contact, username, or active conversation with full Unicode support.",
+            tier=1,
+            handler=t1.send_telegram,
             parameters={"contact": "string", "message": "string"},
         )
         self.register(

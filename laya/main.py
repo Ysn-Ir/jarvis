@@ -102,9 +102,9 @@ class LayaAssistant:
         from laya.audio.meme_audio import get_meme_voice_quip
         reaction = get_meme_engine().classify_reaction(query, result_text, is_error=(decision.path == ExecutionPath.BLOCKED_SAFETY))
         spoken_text = result_text
-        if reaction:
+        if reaction and reaction not in ["foid_alert", "chud_destruct", "lockdown"]:
             quip = get_meme_voice_quip(reaction)
-            if quip and not any(w in result_text.lower() for w in [reaction, "chudjak", "gigachad", "monkas", "feels bad", "feels good"]):
+            if quip and not any(w in result_text.lower() for w in [reaction, "chudjak", "monkas", "feels bad", "feels good"]):
                 spoken_text = f"{quip}{result_text}"
 
         from laya.tools.interrupt_manager import is_interrupt_requested

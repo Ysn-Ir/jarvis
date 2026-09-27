@@ -427,6 +427,9 @@ class LayaHUD(ctk.CTk):
         )
         self.replay_btn.pack(side="right")
 
+        self.meme_image_label = ctk.CTkLabel(self.result_container, text="", fg_color="transparent")
+        self.meme_image_label.pack_forget()
+
         self.result_box = ctk.CTkTextbox(
             self.result_container,
             fg_color="transparent",
@@ -871,6 +874,9 @@ class LayaHUD(ctk.CTk):
                     if self.wake_detector:
                         self.wake_detector.resume()
 
+                elif kind == "extreme_mode":
+                    self._handle_extreme_mode(args[0])
+
                 elif kind == "post_execution":
                     if self.current_state != "STOPPED" and not is_interrupt_requested():
                         self.current_state = "SPEAKING"
@@ -919,6 +925,47 @@ class LayaHUD(ctk.CTk):
 
         if dt_ms > 0:
             self.step_header.configure(text=f"✦ LIVE ACTIONS ({dt_ms:.0f}ms)")
+
+    def _handle_extreme_mode(self, mode_name: str):
+        self._expand_if_collapsed()
+        if mode_name == "foid_alert":
+            self.state_badge.configure(text="🚨 FOID DETECTED", fg_color="#b91c1c", text_color="#ffffff")
+            self._flash_border(["#ff1133", "#3a0008", "#ff1133", "#3a0008", "#ff1133", "#3a0008", "#ff1133", "#22222a"], interval_ms=180)
+            self._render_result("🚨 FOID ALERT DETECTED:\nFoid, foid, go away, strike my cortisol another day!", 0)
+
+        elif mode_name == "chud_destruct":
+            self.state_badge.configure(text="⚠️ CHUD TAKE DETECTED", fg_color="#ea580c", text_color="#ffffff")
+            chud_img = self.meme_engine.get_ctk_image("chudjak", size=(130, 130))
+            if chud_img:
+                self.result_box.pack_forget()
+                self.meme_image_label.configure(image=chud_img)
+                self.meme_image_label.pack(pady=(6, 4))
+                self.result_box.pack(fill="both", expand=True, padx=8, pady=(0, 6))
+            self._flash_border(["#ff4400", "#551100", "#ff4400", "#551100", "#ff4400", "#22222a"], interval_ms=200)
+            self._render_result("💥 CHUD TAKE DETECTED:\nOh, something happened! Initiating self destruction mode in 3, 2, 1...\n[Self-Destruct Sequence Active — Closing App]", 0)
+            # Physical self-destruction: close the application completely after 3.6s
+            self.after(3600, self._on_close)
+
+        elif mode_name == "lockdown":
+            self.state_badge.configure(text="⚡ LOCKDOWN MODE", fg_color="#0284c7", text_color="#ffffff")
+            self._flash_border(["#00f0ff", "#a855f7", "#00f0ff", "#a855f7", "#00f0ff", "#22222a"], interval_ms=160)
+            self._render_result("⚡ EXTREME LOCKDOWN ACTIVATED:\nCortisol levels critical. Locking in.", 0)
+
+    def _flash_border(self, color_seq: list, interval_ms: int = 180, idx: int = 0):
+        if idx < len(color_seq):
+            c = color_seq[idx]
+            try:
+                self.island_frame.configure(border_color=c)
+                self.result_container.configure(border_color=c)
+            except Exception:
+                pass
+            self.after(interval_ms, lambda: self._flash_border(color_seq, interval_ms, idx + 1))
+        else:
+            try:
+                self.island_frame.configure(border_color=self.CLR_BORDER)
+                self.result_container.configure(border_color=self.CLR_BORDER)
+            except Exception:
+                pass
 
     def _play_startup_greeting(self):
         try:

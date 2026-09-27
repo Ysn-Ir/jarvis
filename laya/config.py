@@ -94,14 +94,42 @@ APP_REGISTRY = {
     "explorer": "explorer",
 }
 
-# Special Windows Folders
+def _resolve_real_desktop() -> Path:
+    """Dynamically resolve the true Windows user desktop (handles OneDrive and French 'Bureau')."""
+    try:
+        import winreg
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders")
+        val, _ = winreg.QueryValueEx(key, "Desktop")
+        real_p = Path(os.path.expandvars(val))
+        if real_p.exists():
+            return real_p
+    except Exception:
+        pass
+    for cand in [Path.home() / "OneDrive" / "Bureau", Path.home() / "Bureau", Path.home() / "OneDrive" / "Desktop", Path.home() / "Desktop"]:
+        if cand.exists():
+            return cand
+    return Path.home() / "Desktop"
+
+REAL_DESKTOP_DIR = _resolve_real_desktop()
+
+# Special Windows Folders (Supports English & French aliases)
 FOLDER_ALIASES = {
     "downloads": str(Path.home() / "Downloads"),
+    "téléchargements": str(Path.home() / "Downloads"),
+    "telechargements": str(Path.home() / "Downloads"),
     "documents": str(Path.home() / "Documents"),
-    "desktop": str(Path.home() / "Desktop"),
+    "mes documents": str(Path.home() / "Documents"),
+    "desktop": str(REAL_DESKTOP_DIR),
+    "the desktop": str(REAL_DESKTOP_DIR),
+    "bureau": str(REAL_DESKTOP_DIR),
+    "le bureau": str(REAL_DESKTOP_DIR),
+    "mon bureau": str(REAL_DESKTOP_DIR),
     "pictures": str(Path.home() / "Pictures"),
+    "images": str(Path.home() / "Pictures"),
     "music": str(Path.home() / "Music"),
+    "musique": str(Path.home() / "Music"),
     "videos": str(Path.home() / "Videos"),
+    "vidéos": str(Path.home() / "Videos"),
     "layadocs": str(DOCS_DIR),
 }
 

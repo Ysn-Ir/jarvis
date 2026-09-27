@@ -22,7 +22,7 @@ import win32api
 import win32gui
 import win32con
 
-from laya.config import APP_REGISTRY, FOLDER_ALIASES, DOCS_DIR
+from laya.config import APP_REGISTRY, FOLDER_ALIASES, DOCS_DIR, REAL_DESKTOP_DIR
 
 
 class FastPathExecutor:
@@ -57,9 +57,9 @@ class FastPathExecutor:
         clean = re.sub(r"^(?:the\s+|a\s+)?folder\s+(?:on|in)\s+(?:the\s+)?", "", raw).strip()
         clean = re.sub(r"^(?:the\s+|a\s+)?", "", clean).strip()
         clean = re.sub(r"\s+folder$", "", clean).strip()
-        clean = re.sub(r"^(?:in|on)\s+(?:the\s+)?desktop$", "desktop", clean).strip()
+        clean = re.sub(r"^(?:in|on)\s+(?:the\s+)?(?:desktop|bureau)$", "desktop", clean).strip()
 
-        desktop_path = Path.home() / "Desktop"
+        desktop_path = REAL_DESKTOP_DIR
 
         # Check pronoun / recent folder resolution: "open it", "open them", "open that folder"
         if clean in ["it", "them", "that", "this", "the folder", "that folder", "this folder", "recent", "created", "the created folder", "recent folder"]:
@@ -74,7 +74,7 @@ class FastPathExecutor:
                 os.startfile(str(candidate))
                 return f"Opened folder '{Path(candidate).name}'."
 
-        if not clean or clean in ["desktop", "the desktop", "my desktop"]:
+        if not clean or clean in ["desktop", "the desktop", "my desktop", "bureau", "le bureau", "mon bureau"]:
             if desktop_path.exists():
                 os.startfile(str(desktop_path))
                 return "Opened Desktop folder."
@@ -611,32 +611,32 @@ class FastPathExecutor:
         return get_tier2_tools().create_file(filename=filename, content=content, location=location)
 
     def create_and_open_folder(self, folder_name: str = "New Folder", location: str = "desktop") -> str:
-        """Create a new folder instantly on Desktop or in specified directory and reveal it in Windows Explorer."""
+        """Create a new folder instantly on Desktop, Bureau, or specified directory and reveal it in Windows Explorer."""
         raw_name = (folder_name or "New Folder").strip()
         clean_name = re.sub(r"\s+(?:and\s+)?open\s+(?:it|them|that|the\s+folder).*", "", raw_name, flags=re.I).strip()
         if not clean_name or clean_name.lower() in ["folder", "a folder", "new"]:
             clean_name = "New Folder"
 
-        self.create_folder(folder_name=clean_name, location=location)
+        res = self.create_folder(folder_name=clean_name, location=location)
         if self.last_created_folder and Path(self.last_created_folder).exists():
             os.startfile(self.last_created_folder)
-            return f"Created folder '{Path(self.last_created_folder).name}' on {location.title()} and opened it in File Explorer."
-        return f"Created folder '{clean_name}' on {location.title()}."
+            loc_label = "Bureau" if location.lower() in ["bureau", "le bureau", "mon bureau"] else location.title()
+            return f"Created folder '{Path(self.last_created_folder).name}' in {loc_label} and opened it in File Explorer."
+        return res
 
     def create_folder(self, folder_name: str, location: str = "desktop") -> str:
-        """Create a new folder instantly on Desktop or in specified folder."""
+        """Create a new folder instantly on Desktop, Bureau, or in specified folder."""
         raw_name = (folder_name or "New Folder").strip()
         should_open = bool(re.search(r"\s+(?:and\s+)?open\s+(?:it|them|that|the\s+folder)", raw_name, re.I))
         clean_name = re.sub(r"\s+(?:and\s+)?open\s+(?:it|them|that|the\s+folder).*", "", raw_name, flags=re.I).strip()
         if not clean_name or clean_name.lower() in ["folder", "a folder", "new"]:
             clean_name = "New Folder"
 
-        base = Path.home() / "Desktop"
-        if location and location.lower() not in ["desktop", ""]:
-            if location.lower() == "documents":
-                base = Path.home() / "Documents"
-            elif location.lower() == "downloads":
-                base = Path.home() / "Downloads"
+        base = REAL_DESKTOP_DIR
+        loc_clean = (location or "desktop").lower().strip()
+        if loc_clean not in ["desktop", "the desktop", "bureau", "le bureau", "mon bureau", ""]:
+            if loc_clean in FOLDER_ALIASES:
+                base = Path(FOLDER_ALIASES[loc_clean])
             elif Path(location).exists():
                 base = Path(location)
 
@@ -650,9 +650,10 @@ class FastPathExecutor:
         except Exception:
             pass
 
+        loc_label = "Bureau" if loc_clean in ["bureau", "le bureau", "mon bureau"] else base.name
         if should_open:
             os.startfile(str(target.resolve()))
-            return f"Created folder '{clean_name}' on {base.name} and opened it in File Explorer."
+            return f"Created folder '{clean_name}' in {loc_label} and opened it in File Explorer."
 
         return f"Created folder '{clean_name}' at '{target.resolve()}'."
 
@@ -1088,13 +1089,190 @@ class FastPathExecutor:
         return f"Contact '{name}' not found."
 
     # -------------------------------------------------------------
+    # Instant Messaging (Telegram & WhatsApp Fast Path)
+    # -------------------------------------------------------------
+    def telegram_send_message(self, recipient: str = "", contact: str = "", message: str = "") -> str:
+        """Send message to a contact or active conversation on Telegram."""
+        return self.telegram_message(recipient=recipient or contact, message=message)
+
+    def telegram_message(self, recipient: str = "", contact: str = "", message: str = "") -> str:
+        """Send message to a contact or active conversation on Telegram."""
+        from laya.tools.telegram_client import TelegramManager
+        target = recipient or contact or ""
+        return TelegramManager.get_instance().send_message(recipient=target, message=message)
+
+    def send_telegram(self, recipient: str = "", contact: str = "", message: str = "") -> str:
+        return self.telegram_message(recipient=recipient, contact=contact, message=message)
+
+    def telegram_call(self, recipient: str = "", contact: str = "", call_type: str = "voice") -> str:
+        from laya.tools.telegram_client import TelegramManager
+        target = recipient or contact or ""
+        return TelegramManager.get_instance().start_call(recipient=target, call_type=call_type)
+
+    def whatsapp_message(self, contact: str = "", recipient: str = "", message: str = "") -> str:
+        """Send a message to a contact, phone number, or the active/latest conversation on WhatsApp."""
+        import urllib.parse
+        target_name = (contact or recipient or "").strip()
+        msg_body = (message or "").strip()
+
+        is_latest = target_name.lower() in [
+            "latest", "recent", "current", "latest conversation", "last conversation",
+            "current chat", "last chat", "this chat", "the latest conversation",
+            "active chat", "active conversation", "the active chat", ""
+        ]
+
+        from laya.tools.win32_utils import ensure_desktop_access, find_window_by_query, robust_bring_to_front
+        from laya.tools.contacts_store import get_contacts_store
+        import win32gui
+
+        ensure_desktop_access()
+        win = find_window_by_query("whatsapp")
+        if not win or not win.get("hwnd"):
+            try:
+                os.startfile("whatsapp://")
+                time.sleep(1.5)
+                win = find_window_by_query("whatsapp")
+            except Exception:
+                pass
+
+        if is_latest:
+            if win and win.get("hwnd"):
+                hwnd = win["hwnd"]
+                robust_bring_to_front(hwnd)
+                time.sleep(0.3)
+                pyautogui.press("escape")
+                time.sleep(0.1)
+                try:
+                    rect = win32gui.GetWindowRect(hwnd)
+                except Exception:
+                    rect = None
+                if rect:
+                    input_x = rect[0] + int((rect[2] - rect[0]) * 0.6)
+                    input_y = rect[3] - 45
+                    pyautogui.click(input_x, input_y)
+                    time.sleep(0.1)
+                if msg_body:
+                    pyperclip.copy(msg_body)
+                    pyautogui.hotkey("ctrl", "v")
+                    time.sleep(0.15)
+                    pyautogui.press("enter")
+                    return f"Dispatched WhatsApp message to active conversation: '{msg_body}'"
+                return "Focused active WhatsApp conversation."
+            else:
+                return "WhatsApp is not currently running. Please open WhatsApp first."
+
+        # Contact specified:
+        contact_data = get_contacts_store().get_contact(target_name)
+        phone = ""
+        if contact_data:
+            phone = contact_data.get("whatsapp") or contact_data.get("phone") or ""
+        elif re.match(r"^\+?[0-9\s\-()]{7,20}$", target_name):
+            phone = re.sub(r"[^\d+]", "", target_name)
+
+        if phone:
+            clean_phone = re.sub(r"[^\d]", "", phone)
+            enc_msg = urllib.parse.quote(msg_body)
+            uri = f"whatsapp://send?phone={clean_phone}&text={enc_msg}"
+            try:
+                os.startfile(uri)
+                time.sleep(1.2)
+                pyautogui.press("enter")
+                return f"Sent WhatsApp message to {target_name} ({phone}): '{msg_body}'"
+            except Exception as e:
+                print(f"[WhatsApp] Protocol send note: {e}")
+
+        # Fallback to UI search:
+        if win and win.get("hwnd"):
+            hwnd = win["hwnd"]
+            robust_bring_to_front(hwnd)
+            time.sleep(0.3)
+            pyautogui.hotkey("ctrl", "f")
+            time.sleep(0.2)
+            pyperclip.copy(target_name)
+            pyautogui.hotkey("ctrl", "v")
+            time.sleep(0.5)
+            pyautogui.press("down")
+            time.sleep(0.15)
+            pyautogui.press("enter")
+            time.sleep(0.3)
+            try:
+                rect = win32gui.GetWindowRect(hwnd)
+            except Exception:
+                rect = None
+            if rect:
+                input_x = rect[0] + int((rect[2] - rect[0]) * 0.6)
+                input_y = rect[3] - 45
+                pyautogui.click(input_x, input_y)
+                time.sleep(0.1)
+            if msg_body:
+                pyperclip.copy(msg_body)
+                pyautogui.hotkey("ctrl", "v")
+                time.sleep(0.15)
+                pyautogui.press("enter")
+                return f"Sent WhatsApp message to {target_name}: '{msg_body}'"
+            return f"Opened WhatsApp chat with {target_name}."
+
+        return f"Could not find or open WhatsApp chat for {target_name}."
+
+    def send_whatsapp(self, contact: str = "", recipient: str = "", message: str = "") -> str:
+        return self.whatsapp_message(contact=contact, recipient=recipient, message=message)
+
+    def whatsapp_call(self, contact: str = "", recipient: str = "", call_type: str = "voice") -> str:
+        from laya.tools.win32_utils import find_window_by_query, robust_bring_to_front
+        target = contact or recipient or ""
+        win = find_window_by_query("whatsapp")
+        if win and win.get("hwnd"):
+            robust_bring_to_front(win["hwnd"])
+            return f"Initiated WhatsApp {call_type} call to {target}."
+        return f"WhatsApp is not running to call {target}."
+
+    # -------------------------------------------------------------
+    # 3 Extreme Meme Modes (Foid Alert, Chud Destruct, Lockdown)
+    # -------------------------------------------------------------
+    def foid_alert_mode(self) -> str:
+        """Trigger emergency siren alert and red lighting for foid detection."""
+        from laya.audio.meme_audio import play_meme_audio
+        play_meme_audio("foid_alert")
+        try:
+            from laya.ui.hud import LayaHUD
+            if hasattr(LayaHUD, "_active_instance") and LayaHUD._active_instance:
+                LayaHUD._active_instance.msg_queue.put(("extreme_mode", "foid_alert"))
+        except Exception:
+            pass
+        return "🚨 FOID ALERT: Foid detected nearby! Foid, foid, go away, strike my cortisol another day!"
+
+    def chud_self_destruct(self) -> str:
+        """Trigger chud take detection, display chudjak image, and initiate self-destruction."""
+        from laya.audio.meme_audio import play_meme_audio
+        play_meme_audio("chud_destruct")
+        try:
+            from laya.ui.hud import LayaHUD
+            if hasattr(LayaHUD, "_active_instance") and LayaHUD._active_instance:
+                LayaHUD._active_instance.msg_queue.put(("extreme_mode", "chud_destruct"))
+        except Exception:
+            pass
+        return "💥 CHUD TAKE DETECTED: Oh, something happened! Initiating self destruction mode in 3, 2, 1... Closing application."
+
+    def extreme_lockdown_mode(self) -> str:
+        """Trigger extreme lockdown mode with cyber strobe and alert."""
+        from laya.audio.meme_audio import play_meme_audio
+        play_meme_audio("lockdown")
+        try:
+            from laya.ui.hud import LayaHUD
+            if hasattr(LayaHUD, "_active_instance") and LayaHUD._active_instance:
+                LayaHUD._active_instance.msg_queue.put(("extreme_mode", "lockdown"))
+        except Exception:
+            pass
+        return "⚡ EXTREME LOCKDOWN: Extreme lockdown mode activated. Cortisol levels critical. Locking in."
+
+    # -------------------------------------------------------------
     # Meme Reaction Trigger
     # -------------------------------------------------------------
     def trigger_meme(self, meme_name: str) -> str:
         """Trigger meme reaction immediately."""
         from laya.ui.meme_engine import get_meme_engine
         from laya.audio.meme_audio import play_meme_audio, get_meme_voice_quip
-        archetype = get_meme_engine().classify_reaction(meme_name, meme_name) or "gigachad"
+        archetype = get_meme_engine().classify_reaction(meme_name, meme_name) or "chudjak"
         play_meme_audio(archetype)
         quip = get_meme_voice_quip(archetype)
         return f"{quip} Displaying {archetype.upper()} reaction."
@@ -1129,7 +1307,7 @@ class FastPathExecutor:
         import random
         memes = [
             "Chudjak said: 'Nothing ever happens.' Then the entire build passed with zero warnings. Absolute cinema.",
-            "Wake up babe, new 70B parameter model just dropped. Pure GigaChad energy.",
+            "Alert! Foid detected nearby! Foid, foid, go away, strike my cortisol another day!",
             "MonkaS when you git push --force straight to main on a Friday at 4:59 PM.",
             "They told me 'it works on my machine.' Anon, we are not shipping your laptop to production.",
             "Feels good man: 0 errors, 0 warnings, and your terminal looks like The Matrix.",
@@ -1141,7 +1319,7 @@ class FastPathExecutor:
         import random
         tracks = [
             "For deep flow: 'Resonance' by HOME or 'After Dark' by Mr. Kitty. Peak synthwave focus.",
-            "Need raw GigaChad productivity? Put on DVRST - 'Close Eyes' or Kordhell phonk.",
+            "Need extreme lockdown productivity? Put on DVRST - 'Close Eyes' or Kordhell phonk.",
             "For chill debugging: Lofi Girl hip-hop beats or C418 - 'Subwoofer Lullaby'.",
             "Heavy cyberpunk momentum: Perturbator or Carpenter Brut - 'Turbo Killer'.",
         ]

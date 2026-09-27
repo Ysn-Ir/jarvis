@@ -58,6 +58,33 @@ class IntentRouter:
         # Clean trailing conversational filler words (e.g. "scroll down now" -> "scroll down", "open chrome please" -> "open chrome")
         text = re.sub(r"\s+(?:now|please|for me|quickly|right now|a bit|a little bit)$", "", text, flags=re.IGNORECASE).strip()
 
+        # Extreme Mode 1: Foid Alert Mode (<0.0ms)
+        if re.search(r"\b(?:foid(?:\s+(?:nearby|detected|alert|warning))?|woman\s+nearby|girl\s+nearby|female\s+detected|females\s+detected|foid\s+foid\s+go\s+away|strike\s+my\s+cortisol)\b", text, re.I):
+            return RouteDecision(
+                path=ExecutionPath.FAST_PATH,
+                action="foid_alert_mode",
+                confidence=1.0,
+                reasoning="Foid detected: activating emergency siren and red alert mode."
+            )
+
+        # Extreme Mode 2: Chud Take / Insult Self-Destruct Mode (<0.0ms)
+        if re.search(r"\b(?:you\s+suck|you're\s+stupid|you\s+are\s+stupid|shut\s+up\s+idiot|retarded|trash\s+bot|useless\s+bot|you're\s+dumb|you\s+are\s+dumb|fuck\s+you|chud\s+take(?:\s+detected)?|chud\s+mode|activate\s+chud)\b", text, re.I):
+            return RouteDecision(
+                path=ExecutionPath.FAST_PATH,
+                action="chud_self_destruct",
+                confidence=1.0,
+                reasoning="User insult / chud take detected: activating chud alert and initiating self destruction."
+            )
+
+        # Extreme Mode 3: Extreme Lockdown Mode (<0.0ms)
+        if re.search(r"\b(?:lock\s+in|lockdown\s+mode|extreme\s+mode|rage\s+mode|locking\s+in|hyper\s+focus\s+mode)\b", text, re.I):
+            return RouteDecision(
+                path=ExecutionPath.FAST_PATH,
+                action="extreme_lockdown_mode",
+                confidence=1.0,
+                reasoning="Lock-in command: activating extreme lockdown mode."
+            )
+
         # 0. Instant Stop, Cancel, Quiet, Abort (<0.0ms)
         if re.search(r"^(?:please\s+)?(?:stop|halt|cancel|abort|freeze|quiet|silence|be\s+quiet|shut\s*up|nevermind|never\s+mind|don't\s+do\s+that)(?:\s+(?:it|that|now|please|everything|all|talking))?$", text):
             return RouteDecision(
@@ -343,7 +370,34 @@ class IntentRouter:
             fcontent = (create_file_direct.group(2) or "").strip()
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="create_file", params={"filename": fname, "content": fcontent})
 
-        # Create Folder and Open It (Direct Reflex)
+        # 1. Create Folder with Specific Location: "create a folder in (bureau|desktop|documents|downloads) called <name> [and open it]"
+        create_fol_loc_first = re.search(
+            r"\b(?:create|make)\s+(?:a\s+)?(?:new\s+)?folder\s+(?:in|on)\s+(?:the\s+)?([a-zA-Z0-9_\-\.\:\/\\]+?)\s+(?:called|named)\s+([a-zA-Z0-9_\-\.\s]+?)(?:\s+(?:and\s+)?(?:open\s+(?:it|them|that|the\s+folder)|open\s+it))?$",
+            text,
+            re.I
+        )
+        if create_fol_loc_first:
+            target_loc = create_fol_loc_first.group(1).strip()
+            target_fol = create_fol_loc_first.group(2).strip()
+            should_open = bool(re.search(r"\bopen\s+(?:it|them|that|the\s+folder|open\s+it)\b", text, re.I))
+            act = "create_and_open_folder" if should_open else "create_folder"
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action=act, params={"folder_name": target_fol, "location": target_loc})
+
+        # 2. Name first: "create a folder called <name> in (bureau|desktop|documents|downloads) [and open it]"
+        create_fol_name_first = re.search(
+            r"\b(?:create|make)\s+(?:a\s+)?(?:new\s+)?folder\s+(?:called\s+|named\s+)?([a-zA-Z0-9_\-\.\s]+?)\s+(?:in|on)\s+(?:the\s+)?([a-zA-Z0-9_\-\.\:\/\\]+?)(?:\s+(?:and\s+)?(?:open\s+(?:it|them|that|the\s+folder)|open\s+it))?$",
+            text,
+            re.I
+        )
+        if create_fol_name_first:
+            target_fol = create_fol_name_first.group(1).strip()
+            target_loc = create_fol_name_first.group(2).strip()
+            if target_loc.lower() in ["bureau", "desktop", "documents", "downloads", "layadocs"] or ":" in target_loc or "/" in target_loc or "\\" in target_loc:
+                should_open = bool(re.search(r"\bopen\s+(?:it|them|that|the\s+folder|open\s+it)\b", text, re.I))
+                act = "create_and_open_folder" if should_open else "create_folder"
+                return RouteDecision(path=ExecutionPath.FAST_PATH, action=act, params={"folder_name": target_fol, "location": target_loc})
+
+        # 3. Create Folder and Open It (Direct Reflex)
         create_and_open = re.search(
             r"\b(?:create|make)\s+(?:a\s+)?(?:new\s+)?(?:folder\s+(?:called\s+|named\s+)?([a-zA-Z0-9_\-\.\s]+?)|folders?)\s+(?:and\s+)?(?:open\s+(?:it|them|that|the\s+folder)|open\s+it)\b",
             text,
@@ -367,10 +421,10 @@ class IntentRouter:
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="open_folder", params={"folder_name": "it"})
 
         open_desktop_folder = re.search(
-            r"^(?:can\s+you\s+)?(?:open|launch|show|view|explore)\s+(?:the\s+|a\s+)?(?:folder\s+(?:on|in)\s+(?:the\s+)?desktop|desktop\s+folder|folder\s+in\s+desktop|folder\s+on\s+desktop)$",
+            r"^(?:can\s+you\s+)?(?:open|launch|show|view|explore)\s+(?:the\s+|a\s+)?(?:folder\s+(?:on|in)\s+(?:the\s+)?(?:desktop|bureau)|desktop\s+folder|bureau\s+folder|folder\s+in\s+(?:desktop|bureau)|folder\s+on\s+(?:desktop|bureau))$",
             text
         )
-        if open_desktop_folder or text in ["open desktop", "open the desktop", "show desktop folder", "desktop folder"]:
+        if open_desktop_folder or text in ["open desktop", "open the desktop", "show desktop folder", "desktop folder", "open bureau", "open the bureau", "bureau folder", "show bureau"]:
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="open_folder", params={"folder_name": "desktop"})
 
         open_folder_named = re.search(
@@ -491,6 +545,11 @@ class IntentRouter:
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="telegram_list_contacts")
 
         # WhatsApp Messaging (<0.0ms)
+        wa_direct_latest = re.search(r"\b(?:send\s+(?:a\s+)?whatsapp(?:\s+message|\s+text)?|send\s+(?:a\s+)?(?:message|text)\s+(?:on|via|in|through)\s+whatsapp)\s*(?:saying|that|with|:)\s*(.+)$", text, re.I)
+        if wa_direct_latest:
+            target_m = (wa_direct_latest.group(1) or "").strip().strip(":'\" ")
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="whatsapp_message", params={"contact": "latest conversation", "message": target_m or "Hello!"})
+
         wa_msg_match = (
             re.search(r"\b(?:send\s+(?:a\s+)?whatsapp(?:\s+message|\s+text)?\s+to\s+)([a-zA-Z0-9_@\+\s]+?)(?:\s*(?:saying|that|with|:)\s*|\s*:\s*|\s+)(.+)$", text, re.I)
             or re.search(r"\b(?:send\s+(?:a\s+)?(?:message|text)\s+(?:on|via|in|through)\s+whatsapp\s+to\s+)([a-zA-Z0-9_@\+\s]+?)(?:\s*(?:saying|that|with|:)\s*|\s*:\s*|\s+)(.+)$", text, re.I)
@@ -506,6 +565,11 @@ class IntentRouter:
                 return RouteDecision(path=ExecutionPath.FAST_PATH, action="whatsapp_message", params={"contact": target_c, "message": target_m or "Hello!"})
 
         # Telegram Messaging (<0.0ms)
+        tg_direct_latest = re.search(r"\b(?:send\s+(?:a\s+)?telegram(?:\s+message|\s+text)?|send\s+(?:a\s+)?(?:message|text)\s+(?:on|via|in|through)\s+telegram)\s*(?:saying|that|with|:)\s*(.+)$", text, re.I)
+        if tg_direct_latest:
+            target_m = (tg_direct_latest.group(1) or "").strip().strip(":'\" ")
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="telegram_send_message", params={"recipient": "latest conversation", "message": target_m or "Hello!"})
+
         tg_msg_match = (
             re.search(r"\b(?:send\s+(?:a\s+)?telegram(?:\s+message|\s+text)?\s+to\s+)([a-zA-Z0-9_@\+\s]+?)(?:\s*(?:saying|that|with|:)\s*|\s*:\s*|\s+)(.+)$", text, re.I)
             or re.search(r"\b(?:send\s+(?:a\s+)?(?:message|text)\s+(?:on|via|in|through)\s+telegram\s+to\s+)([a-zA-Z0-9_@\+\s]+?)(?:\s*(?:saying|that|with|:)\s*|\s*:\s*|\s+)(.+)$", text, re.I)
@@ -824,7 +888,7 @@ class IntentRouter:
             )
 
         # 15. Memes & Archetype Triggers (<0.0ms)
-        meme_match = re.search(r"\b(gigachad|based|chudjak|nothing\s+ever\s+happens|pepe|monkas|wojak|feels\s+good|feels\s+bad|galaxy\s+brain|it's\s+over|cringe)\b", text)
+        meme_match = re.search(r"\b(based|chudjak|nothing\s+ever\s+happens|pepe|monkas|wojak|feels\s+good|feels\s+bad|galaxy\s+brain|it's\s+over|cringe)\b", text)
         if meme_match and ("meme" in text or text.startswith(("you are", "you're", "that's", "thats", "show", "tell")) or len(text.split()) <= 4):
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="trigger_meme", params={"meme_name": meme_match.group(1).strip()})
 
