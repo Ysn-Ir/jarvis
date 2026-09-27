@@ -554,6 +554,7 @@ class LayaHUD(ctk.CTk):
             ("🔒 Lock Workstation", "Lock your Windows workstation immediately", "lock_pc", lambda: self._trigger_fast("lock_workstation")),
             ("🌐 Open Google", "Launch default browser directly to Google search", "open_google", lambda: self._trigger_fast("browser_open_url", {"url": "https://google.com"})),
             ("🔋 Check Battery Life", "Inspect real-time laptop battery percentage and status", "check_battery", lambda: self._trigger_fast("check_battery")),
+            ("✈️ Connect Telegram", "Authenticate Telegram account & sync contacts", "tg_setup", lambda: self._trigger_fast("telegram_launch_login")),
         ]
 
         # 2-Column Responsive Grid
@@ -843,6 +844,22 @@ class LayaHUD(ctk.CTk):
                              "Private Local: Ollama (mistral:7b at localhost:11434)\n"
                              "Single-Instance Lock: Active on local port 49876",
                      font=ctk.CTkFont(family="Segoe UI", size=11), text_color=self.CLR_TEXT_MUTED, justify="left").pack(anchor="w", padx=14, pady=(2, 10))
+
+        # 4. Telegram Integration
+        f4 = ctk.CTkFrame(scroll_settings, fg_color=self.CLR_CARD, corner_radius=14, border_width=1, border_color=self.CLR_BORDER)
+        f4.pack(fill="x", pady=6)
+
+        ctk.CTkLabel(f4, text="✈️ TELEGRAM MESSAGING & CONTACTS", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color=self.CLR_CYAN).pack(anchor="w", padx=14, pady=(10, 4))
+        from laya.tools.telegram_client import get_telegram_manager
+        tm = get_telegram_manager()
+        status_txt = "Headless MTProto Active (Silent background messaging ready)" if tm.is_headless_ready() else "API Credentials Loaded. One-time login required for background mode."
+        ctk.CTkLabel(f4, text=f"Status: {status_txt}\nAPI ID: {tm.api_id or 'Not set'} | Session: {'Connected' if tm.is_headless_ready() else 'Not connected'}",
+                     font=ctk.CTkFont(family="Segoe UI", size=11), text_color=self.CLR_TEXT_MUTED, justify="left").pack(anchor="w", padx=14, pady=(2, 6))
+
+        btn_row = ctk.CTkFrame(f4, fg_color="transparent")
+        btn_row.pack(anchor="w", padx=14, pady=(2, 10))
+        ctk.CTkButton(btn_row, text="Login to Telegram ✈️", width=140, height=28, fg_color="#0e3a47", hover_color="#0891b2", text_color=self.CLR_CYAN, font=ctk.CTkFont(size=10, weight="bold"), corner_radius=10, command=lambda: self._trigger_fast("telegram_launch_login")).pack(side="left", padx=(0, 8))
+        ctk.CTkButton(btn_row, text="Sync Contacts 👥", width=120, height=28, fg_color="#1e293b", hover_color="#334155", font=ctk.CTkFont(size=10, weight="bold"), corner_radius=10, command=lambda: self._trigger_fast("telegram_sync_contacts")).pack(side="left")
 
     # -------------------------------------------------------------
     # 3. Mode Toggling (Full Application vs Floating Island)

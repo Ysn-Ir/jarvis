@@ -24,6 +24,12 @@ from typing import Optional
 
 REPO_DIR = Path(r"c:\Users\khali\OneDrive\Bureau\learning\datascience\projects\jev")
 ENV_PATH = REPO_DIR / ".env"
+try:
+    from dotenv import load_dotenv
+    load_dotenv(ENV_PATH)
+except Exception:
+    pass
+
 SESSION_PATH = Path.home() / ".laya" / "telegram.session"
 
 

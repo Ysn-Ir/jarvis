@@ -24,6 +24,12 @@ class TelegramManager:
         self.base_dir.mkdir(parents=True, exist_ok=True)
         self.session_path = str(self.base_dir / "telegram.session")
 
+        try:
+            from dotenv import load_dotenv
+            load_dotenv()
+        except Exception:
+            pass
+
         # Optional API keys from environment
         self.api_id = os.getenv("TELEGRAM_API_ID")
         self.api_hash = os.getenv("TELEGRAM_API_HASH")
@@ -249,16 +255,6 @@ class TelegramManager:
         await client.send_message(target, message)
         await client.disconnect()
         return True
-
-
-def win32gui_get_rect(hwnd: int):
-    """Get window RECT via win32gui, returns (left, top, right, bottom) or None."""
-    try:
-        import win32gui as _w
-        r = _w.GetWindowRect(hwnd)
-        return r  # (left, top, right, bottom)
-    except Exception:
-        return None
 
     # -------------------------------------------------------------
     # 2. Read Recent Messages
