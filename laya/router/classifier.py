@@ -241,6 +241,13 @@ class IntentRouter:
             q = re.sub(r"^(?:like|for\s+like|some|uh|um)\s+", "", q, flags=re.IGNORECASE).strip()
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="browser_search", params={"query": q, "engine": "youtube"})
 
+        # 4b. Email Checking & Reporting (<0.0ms)
+        if re.search(r"\b(?:check|read|get|fetch|report|show|summarize|any\s+new)\s+(?:my\s+)?(?:emails?|inbox|messages|mail)\b", text) or text in ["check email", "check emails", "check my email", "check my emails", "read email", "read emails", "read my emails", "email report", "report emails", "any emails"]:
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="check_emails")
+
+        if re.search(r"\b(?:open|launch)\s+(?:my\s+)?(?:webmail|gmail|outlook\s+mail|inbox)\b", text):
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="open_webmail")
+
         # 5. Direct Popular Websites (<0.0ms)
         website_match = re.search(r"^(?:open|go\s+to|visit|launch)\s+(youtube|google|reddit|github|twitter|x|netflix|amazon|twitch|wikipedia|chatgpt|spotify|gmail)(?:\.com|\.org|\.tv)?$", text)
         if website_match:

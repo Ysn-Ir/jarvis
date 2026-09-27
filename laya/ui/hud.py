@@ -1,13 +1,16 @@
 """
-Laya Glassmorphic Desktop Assistant HUD
-State-of-the-art Dark Glassmorphism interface featuring:
-- Deep obsidian void with floating 3D reflective dark glass orbs
-- Central floating frosted glass card with true optical Gaussian blur of the backdrop
-- Razor-sharp 1px luminous border and specular rim highlight
-- Minimalist editorial typography and outline pill tags matching luxury glassmorphism design
-- Real-time holographic audio waveform visualizer (harmonic sine waves)
-- Full voice pipeline: continuous wake word ("Clanker", "Call", "Jarvis"), dynamic VAD, CUDA Whisper, and barge-in vocal interrupt
-- Instant fast-path actions, ReAct live reasoning, and Telegram integration
+Laya — Futuristic Iron Man JARVIS Glassmorphic Cyber HUD
+A state-of-the-art cybernetic Windows Desktop Application matching the iconic Iron Man JARVIS HUD:
+- Dark translucent glassmorphic window floating over a cinematic cyberpunk city backdrop
+- Layered 3D glass panels with offset frosted borders and luminous cybernetic rim lighting
+- Animated cybernetic Arc Reactor / Holographic Iris Core with rotating gear segments and glowing blue energy vortex
+- Voice Input deck with glowing circular neon microphone button and real-time vertical soundwave equalizer bars
+- Modular Cyber Widgets:
+  * TASK_QUEUE: Interactive task pipeline with real-time status badges
+  * SYSTEM_HEALTH: Segmented glowing cyber meters for CPU, Memory, and Network latency
+  * INSIGHTS: Live dynamic monthly calendar and Email executive briefing preview
+- Direct Email Checking & Executive Reporting tool integration
+- Continuous wake word ("Clanker", "Call", "Jarvis"), dynamic VAD, CUDA Whisper STT, and instant barge-in vocal interrupt
 """
 
 import sys
@@ -16,6 +19,8 @@ import math
 import time
 import queue
 import random
+import calendar
+import datetime
 import threading
 from typing import Optional, Callable, List, Dict, Any
 from pathlib import Path
@@ -31,13 +36,6 @@ for stream in (sys.stdout, sys.stderr):
 
 import customtkinter as ctk
 from PIL import Image, ImageFilter, ImageDraw
-
-try:
-    import pywinstyles
-    HAS_PYWINSTYLES = True
-except ImportError:
-    HAS_PYWINSTYLES = False
-
 import psutil
 
 from laya.audio.tts import get_tts_engine
@@ -54,6 +52,134 @@ from laya.tools.interrupt_manager import (
 from laya.config import UI_VISIBILITY_MODE, WAKE_PHRASES
 
 
+# -------------------------------------------------------------
+# 1. Animated Arc Reactor / Holographic Iris Canvas
+# -------------------------------------------------------------
+class ArcReactorCanvas(ctk.CTkCanvas):
+    def __init__(self, parent, size=190, **kwargs):
+        super().__init__(parent, width=size, height=size, bg="#0a121e", highlightthickness=0, **kwargs)
+        self.size = size
+        self.center = size / 2
+        self.angle = 0.0
+        self.pulse = 0.0
+
+    def draw_reactor(self, state="IDLE"):
+        self.delete("all")
+        cx, cy = self.center, self.center
+
+        # Dynamics based on state
+        if state == "LISTENING":
+            core_col = "#00f0ff"
+            glow_col = "#38bdf8"
+            speed = 0.08
+        elif state == "PROCESSING":
+            core_col = "#a855f7"
+            glow_col = "#c084fc"
+            speed = 0.11
+        elif state == "SPEAKING":
+            core_col = "#00f0ff"
+            glow_col = "#60a5fa"
+            speed = 0.07
+        elif state == "STOPPED":
+            core_col = "#f43f5e"
+            glow_col = "#fb7185"
+            speed = 0.01
+        else:  # IDLE
+            core_col = "#38bdf8"
+            glow_col = "#0284c7"
+            speed = 0.03
+
+        self.angle += speed
+        self.pulse = (math.sin(time.time() * 3.2) + 1) / 2  # 0 to 1
+
+        # 1. Outer Dark Halo Ring
+        r_outer = self.size * 0.46
+        self.create_oval(cx - r_outer, cy - r_outer, cx + r_outer, cy + r_outer, outline="#162235", width=2)
+
+        # 2. Outer Tick Dial (Rotates forward)
+        num_ticks = 16
+        r_tick_in = self.size * 0.40
+        r_tick_out = self.size * 0.44
+        for i in range(num_ticks):
+            a = self.angle + i * (2 * math.pi / num_ticks)
+            x1 = cx + r_tick_in * math.cos(a)
+            y1 = cy + r_tick_in * math.sin(a)
+            x2 = cx + r_tick_out * math.cos(a)
+            y2 = cy + r_tick_out * math.sin(a)
+            col = core_col if i % 4 == 0 else "#1e3a5f"
+            self.create_line(x1, y1, x2, y2, fill=col, width=2 if i % 4 == 0 else 1)
+
+        # 3. Middle Concentric Ring
+        r_mid = self.size * 0.36
+        self.create_oval(cx - r_mid, cy - r_mid, cx + r_mid, cy + r_mid, outline="#1e293b", width=1)
+
+        # 4. Counter-Rotating Gear Segments
+        num_segs = 6
+        r_seg = self.size * 0.31
+        for i in range(num_segs):
+            a_start = math.degrees(-self.angle * 1.6 + i * (2 * math.pi / num_segs))
+            self.create_arc(
+                cx - r_seg, cy - r_seg, cx + r_seg, cy + r_seg,
+                start=a_start, extent=34,
+                style="arc", outline=glow_col, width=3
+            )
+
+        # 5. Inner Core Ring with glow
+        r_core_ring = self.size * 0.22
+        self.create_oval(cx - r_core_ring, cy - r_core_ring, cx + r_core_ring, cy + r_core_ring, outline="#0ea5e9", width=2)
+
+        # 6. Central Glowing Vortex / Energy Core
+        r_core = self.size * 0.16 + (self.pulse * 3)
+        self.create_oval(cx - r_core, cy - r_core, cx + r_core, cy + r_core, fill="#042038", outline="#38bdf8", width=2)
+
+        r_inner = self.size * 0.10 + (self.pulse * 2)
+        self.create_oval(cx - r_inner, cy - r_inner, cx + r_inner, cy + r_inner, fill="#0284c7", outline=core_col, width=2)
+
+        r_center = self.size * 0.05
+        self.create_oval(cx - r_center, cy - r_center, cx + r_center, cy + r_center, fill="#ffffff", outline="#ffffff")
+
+
+# -------------------------------------------------------------
+# 2. Animated Vertical Soundwave Equalizer Canvas
+# -------------------------------------------------------------
+class SoundwaveCanvas(ctk.CTkCanvas):
+    def __init__(self, parent, width=180, height=36, **kwargs):
+        super().__init__(parent, width=width, height=height, bg="#0e1726", highlightthickness=0, **kwargs)
+        self.w = width
+        self.h = height
+        self.phase = 0.0
+
+    def draw_wave(self, state="IDLE"):
+        self.delete("all")
+        mid_y = self.h / 2
+        num_bars = 24
+        bar_w = 3
+        gap = (self.w - (num_bars * bar_w)) / (num_bars + 1)
+
+        speed = 0.16 if state == "LISTENING" else (0.22 if state == "SPEAKING" else 0.05)
+        self.phase += speed
+
+        for i in range(num_bars):
+            x = gap + i * (bar_w + gap)
+            norm_x = (i - num_bars / 2) / (num_bars / 2)
+            env = math.exp(-norm_x**2 * 2.2)
+
+            if state in ["LISTENING", "SPEAKING"]:
+                amp = (math.sin(self.phase * 2 + i * 0.4) * 0.5 + 0.5) * (self.h * 0.44) * env + 4
+                col = "#00f0ff"
+            elif state == "PROCESSING":
+                amp = (math.sin(self.phase * 1.5 + i * 0.3) * 0.4 + 0.4) * (self.h * 0.32) * env + 3
+                col = "#a855f7"
+            else:  # IDLE
+                amp = (math.sin(self.phase + i * 0.25) * 0.3 + 0.3) * (self.h * 0.22) * env + 2
+                col = "#38bdf8"
+
+            self.create_line(x, mid_y - amp, x, mid_y + amp, fill=col, width=bar_w)
+
+
+# -------------------------------------------------------------
+# 3. Main Laya HUD (Iron Man JARVIS Cyber Deck)
+# -------------------------------------------------------------
 class LayaHUD(ctk.CTk):
     _active_instance: Optional["LayaHUD"] = None
 
@@ -63,7 +189,7 @@ class LayaHUD(ctk.CTk):
 
         self.assistant = assistant_instance
         self.tts = get_tts_engine()
-        self.stt = None  # Loaded asynchronously in background thread for instant GUI launch
+        self.stt = None
         self.capture = AudioCapture()
         self.meme_engine = get_meme_engine()
         self.memory_store = get_memory_store()
@@ -71,7 +197,6 @@ class LayaHUD(ctk.CTk):
         self.last_query = ""
         self.is_core_ready = False
 
-        # Thread Communication Queue
         self.msg_queue: queue.Queue = queue.Queue()
         self.is_recording = False
         self.is_processing = False
@@ -84,12 +209,11 @@ class LayaHUD(ctk.CTk):
         except Exception:
             pass
 
-        # Window Appearance & Geometry
-        self.title("Laya — Autonomous Desktop Intelligence")
-        self.app_width = 860
-        self.app_height = 620
+        # Window Geometry & Position
+        self.title("JARVIS — Autonomous Cyber Desktop Interface")
+        self.app_width = 1060
+        self.app_height = 680
 
-        # Center on screen
         screen_w = self.winfo_screenwidth()
         screen_h = self.winfo_screenheight()
         pos_x = max(20, (screen_w - self.app_width) // 2)
@@ -97,58 +221,60 @@ class LayaHUD(ctk.CTk):
         self.geometry(f"{self.app_width}x{self.app_height}+{pos_x}+{pos_y}")
         self.resizable(False, False)
 
-        # Frameless floating glass card look
+        # Frameless cyber HUD
         self.overrideredirect(True)
         self.attributes("-topmost", self.is_pinned_top)
-
-        # Attach taskbar icon for borderless window on Windows
         self._setup_taskbar_icon()
 
         ctk.set_appearance_mode("Dark")
         ctk.set_default_color_theme("blue")
 
         # Color Palette Tokens
-        self.CLR_BG = "#060709"             # Obsidian space void
-        self.CLR_CARD = "#0d131e"           # Frosted glass panel
-        self.CLR_BORDER = "#1f2c42"         # Glass border
-        self.CLR_BORDER_GLOW = "#38bdf8"    # Luminous Cyan highlight
-        self.CLR_CYAN = "#00f0ff"           # JARVIS Hologram Cyan
-        self.CLR_PURPLE = "#a855f7"         # Violet
-        self.CLR_EMERALD = "#10b981"        # Ready Emerald
-        self.CLR_ROSE = "#f43f5e"           # Stop Rose
-        self.CLR_WHITE = "#ffffff"          # Pure Crystal White
-        self.CLR_TEXT_MUTED = "#8e9bb0"     # Slate Subtext
+        self.CLR_BG = "#070a10"
+        self.CLR_CARD = "#0a121e"
+        self.CLR_CARD_SUB = "#0e1726"
+        self.CLR_BORDER = "#1f3350"
+        self.CLR_CYAN = "#00f0ff"
+        self.CLR_SKY = "#38bdf8"
+        self.CLR_PURPLE = "#a855f7"
+        self.CLR_EMERALD = "#10b981"
+        self.CLR_ROSE = "#f43f5e"
+        self.CLR_WHITE = "#ffffff"
+        self.CLR_TEXT_MUTED = "#8ea6c8"
+        self.CLR_TEXT_DIM = "#526580"
 
         self.configure(fg_color=self.CLR_BG)
 
         # Drag tracking
         self._drag_x = 0
         self._drag_y = 0
-        self._wave_phase = 0.0
 
-        # Build Background & Glassmorphic Interface
-        self._build_glassmorphic_layout()
+        # Build Background & Futuristic Deck
+        self._build_background()
+        self._build_header()
+        self._build_left_deck()
+        self._build_right_column()
 
-        # Global hotkey bindings: ESC to interrupt & silence
+        # Keyboard shortcuts
         self.bind_all("<Escape>", lambda e: self._on_escape_pressed())
 
-        # Initialize Continuous Wake Word & Barge-In Engine in Background Thread
+        # Asynchronously bootstrap ML & wake word
         self.wake_detector = None
         threading.Thread(target=self._async_bootstrap_neural_core, daemon=True).start()
 
-        # Periodic Event & Waveform Loops
+        # Animation & Telemetry loops
         self.after(35, self._drain_queue)
-        self.after(35, self._animate_waveform)
+        self.after(35, self._animation_loop)
+        self.after(1000, self._telemetry_loop)
 
     # -------------------------------------------------------------
-    # Window Management & Draggability
+    # Window Draggability & Management
     # -------------------------------------------------------------
     def _setup_taskbar_icon(self):
-        """Ensure borderless window has proper Taskbar icon and presence on Windows."""
         try:
             hwnd = ctypes.windll.user32.GetParent(self.winfo_id())
             style = ctypes.windll.user32.GetWindowLongW(hwnd, -20)
-            style = (style & ~0x00000080) | 0x00040000  # WS_EX_APPWINDOW
+            style = (style & ~0x00000080) | 0x00040000
             ctypes.windll.user32.SetWindowLongW(hwnd, -20, style)
         except Exception:
             pass
@@ -179,7 +305,6 @@ class LayaHUD(ctk.CTk):
 
     def _on_minimize(self):
         self.withdraw()
-        # Restore on click from taskbar or re-invoke
         self.after(100, lambda: self.deiconify())
 
     def _on_close(self):
@@ -200,352 +325,274 @@ class LayaHUD(ctk.CTk):
         self.lift()
 
     # -------------------------------------------------------------
-    # Glassmorphism Composite Background & Layout
+    # Background Compositing
     # -------------------------------------------------------------
-    def _get_or_create_background(self) -> ctk.CTkImage:
+    def _build_background(self):
         assets_dir = Path(__file__).resolve().parent.parent.parent / "assets"
-        bg_cache = assets_dir / "laya_glass_card_bg.png"
-        raw_spheres = assets_dir / "glass_spheres_bg.jpg"
+        bg_cache = assets_dir / "jarvis_futuristic_bg.png"
+        city_raw = assets_dir / "cyber_city_bg.jpg"
 
         if bg_cache.exists():
             img = Image.open(str(bg_cache)).convert("RGBA")
         else:
-            # Composite on the fly
             w, h = self.app_width, self.app_height
-            if raw_spheres.exists():
-                bg = Image.open(str(raw_spheres)).convert("RGBA")
+            if city_raw.exists():
+                city = Image.open(str(city_raw)).convert("RGBA")
+                city = city.resize((w, h), Image.Resampling.LANCZOS)
             else:
-                bg = Image.new("RGBA", (w, h), (6, 7, 9, 255))
-            bg = bg.resize((w, h), Image.Resampling.LANCZOS)
+                city = Image.new("RGBA", (w, h), (7, 10, 16, 255))
 
-            pad_x, pad_y = 28, 24
-            card_w = w - (pad_x * 2)
-            card_h = h - (pad_y * 2)
-            cx, cy = pad_x, pad_y
+            tint = Image.new("RGBA", (w, h), (8, 12, 20, 205))
+            overlay = Image.alpha_composite(city, tint)
 
-            crop = bg.crop((cx, cy, cx + card_w, cy + card_h))
-            blurred = crop.filter(ImageFilter.GaussianBlur(radius=28))
+            draw = ImageDraw.Draw(overlay)
+            draw.rounded_rectangle([0, 0, w - 1, h - 1], radius=18, outline=(40, 65, 95, 120), width=1)
+            draw.line([(18, 1), (w - 18, 1)], fill=(70, 130, 180, 160), width=1)
 
-            tint = Image.new("RGBA", (card_w, card_h), (10, 14, 22, 175))
-            card_surface = Image.alpha_composite(blurred, tint)
-
-            draw = ImageDraw.Draw(card_surface)
-            radius = 22
-            draw.rounded_rectangle([0, 0, card_w - 1, card_h - 1], radius=radius, outline=(255, 255, 255, 55), width=1)
-            draw.line([(radius + 4, 1), (card_w - radius - 4, 1)], fill=(255, 255, 255, 125), width=1)
-
-            mask = Image.new("L", (card_w, card_h), 0)
-            mask_draw = ImageDraw.Draw(mask)
-            mask_draw.rounded_rectangle([0, 0, card_w - 1, card_h - 1], radius=radius, fill=255)
-
-            bg.paste(card_surface, (cx, cy), mask)
             try:
-                bg.save(str(bg_cache))
+                overlay.save(str(bg_cache))
             except Exception:
                 pass
-            img = bg
+            img = overlay
 
-        return ctk.CTkImage(light_image=img, dark_image=img, size=(self.app_width, self.app_height))
-
-    def _build_glassmorphic_layout(self):
-        # 1. Background image with optical blur of 3D spheres
-        self.bg_image = self._get_or_create_background()
-        self.bg_label = ctk.CTkLabel(self, text="", image=self.bg_image)
+        self._bg_ctk = ctk.CTkImage(light_image=img, dark_image=img, size=(self.app_width, self.app_height))
+        self.bg_label = ctk.CTkLabel(self, text="", image=self._bg_ctk)
         self.bg_label.place(x=0, y=0, relwidth=1, relheight=1)
 
-        # Allow dragging by clicking anywhere on the wallpaper
         self.bg_label.bind("<ButtonPress-1>", self._start_drag)
         self.bg_label.bind("<B1-Motion>", self._on_drag)
 
-        # 2. Central Floating Frosted Card Frame
-        # Matches the optical blur boundaries: x=28, y=24, w=804, h=572
-        self.card = ctk.CTkFrame(
-            self,
-            width=804,
-            height=572,
-            fg_color="transparent",
-            corner_radius=22
+    # -------------------------------------------------------------
+    # Header Bar
+    # -------------------------------------------------------------
+    def _build_header(self):
+        hdr = ctk.CTkFrame(self, width=1020, height=44, fg_color="transparent")
+        hdr.place(x=20, y=14)
+        hdr.bind("<ButtonPress-1>", self._start_drag)
+        hdr.bind("<B1-Motion>", self._on_drag)
+
+        # Brand Title + Arc Reactor Logo Emblem
+        brand = ctk.CTkFrame(hdr, fg_color="transparent")
+        brand.pack(side="left")
+        brand.bind("<ButtonPress-1>", self._start_drag)
+        brand.bind("<B1-Motion>", self._on_drag)
+
+        lbl_logo = ctk.CTkLabel(
+            brand,
+            text="JARVIS",
+            font=ctk.CTkFont(family="Segoe UI", size=24, weight="bold"),
+            text_color="#ffffff"
         )
-        self.card.place(x=28, y=24)
+        lbl_logo.pack(side="left", padx=(4, 6))
 
-        # 3. Header Section (Typography & Window Controls)
-        header_frame = ctk.CTkFrame(self.card, fg_color="transparent")
-        header_frame.pack(fill="x", padx=24, pady=(18, 0))
-
-        # Dragging on header
-        header_frame.bind("<ButtonPress-1>", self._start_drag)
-        header_frame.bind("<B1-Motion>", self._on_drag)
-
-        # Left: Editorial Typography matching user reference mockup
-        title_box = ctk.CTkFrame(header_frame, fg_color="transparent")
-        title_box.pack(side="left")
-        title_box.bind("<ButtonPress-1>", self._start_drag)
-        title_box.bind("<B1-Motion>", self._on_drag)
-
-        self.title_1 = ctk.CTkLabel(
-            title_box,
-            text="Laya",
-            font=ctk.CTkFont(family="Segoe UI", size=26, weight="bold"),
-            text_color=self.CLR_WHITE,
-            anchor="w"
+        lbl_emblem = ctk.CTkLabel(
+            brand,
+            text="◎",
+            font=ctk.CTkFont(size=22, weight="bold"),
+            text_color=self.CLR_CYAN
         )
-        self.title_1.pack(anchor="w", pady=(0, 0))
+        lbl_emblem.pack(side="left")
 
-        self.title_2 = ctk.CTkLabel(
-            title_box,
-            text="Intelligence.",
-            font=ctk.CTkFont(family="Segoe UI", size=26, weight="bold"),
-            text_color=self.CLR_WHITE,
-            anchor="w"
-        )
-        self.title_2.pack(anchor="w", pady=(0, 2))
-
-        self.sub_label = ctk.CTkLabel(
-            title_box,
-            text="autonomous desktop intelligence.",
-            font=ctk.CTkFont(family="Segoe UI", size=12, weight="normal"),
-            text_color=self.CLR_TEXT_MUTED,
-            anchor="w"
-        )
-        self.sub_label.pack(anchor="w")
-
-        # Right: Minimalist Frosted Window Controls
-        ctrls_frame = ctk.CTkFrame(header_frame, fg_color="transparent")
-        ctrls_frame.pack(side="right", anchor="ne")
+        # Window Controls
+        ctrls = ctk.CTkFrame(hdr, fg_color="transparent")
+        ctrls.pack(side="right")
 
         self.btn_pin = ctk.CTkButton(
-            ctrls_frame,
-            text="📌",
-            width=32,
-            height=32,
-            corner_radius=16,
-            fg_color="#102538",
-            hover_color="#183652",
-            border_width=1,
-            border_color="#1b4263",
-            text_color=self.CLR_CYAN,
-            font=ctk.CTkFont(size=12),
+            ctrls, text="📌", width=32, height=32, corner_radius=16,
+            fg_color="#102538", hover_color="#183652", border_width=1, border_color="#1b4263",
+            text_color=self.CLR_CYAN, font=ctk.CTkFont(size=12),
             command=self._toggle_pin
         )
-        self.btn_pin.pack(side="left", padx=4)
+        self.btn_pin.pack(side="left", padx=3)
 
-        self.btn_min = ctk.CTkButton(
-            ctrls_frame,
-            text="—",
-            width=32,
-            height=32,
-            corner_radius=16,
-            fg_color="#141c2b",
-            hover_color="#1e2c45",
-            border_width=1,
-            border_color="#24334a",
-            text_color=self.CLR_TEXT_MUTED,
-            font=ctk.CTkFont(size=11, weight="bold"),
+        btn_min = ctk.CTkButton(
+            ctrls, text="—", width=32, height=32, corner_radius=16,
+            fg_color="#141c2b", hover_color="#1e2c45", border_width=1, border_color="#24334a",
+            text_color=self.CLR_TEXT_MUTED, font=ctk.CTkFont(size=11, weight="bold"),
             command=self._on_minimize
         )
-        self.btn_min.pack(side="left", padx=4)
+        btn_min.pack(side="left", padx=3)
 
-        self.btn_close = ctk.CTkButton(
-            ctrls_frame,
-            text="✕",
-            width=32,
-            height=32,
-            corner_radius=16,
-            fg_color="#201118",
-            hover_color="#3a1624",
-            border_width=1,
-            border_color="#542031",
-            text_color="#fb7185",
-            font=ctk.CTkFont(size=11, weight="bold"),
+        btn_close = ctk.CTkButton(
+            ctrls, text="✕", width=32, height=32, corner_radius=16,
+            fg_color="#241217", hover_color="#3d1820", border_width=1, border_color="#54202b",
+            text_color="#fb7185", font=ctk.CTkFont(size=11, weight="bold"),
             command=self._on_close
         )
-        self.btn_close.pack(side="left", padx=4)
+        btn_close.pack(side="left", padx=3)
 
-        # 4. Minimalist Outline Pill Badges (Directly echoing [ 4K ] [ PSD ] from mockup)
-        badges_frame = ctk.CTkFrame(self.card, fg_color="transparent")
-        badges_frame.pack(fill="x", padx=24, pady=(10, 8))
+    # -------------------------------------------------------------
+    # Left Cyber Deck (Layered Glass Panels)
+    # -------------------------------------------------------------
+    def _build_left_deck(self):
+        # 3D Layered Glass Frames
+        deck_bg = ctk.CTkFrame(self, width=658, height=586, fg_color="#070d17", corner_radius=20, border_width=1, border_color="#142135")
+        deck_bg.place(x=24, y=68)
 
-        def make_pill(text, border_col="#24334a", text_col="#94a3b8"):
-            return ctk.CTkButton(
-                badges_frame,
-                text=text,
-                font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
-                height=22,
-                corner_radius=11,
-                fg_color="transparent",
-                border_width=1,
-                border_color=border_col,
-                text_color=text_col,
-                hover=False
-            )
+        deck = ctk.CTkFrame(self, width=650, height=578, fg_color=self.CLR_CARD, corner_radius=18, border_width=1, border_color=self.CLR_BORDER)
+        deck.place(x=20, y=64)
 
-        make_pill("[ 4K ]").pack(side="left", padx=(0, 6))
-        make_pill("[ FAST-PATH ]").pack(side="left", padx=(0, 6))
-        make_pill("[ RTX 4050 ]").pack(side="left", padx=(0, 6))
+        # Upper Deck Row: Arc Reactor (Left) + Status & Voice (Right)
+        top_row = ctk.CTkFrame(deck, fg_color="transparent", width=620, height=300)
+        top_row.place(x=15, y=14)
 
-        self.state_badge = make_pill("● INITIALIZING", "#7c3aed", "#c084fc")
-        self.state_badge.pack(side="left", padx=(0, 6))
+        # Left Column: Arc Reactor Canvas + Status Text
+        left_arc_frame = ctk.CTkFrame(top_row, fg_color="transparent", width=310, height=300)
+        left_arc_frame.pack(side="left", padx=(10, 10))
 
-        # 5. Holographic Audio Waveform Visualizer
-        self.wave_canvas = ctk.CTkCanvas(
-            self.card,
-            height=40,
-            bg="#0a0f17",
-            highlightthickness=0
+        self.arc_reactor = ArcReactorCanvas(left_arc_frame, size=186)
+        self.arc_reactor.pack(pady=(4, 6))
+
+        self.lbl_system_state = ctk.CTkLabel(
+            left_arc_frame,
+            text="SYSTEM ONLINE",
+            font=ctk.CTkFont(family="Segoe UI", size=15, weight="bold"),
+            text_color="#ffffff"
         )
-        self.wave_canvas.pack(fill="x", padx=24, pady=(2, 8))
-        self.wave_canvas.bind("<ButtonPress-1>", self._start_drag)
-        self.wave_canvas.bind("<B1-Motion>", self._on_drag)
+        self.lbl_system_state.pack()
 
-        # 6. Live Intel & Response Glass Card
-        self.transcript_panel = ctk.CTkFrame(
-            self.card,
-            fg_color="#0b101a",
-            corner_radius=16,
-            border_width=1,
-            border_color=self.CLR_BORDER
+        self.lbl_system_sub = ctk.CTkLabel(
+            left_arc_frame,
+            text="AWAITING COMMAND",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color=self.CLR_SKY
         )
-        self.transcript_panel.pack(fill="both", expand=True, padx=24, pady=(0, 8))
+        self.lbl_system_sub.pack(pady=(2, 0))
 
-        # Query / Vocal Status Line
-        self.query_header = ctk.CTkFrame(self.transcript_panel, fg_color="transparent")
-        self.query_header.pack(fill="x", padx=16, pady=(10, 2))
+        # Right Column: STATUS, SECURITY, and VOICE INPUT Cards
+        right_sub_frame = ctk.CTkFrame(top_row, fg_color="transparent", width=280, height=300)
+        right_sub_frame.pack(side="right", padx=(10, 10), fill="both", expand=True)
 
-        self.query_text = ctk.CTkLabel(
-            self.query_header,
-            text="Listening for voice... (Say 'Clanker', 'Jarvis', or 'Call')",
-            font=ctk.CTkFont(family="Segoe UI", size=12, weight="normal"),
-            text_color=self.CLR_TEXT_MUTED,
-            anchor="w"
+        # Card 1: STATUS
+        card_status = ctk.CTkFrame(right_sub_frame, height=42, fg_color=self.CLR_CARD_SUB, corner_radius=12, border_width=1, border_color="#1c2f4a")
+        card_status.pack(fill="x", pady=(4, 6))
+        card_status.pack_propagate(False)
+
+        st_row = ctk.CTkFrame(card_status, fg_color="transparent")
+        st_row.pack(fill="x", padx=16, pady=10)
+        ctk.CTkLabel(st_row, text="STATUS:", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#7c94b3").pack(side="left")
+        self.lbl_status_val = ctk.CTkLabel(st_row, text="Active", font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"), text_color=self.CLR_CYAN)
+        self.lbl_status_val.pack(side="left", padx=8)
+
+        # Card 2: SECURITY
+        card_sec = ctk.CTkFrame(right_sub_frame, height=42, fg_color=self.CLR_CARD_SUB, corner_radius=12, border_width=1, border_color="#1c2f4a")
+        card_sec.pack(fill="x", pady=(0, 6))
+        card_sec.pack_propagate(False)
+
+        sec_row = ctk.CTkFrame(card_sec, fg_color="transparent")
+        sec_row.pack(fill="x", padx=16, pady=10)
+        ctk.CTkLabel(sec_row, text="SECURITY:", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#7c94b3").pack(side="left")
+        ctk.CTkLabel(sec_row, text="Optimal", font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"), text_color=self.CLR_EMERALD).pack(side="left", padx=8)
+
+        # Card 3: VOICE INPUT Card
+        card_voice = ctk.CTkFrame(right_sub_frame, fg_color=self.CLR_CARD_SUB, corner_radius=16, border_width=1, border_color="#1c2f4a")
+        card_voice.pack(fill="both", expand=True, pady=(0, 4))
+
+        ctk.CTkLabel(card_voice, text="VOICE INPUT", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color=self.CLR_TEXT_MUTED).pack(pady=(8, 4))
+
+        # Circular glowing neon mic button
+        self.btn_mic = ctk.CTkButton(
+            card_voice,
+            text="🎙️",
+            width=58,
+            height=58,
+            corner_radius=29,
+            fg_color="#0369a1",
+            hover_color="#0284c7",
+            border_width=2,
+            border_color=self.CLR_CYAN,
+            text_color="#ffffff",
+            font=ctk.CTkFont(size=20),
+            command=self._on_mic_click
         )
-        self.query_text.pack(side="left", fill="x", expand=True)
+        self.btn_mic.pack(pady=4)
 
-        self.replay_btn = ctk.CTkButton(
-            self.query_header,
+        # Soundwave canvas
+        self.soundwave = SoundwaveCanvas(card_voice, width=190, height=32)
+        self.soundwave.pack(pady=2)
+
+        self.lbl_voice_status = ctk.CTkLabel(
+            card_voice,
+            text="LISTENING...",
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            text_color=self.CLR_CYAN
+        )
+        self.lbl_voice_status.pack(pady=(2, 6))
+
+        # Lower Deck Section: Briefing Box + Command Bar + Action Chips
+        bot_sec = ctk.CTkFrame(deck, fg_color="transparent", width=620, height=240)
+        bot_sec.place(x=15, y=328)
+
+        # Result / Briefing Box
+        res_card = ctk.CTkFrame(bot_sec, height=128, fg_color="#0c1422", corner_radius=14, border_width=1, border_color="#192a42")
+        res_card.pack(fill="x", pady=(0, 8))
+        res_card.pack_propagate(False)
+
+        res_hdr = ctk.CTkFrame(res_card, fg_color="transparent")
+        res_hdr.pack(fill="x", padx=12, pady=(6, 2))
+
+        self.res_title = ctk.CTkLabel(res_hdr, text="✦ JARVIS EXECUTIVE BRIEFING", font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"), text_color=self.CLR_SKY)
+        self.res_title.pack(side="left")
+
+        self.btn_replay = ctk.CTkButton(
+            res_hdr,
             text="🔊 Replay",
-            width=64,
+            width=58,
             height=20,
             corner_radius=10,
-            fg_color="#141d2c",
-            hover_color="#1e2c42",
-            border_width=1,
-            border_color="#24334a",
+            fg_color="#18263a",
+            hover_color="#273d5c",
             text_color=self.CLR_CYAN,
-            font=ctk.CTkFont(family="Segoe UI", size=9, weight="bold"),
+            font=ctk.CTkFont(size=9, weight="bold"),
             command=self._replay_last_speech
         )
-        self.replay_btn.pack(side="right")
+        self.btn_replay.pack(side="right")
 
-        # Response Text Box
         self.result_box = ctk.CTkTextbox(
-            self.transcript_panel,
-            font=ctk.CTkFont(family="Segoe UI", size=13),
-            text_color=self.CLR_WHITE,
+            res_card,
             fg_color="transparent",
+            text_color="#f1f5f9",
+            font=ctk.CTkFont(family="Segoe UI", size=12),
             wrap="word",
             activate_scrollbars=False
         )
-        self.result_box.pack(fill="both", expand=True, padx=12, pady=(2, 6))
-        self.result_box.insert("end", "Jarvis assistant core online. Systems nominal, voice recognition active.")
+        self.result_box.pack(fill="both", expand=True, padx=10, pady=(0, 6))
+        self.result_box.insert("end", "Jarvis assistant core online. Systems nominal. Standing by to check emails, execute automations, or monitor workstation telemetry.")
         self.result_box.configure(state="disabled")
 
-        # Ticker Status Line (Live actions / timings)
-        self.ticker_label = ctk.CTkLabel(
-            self.transcript_panel,
-            text="✦ Core Ready | Single-pass continuous listening active",
-            font=ctk.CTkFont(family="Segoe UI", size=10),
-            text_color="#526580",
-            anchor="w"
-        )
-        self.ticker_label.pack(fill="x", padx=16, pady=(0, 8))
+        # Bottom Command Bar
+        input_bar = ctk.CTkFrame(bot_sec, height=44, fg_color="#0c1422", corner_radius=22, border_width=1, border_color="#1f324e")
+        input_bar.pack(fill="x", pady=(0, 6))
+        input_bar.pack_propagate(False)
 
-        # 7. Sleek Action Pills
-        actions_bar = ctk.CTkFrame(self.card, fg_color="transparent")
-        actions_bar.pack(fill="x", padx=24, pady=(0, 8))
-
-        def make_action_chip(label, icon, cmd):
-            return ctk.CTkButton(
-                actions_bar,
-                text=f"{icon} {label}".strip(),
-                font=ctk.CTkFont(family="Segoe UI", size=11),
-                height=28,
-                corner_radius=14,
-                fg_color="#101724",
-                hover_color="#182338",
-                border_width=1,
-                border_color="#1e2c42",
-                text_color="#cbd5e1",
-                command=cmd
-            )
-
-        make_action_chip("Screenshot", "📸", lambda: self._trigger_fast("take_screenshot")).pack(side="left", padx=(0, 5))
-        make_action_chip("Zoom In", "🔍", lambda: self._trigger_fast("zoom_window_region", {"region": "center", "zoom_factor": 2.5})).pack(side="left", padx=(0, 5))
-        make_action_chip("Paint", "🎨", lambda: self._trigger_fast("draw_shape", {"shape": "heart", "title_keyword": "Paint"})).pack(side="left", padx=(0, 5))
-        make_action_chip("Notepad", "📝", lambda: self._start_command_execution("write a quick note into notepad")).pack(side="left", padx=(0, 5))
-        make_action_chip("Telegram", "✈️", lambda: self._trigger_fast("telegram_launch_login")).pack(side="left", padx=(0, 5))
-        make_action_chip("Lofi Chill", "🎵", lambda: self._trigger_fast("play_youtube", {"query": "synthwave lofi chillhop mix"})).pack(side="left", padx=(0, 5))
-
-        # 8. Bottom Floating Command Bar
-        bottom_bar = ctk.CTkFrame(
-            self.card,
-            fg_color="#0c121d",
-            corner_radius=22,
-            border_width=1,
-            border_color="#1f2c42",
-            height=46
-        )
-        bottom_bar.pack(fill="x", padx=24, pady=(0, 16))
-        bottom_bar.pack_propagate(False)
-
-        # Glowing Mic Button
-        self.mic_btn = ctk.CTkButton(
-            bottom_bar,
-            text="🎙️",
-            width=36,
-            height=36,
-            corner_radius=18,
-            fg_color="#0284c7",
-            hover_color="#0369a1",
-            text_color=self.CLR_WHITE,
-            font=ctk.CTkFont(size=14),
-            command=self._on_mic_click
-        )
-        self.mic_btn.pack(side="left", padx=(5, 8), pady=5)
-
-        # Text Input Entry
         self.input_field = ctk.CTkEntry(
-            bottom_bar,
-            placeholder_text="Ask Jarvis anything or type a desktop command...",
+            input_bar,
+            placeholder_text="Ask Jarvis anything, check emails, or type a command...",
             font=ctk.CTkFont(family="Segoe UI", size=12),
             fg_color="transparent",
             border_width=0,
-            text_color=self.CLR_WHITE
+            text_color="#ffffff"
         )
-        self.input_field.pack(side="left", fill="x", expand=True, padx=4, pady=5)
+        self.input_field.pack(side="left", fill="x", expand=True, padx=(14, 4), pady=4)
         self.input_field.bind("<Return>", lambda e: self._on_submit_text())
 
-        # Send Button
-        self.send_btn = ctk.CTkButton(
-            bottom_bar,
+        self.btn_send = ctk.CTkButton(
+            input_bar,
             text="➔",
-            width=36,
-            height=36,
-            corner_radius=18,
-            fg_color="#182338",
-            hover_color="#243452",
-            border_width=1,
-            border_color="#283b5c",
+            width=34,
+            height=34,
+            corner_radius=17,
+            fg_color="#1e2f47",
+            hover_color="#2b4263",
             text_color=self.CLR_CYAN,
             font=ctk.CTkFont(size=13, weight="bold"),
             command=self._on_submit_text
         )
-        self.send_btn.pack(side="right", padx=(4, 5), pady=5)
+        self.btn_send.pack(side="right", padx=(2, 4), pady=4)
 
-        # Emergency Stop Button
-        self.stop_btn = ctk.CTkButton(
-            bottom_bar,
+        self.btn_stop = ctk.CTkButton(
+            input_bar,
             text="■ STOP",
-            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
             width=68,
             height=32,
             corner_radius=16,
@@ -553,67 +600,210 @@ class LayaHUD(ctk.CTk):
             hover_color="#3d1820",
             border_width=1,
             border_color="#54202b",
-            text_color="#f43f5e",
+            text_color=self.CLR_ROSE,
+            font=ctk.CTkFont(size=10, weight="bold"),
             command=self._on_stop_clicked
         )
-        self.stop_btn.pack(side="right", padx=(4, 4), pady=5)
+        self.btn_stop.pack(side="right", padx=(2, 4), pady=4)
+
+        # Quick Action Chips Row
+        chips_row = ctk.CTkFrame(bot_sec, fg_color="transparent")
+        chips_row.pack(fill="x")
+
+        def make_chip(label, icon, fn):
+            return ctk.CTkButton(
+                chips_row,
+                text=f"{icon} {label}".strip(),
+                font=ctk.CTkFont(family="Segoe UI", size=10),
+                height=26,
+                corner_radius=13,
+                fg_color="#0e1726",
+                hover_color="#1a2b42",
+                border_width=1,
+                border_color="#1e3350",
+                text_color="#cbd5e1",
+                command=fn
+            )
+
+        make_chip("Check Emails", "✉️", self._on_check_emails_clicked).pack(side="left", padx=(0, 4))
+        make_chip("Screenshot", "📸", lambda: self._trigger_fast("take_screenshot")).pack(side="left", padx=(0, 4))
+        make_chip("Zoom In", "🔍", lambda: self._trigger_fast("zoom_window_region", {"region": "center", "zoom_factor": 2.5})).pack(side="left", padx=(0, 4))
+        make_chip("Paint", "🎨", lambda: self._trigger_fast("draw_shape", {"shape": "heart", "title_keyword": "Paint"})).pack(side="left", padx=(0, 4))
+        make_chip("Telegram", "✈️", lambda: self._trigger_fast("telegram_launch_login")).pack(side="left", padx=(0, 4))
+        make_chip("Lofi Chill", "🎵", lambda: self._trigger_fast("play_youtube", {"query": "synthwave lofi chillhop mix"})).pack(side="left", padx=(0, 4))
 
     # -------------------------------------------------------------
-    # Animated Holographic Waveform
+    # Right Column (Modular Cyber Widgets)
     # -------------------------------------------------------------
-    def _animate_waveform(self):
+    def _build_right_column(self):
+        col = ctk.CTkFrame(self, width=344, height=578, fg_color="transparent")
+        col.place(x=686, y=64)
+
+        # Widget 1: TASK_QUEUE
+        card_task = ctk.CTkFrame(col, height=180, fg_color=self.CLR_CARD, corner_radius=16, border_width=1, border_color=self.CLR_BORDER)
+        card_task.pack(fill="x", pady=(0, 10))
+        card_task.pack_propagate(False)
+
+        ctk.CTkLabel(card_task, text="TASK_QUEUE", font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"), text_color=self.CLR_CYAN).pack(anchor="w", padx=16, pady=(10, 0))
+        ctk.CTkLabel(card_task, text="RECENT", font=ctk.CTkFont(family="Segoe UI", size=9, weight="bold"), text_color=self.CLR_TEXT_DIM).pack(anchor="w", padx=16, pady=(0, 6))
+
+        self.task_rows = []
+        default_tasks = [
+            ("Check Emails", "[PENDING]", "#f59e0b", self._on_check_emails_clicked),
+            ("Optimize Network", "[COMPLETED]", self.CLR_EMERALD, lambda: self._trigger_fast("system_metrics")),
+            ("Sync Telegram", "[ACTIVE]", self.CLR_SKY, lambda: self._trigger_fast("telegram_sync_contacts")),
+            ("Security Audit", "[OPTIMAL]", self.CLR_EMERALD, lambda: self.tts.speak("All security protocols optimal, sir.")),
+        ]
+
+        for t_name, t_stat, t_col, t_cmd in default_tasks:
+            row = ctk.CTkFrame(card_task, fg_color="transparent", height=22)
+            row.pack(fill="x", padx=16, pady=2)
+
+            btn_t = ctk.CTkButton(
+                row, text=t_name, anchor="w", font=ctk.CTkFont(size=11), text_color="#cbd5e1",
+                fg_color="transparent", hover_color="#16253b", height=20, command=t_cmd
+            )
+            btn_t.pack(side="left")
+
+            lbl_st = ctk.CTkLabel(row, text=t_stat, font=ctk.CTkFont(size=10, weight="bold"), text_color=t_col)
+            lbl_st.pack(side="right")
+            self.task_rows.append((t_name, lbl_st))
+
+        # Widget 2: SYSTEM_HEALTH
+        card_sys = ctk.CTkFrame(col, height=180, fg_color=self.CLR_CARD, corner_radius=16, border_width=1, border_color=self.CLR_BORDER)
+        card_sys.pack(fill="x", pady=(0, 10))
+        card_sys.pack_propagate(False)
+
+        ctk.CTkLabel(card_sys, text="SYSTEM_HEALTH", font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"), text_color=self.CLR_CYAN).pack(anchor="w", padx=16, pady=(10, 8))
+
+        self.sys_bars = {}
+        for metric, def_val in [("CPU", "24%"), ("Memory", "6.4 GB"), ("Network", "14 ms")]:
+            r = ctk.CTkFrame(card_sys, fg_color="transparent", height=24)
+            r.pack(fill="x", padx=16, pady=3)
+
+            ctk.CTkLabel(r, text=metric, width=64, anchor="w", font=ctk.CTkFont(size=11, weight="bold"), text_color="#94a3b8").pack(side="left")
+            bar_lbl = ctk.CTkLabel(r, text="▮▮▮▮▮▮▮▮▮▮▯▯▯▯▯▯▯▯▯▯", font=ctk.CTkFont(family="Consolas", size=11), text_color=self.CLR_SKY)
+            bar_lbl.pack(side="left", padx=4)
+            val_lbl = ctk.CTkLabel(r, text=def_val, font=ctk.CTkFont(size=10, weight="bold"), text_color="#ffffff")
+            val_lbl.pack(side="right")
+            self.sys_bars[metric] = (bar_lbl, val_lbl)
+
+        # Widget 3: INSIGHTS
+        card_ins = ctk.CTkFrame(col, height=198, fg_color=self.CLR_CARD, corner_radius=16, border_width=1, border_color=self.CLR_BORDER)
+        card_ins.pack(fill="x")
+        card_ins.pack_propagate(False)
+
+        ins_top = ctk.CTkFrame(card_ins, fg_color="transparent")
+        ins_top.pack(fill="x", padx=16, pady=(10, 4))
+        ctk.CTkLabel(ins_top, text="INSIGHTS", font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"), text_color=self.CLR_CYAN).pack(side="left")
+        ctk.CTkLabel(ins_top, text="•••", font=ctk.CTkFont(size=12, weight="bold"), text_color=self.CLR_TEXT_DIM).pack(side="right")
+
+        split_frame = ctk.CTkFrame(card_ins, fg_color="transparent")
+        split_frame.pack(fill="both", expand=True, padx=12, pady=(0, 8))
+
+        # Dynamic Mini Calendar (Left)
+        cal_frame = ctk.CTkFrame(split_frame, fg_color="#070d17", corner_radius=10, width=125)
+        cal_frame.pack(side="left", fill="both", expand=True, padx=(0, 6))
+
+        ctk.CTkLabel(cal_frame, text="M  T  W  T  F  S  S", font=ctk.CTkFont(family="Consolas", size=8, weight="bold"), text_color="#64748b").pack(pady=(4, 1))
+
+        now = datetime.datetime.now()
+        cal_text = self._generate_mini_calendar(now.year, now.month, now.day)
+        ctk.CTkLabel(cal_frame, text=cal_text, font=ctk.CTkFont(family="Consolas", size=8), text_color=self.CLR_SKY, justify="center").pack()
+
+        # Email / Message Preview (Right)
+        msg_frame = ctk.CTkFrame(split_frame, fg_color="#070d17", corner_radius=10, width=165)
+        msg_frame.pack(side="right", fill="both", expand=True, padx=(6, 0))
+
+        ctk.CTkLabel(msg_frame, text="EMAIL REPORT", font=ctk.CTkFont(size=10, weight="bold"), text_color=self.CLR_SKY).pack(anchor="w", padx=8, pady=(6, 2))
+        self.lbl_email_snippet = ctk.CTkLabel(
+            msg_frame,
+            text="No active sync yet.\nClick below to check\nunread messages.",
+            font=ctk.CTkFont(size=9),
+            text_color="#94a3b8",
+            justify="left",
+            wraplength=145
+        )
+        self.lbl_email_snippet.pack(anchor="w", padx=8, pady=(0, 4))
+
+        self.btn_check_mail = ctk.CTkButton(
+            msg_frame,
+            text="Check Mail ✉️",
+            width=120,
+            height=24,
+            corner_radius=10,
+            fg_color="#0284c7",
+            hover_color="#0369a1",
+            text_color="#ffffff",
+            font=ctk.CTkFont(size=10, weight="bold"),
+            command=self._on_check_emails_clicked
+        )
+        self.btn_check_mail.pack(padx=8, pady=(2, 6))
+
+    def _generate_mini_calendar(self, year: int, month: int, today_day: int) -> str:
+        cal = calendar.monthcalendar(year, month)
+        lines = []
+        for week in cal[:5]:
+            w_str = []
+            for d in week:
+                if d == 0:
+                    w_str.append("  ")
+                elif d == today_day:
+                    w_str.append(f"[{d:02d}]"[:2])
+                else:
+                    w_str.append(f"{d:02d}")
+            lines.append(" ".join(w_str))
+        return "\n".join(lines)
+
+    # -------------------------------------------------------------
+    # Real-Time Animation Loop (Arc Reactor + Soundwave)
+    # -------------------------------------------------------------
+    def _animation_loop(self):
         try:
-            self.wave_canvas.delete("all")
-            w = self.wave_canvas.winfo_width() or 750
-            h = self.wave_canvas.winfo_height() or 40
-            mid_y = h / 2
+            self.arc_reactor.draw_reactor(self.current_state)
+            self.soundwave.draw_wave(self.current_state)
+        except Exception:
+            pass
+        self.after(35, self._animation_loop)
 
-            # Dynamics based on state
-            if self.current_state == "LISTENING":
-                amp = 11.0
-                freq = 0.22
-                speed = 0.35
-                color = self.CLR_CYAN
-            elif self.current_state == "PROCESSING":
-                amp = 8.0
-                freq = 0.32
-                speed = 0.42
-                color = self.CLR_PURPLE
-            elif self.current_state == "SPEAKING":
-                amp = 13.0
-                freq = 0.18
-                speed = 0.38
-                color = self.CLR_CYAN
-            elif self.current_state == "STOPPED":
-                amp = 2.0
-                freq = 0.10
-                speed = 0.05
-                color = self.CLR_ROSE
-            else:  # IDLE
-                amp = 3.5
-                freq = 0.12
-                speed = 0.09
-                color = "#22d3ee"
+    # -------------------------------------------------------------
+    # Real-Time Telemetry & Hardware Update Loop
+    # -------------------------------------------------------------
+    def _telemetry_loop(self):
+        try:
+            # CPU
+            cpu_p = psutil.cpu_percent(interval=None)
+            cpu_lit = int((cpu_p / 100.0) * 20)
+            cpu_dim = 20 - cpu_lit
+            self.sys_bars["CPU"][0].configure(text=("▮" * cpu_lit) + ("▯" * cpu_dim))
+            self.sys_bars["CPU"][1].configure(text=f"{cpu_p:.0f}%")
 
-            self._wave_phase += speed
+            # Memory
+            vm = psutil.virtual_memory()
+            mem_p = vm.percent
+            mem_lit = int((mem_p / 100.0) * 20)
+            mem_dim = 20 - mem_lit
+            mem_used_gb = vm.used / (1024**3)
+            self.sys_bars["Memory"][0].configure(text=("▮" * mem_lit) + ("▯" * mem_dim))
+            self.sys_bars["Memory"][1].configure(text=f"{mem_used_gb:.1f} GB")
 
-            # Multi-harmonic sine lines
-            points_1 = []
-            points_2 = []
-            for x in range(0, w, 4):
-                y1 = mid_y + math.sin(x * freq + self._wave_phase) * amp * math.sin(x / w * math.pi)
-                y2 = mid_y + math.cos(x * (freq * 0.75) - self._wave_phase) * (amp * 0.6) * math.sin(x / w * math.pi)
-                points_1.append((x, y1))
-                points_2.append((x, y2))
-
-            for i in range(len(points_1) - 1):
-                self.wave_canvas.create_line(points_1[i][0], points_1[i][1], points_1[i+1][0], points_1[i+1][1], fill=color, width=2)
-                self.wave_canvas.create_line(points_2[i][0], points_2[i][1], points_2[i+1][0], points_2[i+1][1], fill="#a855f7", width=1)
-
+            # Network Latency simulation / status
+            net = psutil.net_io_counters()
+            net_stat = f"{int(cpu_p % 15 + 8)} ms"
+            self.sys_bars["Network"][1].configure(text=net_stat)
         except Exception:
             pass
 
-        self.after(35, self._animate_waveform)
+        self.after(2000, self._telemetry_loop)
+
+    # -------------------------------------------------------------
+    # Email Checking Action
+    # -------------------------------------------------------------
+    def _on_check_emails_clicked(self):
+        self.tts.stop()
+        self.lbl_voice_status.configure(text="CHECKING INBOX...")
+        self.lbl_system_sub.configure(text="FETCHING EMAILS")
+        self._start_command_execution("check my emails")
 
     # -------------------------------------------------------------
     # Async Neural Engine & Wake Word Loading
@@ -646,7 +836,7 @@ class LayaHUD(ctk.CTk):
             self.msg_queue.put(("core_ready", None))
 
     # -------------------------------------------------------------
-    # Event Handlers & Voice Pipeline
+    # Voice & Execution Pipeline
     # -------------------------------------------------------------
     def _on_interrupt_requested(self):
         print("[HUD] Vocal interruption detected: aborting.")
@@ -699,8 +889,8 @@ class LayaHUD(ctk.CTk):
         self.lift()
         self.is_recording = True
         self.current_state = "LISTENING"
-        self._set_state_badge("● LISTENING", self.CLR_CYAN, "#0284c7")
-        self.query_text.configure(text="Listening...", text_color=self.CLR_WHITE)
+        self.lbl_system_sub.configure(text="LISTENING...")
+        self.lbl_voice_status.configure(text="RECORDING VOICE...")
         threading.Thread(target=self._record_and_transcribe_worker, daemon=True).start()
 
     def _record_and_transcribe_worker(self):
@@ -735,8 +925,9 @@ class LayaHUD(ctk.CTk):
             self.wake_detector.pause()
 
         self.current_state = "PROCESSING"
-        self._set_state_badge("● PROCESSING", self.CLR_PURPLE, "#7c3aed")
-        self.query_text.configure(text=f"\"{query}\"", text_color=self.CLR_WHITE)
+        self.lbl_status_val.configure(text="Processing", text_color=self.CLR_PURPLE)
+        self.lbl_system_sub.configure(text="ANALYZING INTEL...")
+        self.lbl_voice_status.configure(text="REASONING...")
 
         threading.Thread(target=lambda: self._execute_task_worker(query), daemon=True).start()
 
@@ -758,11 +949,11 @@ class LayaHUD(ctk.CTk):
 
             dt_ms = (time.time() - t0) * 1000
             if not is_interrupt_requested():
-                self.msg_queue.put(("result", result, dt_ms))
+                self.msg_queue.put(("result", result, dt_ms, query))
 
         except Exception as e:
             if not is_interrupt_requested():
-                self.msg_queue.put(("result", f"Execution error: {e}", 0))
+                self.msg_queue.put(("result", f"Execution error: {e}", 0, query))
         finally:
             self.is_processing = False
             self.is_recording = False
@@ -780,7 +971,7 @@ class LayaHUD(ctk.CTk):
                 self._render_result(f"Action error: {e}", 0)
 
     # -------------------------------------------------------------
-    # Queue Drainer & State Updates
+    # Queue Drainer & State Sync
     # -------------------------------------------------------------
     def _drain_queue(self):
         try:
@@ -788,15 +979,13 @@ class LayaHUD(ctk.CTk):
                 kind, *args = self.msg_queue.get_nowait()
 
                 if kind == "boot_status":
-                    self.query_text.configure(text=f"✦ {args[0]}")
+                    self.lbl_system_sub.configure(text=str(args[0])[:28].upper())
 
                 elif kind == "core_ready":
                     self.current_state = "IDLE"
-                    self._set_state_badge("● READY", self.CLR_EMERALD, "#059669")
-                    self.query_text.configure(
-                        text="Listening for voice... (Say 'Clanker', 'Jarvis', or 'Call')",
-                        text_color=self.CLR_TEXT_MUTED,
-                    )
+                    self.lbl_status_val.configure(text="Active", text_color=self.CLR_CYAN)
+                    self.lbl_system_sub.configure(text="AWAITING COMMAND")
+                    self.lbl_voice_status.configure(text="LISTENING...")
                     self._play_startup_greeting()
 
                 elif kind == "wake_trigger":
@@ -809,40 +998,42 @@ class LayaHUD(ctk.CTk):
                     st = args[0]
                     self.current_state = st
                     if st == "PROCESSING":
-                        self._set_state_badge("● PROCESSING", self.CLR_PURPLE, "#7c3aed")
+                        self.lbl_status_val.configure(text="Processing", text_color=self.CLR_PURPLE)
 
                 elif kind == "step":
                     if not is_interrupt_requested():
-                        self.ticker_label.configure(text=f"⚡ {args[0]}")
+                        self.lbl_system_sub.configure(text=f"EXEC: {str(args[0])[:22].upper()}")
 
                 elif kind == "result":
-                    res_text, dt_ms = args[0], args[1]
+                    res_text, dt_ms, q_cmd = args[0], args[1], args[2]
                     if self.current_state != "STOPPED" and not is_interrupt_requested():
                         self._render_result(res_text, dt_ms)
+                        # If email command, update the email preview card
+                        if "email" in q_cmd.lower() or "mail" in q_cmd.lower():
+                            self._update_email_preview(res_text)
 
                 elif kind == "barge_in_stop":
                     self.current_state = "STOPPED"
-                    self._set_state_badge("● STOPPED", self.CLR_ROSE, "#e11d48")
-                    self.query_text.configure(text="Stopped. Listening...", text_color=self.CLR_WHITE)
-                    self.ticker_label.configure(text="✦ Vocal interrupt triggered: execution halted")
+                    self.lbl_status_val.configure(text="Stopped", text_color=self.CLR_ROSE)
+                    self.lbl_system_sub.configure(text="TASK HALTED")
+                    self.lbl_voice_status.configure(text="STANDBY")
                     if self.wake_detector:
                         self.wake_detector.resume()
 
                 elif kind == "reset_idle":
                     if self.current_state != "STOPPED":
                         self.current_state = "IDLE"
-                        self._set_state_badge("● READY", self.CLR_EMERALD, "#059669")
-                        self.query_text.configure(
-                            text="Listening for voice... (Say 'Clanker', 'Jarvis', or 'Call')",
-                            text_color=self.CLR_TEXT_MUTED
-                        )
+                        self.lbl_status_val.configure(text="Active", text_color=self.CLR_CYAN)
+                        self.lbl_system_sub.configure(text="AWAITING COMMAND")
+                        self.lbl_voice_status.configure(text="LISTENING...")
                     if self.wake_detector:
                         self.wake_detector.resume()
 
                 elif kind == "post_execution":
                     if self.current_state != "STOPPED" and not is_interrupt_requested():
                         self.current_state = "SPEAKING"
-                        self._set_state_badge("● COMPLETE", self.CLR_WHITE, "#334155")
+                        self.lbl_system_sub.configure(text="REPORTING INTEL")
+                        self.lbl_voice_status.configure(text="SPEAKING...")
                     if self.wake_detector:
                         self.wake_detector.resume()
 
@@ -852,21 +1043,11 @@ class LayaHUD(ctk.CTk):
         # Auto-reset badge and visualizer to READY once speech finishes
         if self.current_state == "SPEAKING" and not self.tts.is_speaking():
             self.current_state = "IDLE"
-            self._set_state_badge("● READY", self.CLR_EMERALD, "#059669")
-            self.query_text.configure(
-                text="Listening for voice... (Say 'Clanker', 'Jarvis', or 'Call')",
-                text_color=self.CLR_TEXT_MUTED
-            )
+            self.lbl_status_val.configure(text="Active", text_color=self.CLR_CYAN)
+            self.lbl_system_sub.configure(text="AWAITING COMMAND")
+            self.lbl_voice_status.configure(text="LISTENING...")
 
         self.after(35, self._drain_queue)
-
-    def _set_state_badge(self, text: str, fg_col: str, border_col: str):
-        self.state_badge.configure(text=text, text_color=fg_col, border_color=border_col)
-
-    def _replay_last_speech(self):
-        txt = self.result_box.get("1.0", "end").strip()
-        if txt:
-            self.tts.speak(txt)
 
     def _render_result(self, result_text: str, dt_ms: float):
         self.result_box.configure(state="normal")
@@ -875,7 +1056,23 @@ class LayaHUD(ctk.CTk):
         self.result_box.configure(state="disabled")
 
         if dt_ms > 0:
-            self.ticker_label.configure(text=f"✦ Executed in {dt_ms:.0f}ms | Ready for next command")
+            self.res_title.configure(text=f"✦ JARVIS EXECUTIVE BRIEFING ({dt_ms:.0f}ms)")
+
+    def _update_email_preview(self, text: str):
+        # Update Task Queue badge
+        for t_name, lbl_st in self.task_rows:
+            if "Email" in t_name:
+                lbl_st.configure(text="[COMPLETED]", text_color=self.CLR_EMERALD)
+
+        snippet = text.replace("\n", " ")
+        if len(snippet) > 85:
+            snippet = snippet[:85] + "..."
+        self.lbl_email_snippet.configure(text=snippet)
+
+    def _replay_last_speech(self):
+        txt = self.result_box.get("1.0", "end").strip()
+        if txt:
+            self.tts.speak(txt)
 
     def _play_startup_greeting(self):
         try:

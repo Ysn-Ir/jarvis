@@ -1030,7 +1030,23 @@ class FastPathExecutor:
                 return "HUD displayed."
         except Exception:
             pass
-        return "UI displayed."
+    def check_emails(self, unread_only: bool = True) -> str:
+        """Fetch unread emails and generate executive summary."""
+        try:
+            from laya.tools.email_reader import get_email_manager
+            em = get_email_manager()
+            res = em.check_emails(limit=5, unread_only=unread_only)
+            return res.get("spoken") or res.get("summary")
+        except Exception as e:
+            return f"Error checking emails: {e}"
+
+    def open_webmail(self) -> str:
+        """Launch webmail in browser."""
+        try:
+            from laya.tools.email_reader import get_email_manager
+            return get_email_manager().open_webmail()
+        except Exception as e:
+            return f"Failed to open webmail: {e}"
 
 
 def get_fast_path_executor() -> FastPathExecutor:

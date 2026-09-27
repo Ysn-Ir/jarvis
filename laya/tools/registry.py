@@ -67,6 +67,18 @@ class ToolRegistry:
             handler=t1.send_email,
             parameters={"recipient": "string", "subject": "optional string", "body": "string"},
         )
+        def _check_emails_handler(limit: int = 5, unread_only: bool = True) -> str:
+            from laya.tools.email_reader import get_email_manager
+            res = get_email_manager().check_emails(limit=limit, unread_only=unread_only)
+            return res.get("summary") or res.get("spoken", "Checked emails.")
+
+        self.register(
+            name="check_emails",
+            description="Check recent or unread emails and generate an executive report summary.",
+            tier=1,
+            handler=_check_emails_handler,
+            parameters={"limit": "optional int", "unread_only": "optional bool"},
+        )
         self.register(
             name="web_search",
             description="Perform a web search in the default web browser.",
