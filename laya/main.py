@@ -198,22 +198,19 @@ def main():
             print("=" * 65 + "\n")
             sys.exit(0)
 
+    if args.hud or not (args.voice or args.query):
+        # FAST PATH: Launch HUD desktop app immediately without blocking
+        from laya.ui.hud import launch_hud
+        launch_hud()
+        return
+
     assistant = LayaAssistant()
 
-    if args.hud:
-        from laya.ui.hud import launch_hud
-        print("🚀 Launching Laya Desktop HUD...")
-        launch_hud(assistant_instance=assistant)
-    elif args.voice:
+    if args.voice:
         assistant.run_voice_loop()
     elif args.query:
         full_query = " ".join(args.query)
         assistant.handle_command(full_query, speak=False)
-    else:
-        # Launch HUD as the default modern experience
-        from laya.ui.hud import launch_hud
-        print("🚀 Launching Laya Desktop HUD (use --voice for CLI voice)...")
-        launch_hud(assistant_instance=assistant)
 
 
 if __name__ == "__main__":

@@ -17,6 +17,7 @@ import queue
 import random
 import threading
 from typing import Optional, Callable, List, Dict, Any
+from pathlib import Path
 
 # Ensure UTF-8 output
 for stream in (sys.stdout, sys.stderr):
@@ -36,8 +37,8 @@ except ImportError:
 
 import psutil
 
-from laya.audio import get_tts_engine, get_stt_engine, AudioCapture
-from laya.audio.wake_word import get_wake_word_detector, WakeWordDetector
+from laya.audio.tts import get_tts_engine
+from laya.audio.capture import AudioCapture
 from laya.fast_path.executor import get_fast_path_executor
 from laya.ui.meme_engine import get_meme_engine
 from laya.orchestrator.memory import get_memory_store
@@ -59,12 +60,13 @@ class LayaHUD(ctk.CTk):
 
         self.assistant = assistant_instance
         self.tts = get_tts_engine()
-        self.stt = get_stt_engine()
+        self.stt = None  # Loaded asynchronously in background thread for instant GUI launch
         self.capture = AudioCapture()
         self.meme_engine = get_meme_engine()
         self.memory_store = get_memory_store()
         self.fast_path = get_fast_path_executor()
         self.last_query = ""
+        self.is_core_ready = False
 
         # Thread Communication Queue
         self.msg_queue: queue.Queue = queue.Queue()
@@ -72,9 +74,24 @@ class LayaHUD(ctk.CTk):
         self.is_processing = False
         self.is_island_mode = False  # False = Full App Dashboard, True = Floating Island
         self.is_pinned_top = True
-        self.current_state = "IDLE"  # IDLE, LISTENING, PROCESSING, SPEAKING, STOPPED
+        self.current_state = "STARTUP"
         self._meme_dismiss_timer = None
         self._telemetry_timer = None
+
+        # Set unique Windows App ID for distinct Taskbar grouping
+        try:
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("jarvis.laya.desktop.assistant.1.0")
+        except Exception:
+            pass
+
+        # Set Window Titlebar and Taskbar Icon
+        icon_path = Path(__file__).resolve().parent.parent.parent / "assets" / "laya_icon.ico"
+        if icon_path.exists():
+            try:
+                self.iconbitmap(str(icon_path))
+            except Exception:
+                pass
 
         # Window Appearance & Identity
         self.title("✦ LAYA — Autonomous Desktop Assistant")
@@ -134,14 +151,16 @@ class LayaHUD(ctk.CTk):
         # Global hotkey bindings: ESC to interrupt & silence
         self.bind_all("<Escape>", lambda e: self._on_escape_pressed())
 
-        # Initialize Continuous Wake Word & Barge-In Engine
-        self.wake_detector: Optional[WakeWordDetector] = None
-        self._init_wake_word()
+        # Initialize Continuous Wake Word & Barge-In Engine in Background Thread
+        self.wake_detector = None
+        threading.Thread(target=self._async_bootstrap_neural_core, daemon=True).start()
+
+        # Render window immediately on screen (<200ms)
+        self.update_idletasks()
 
         # Periodic Event & Animation Loops
         self.after(35, self._drain_queue)
         self.after(35, self._animate_waveform)
-        self.after(500, self._play_startup_greeting)
         self.after(1000, self._update_telemetry_loop)
 
     def _apply_acrylic_glass(self):
@@ -212,10 +231,10 @@ class LayaHUD(ctk.CTk):
         # State Indicator Pill (Glowing Glass Badge)
         self.state_badge = ctk.CTkLabel(
             self.top_bar,
-            text="● READY",
+            text="● INITIALIZING",
             font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
-            text_color=self.CLR_EMERALD,
-            fg_color="#06281e",
+            text_color=self.CLR_PURPLE,
+            fg_color="#230f38",
             corner_radius=12,
             padx=12,
             pady=4,
@@ -362,7 +381,7 @@ class LayaHUD(ctk.CTk):
 
         self.query_text = ctk.CTkLabel(
             self.query_card,
-            text="Listening for voice... (Say 'Clanker', 'Jarvis', or 'Call')",
+            text="✦ Initializing JARVIS Neural Core (CUDA Whisper & Wake Engine)...",
             font=ctk.CTkFont(family="Segoe UI", size=13),
             text_color=self.CLR_WHITE,
             wraplength=760,
@@ -950,8 +969,37 @@ class LayaHUD(ctk.CTk):
     # -------------------------------------------------------------
     # 6. Wake Word & Barge-In Listeners
     # -------------------------------------------------------------
+    def _async_bootstrap_neural_core(self):
+        """Asynchronously load heavy ML components (Whisper, Wake Word) so the UI appears instantly (<200ms)."""
+        try:
+            if not self.assistant:
+                self.msg_queue.put(("boot_status", "Initializing Orchestrator & Tool Registry..."))
+                from laya.main import LayaAssistant
+                self.assistant = LayaAssistant()
+
+            self.msg_queue.put(("boot_status", "Loading CUDA Whisper speech engine..."))
+            from laya.audio.stt import get_stt_engine
+            self.stt = get_stt_engine()
+
+            self.msg_queue.put(("boot_status", "Activating continuous barge-in wake detector..."))
+            from laya.audio.wake_word import get_wake_word_detector
+            self.wake_detector = get_wake_word_detector(
+                on_wake=self._on_wake_heard,
+                on_command=self._on_direct_command_heard,
+                on_interrupt=self._on_interrupt_requested,
+            )
+            self.wake_detector.start()
+
+            self.is_core_ready = True
+            self.msg_queue.put(("core_ready", None))
+        except Exception as e:
+            print(f"[HUD Core Init Error] {e}")
+            self.is_core_ready = True
+            self.msg_queue.put(("core_ready", None))
+
     def _init_wake_word(self):
         try:
+            from laya.audio.wake_word import get_wake_word_detector
             self.wake_detector = get_wake_word_detector(
                 on_wake=self._on_wake_heard,
                 on_command=self._on_direct_command_heard,
@@ -1025,6 +1073,9 @@ class LayaHUD(ctk.CTk):
                 return
 
             self.msg_queue.put(("state", "PROCESSING"))
+            if self.stt is None:
+                from laya.audio.stt import get_stt_engine
+                self.stt = get_stt_engine()
             transcript = self.stt.transcribe(audio_data)
             if not transcript or not transcript.strip():
                 self.msg_queue.put(("reset_idle", None))
@@ -1057,6 +1108,10 @@ class LayaHUD(ctk.CTk):
             def on_step(step_msg: str):
                 self.msg_queue.put(("step", step_msg))
 
+            if not self.assistant:
+                from laya.main import LayaAssistant
+                self.assistant = LayaAssistant()
+
             if self.assistant:
                 result = self.assistant.handle_command(query, speak=True, step_callback=on_step)
             else:
@@ -1082,7 +1137,20 @@ class LayaHUD(ctk.CTk):
             while True:
                 kind, *args = self.msg_queue.get_nowait()
 
-                if kind == "wake_trigger":
+                if kind == "boot_status":
+                    status_msg = args[0]
+                    self.query_text.configure(text=f"✦ {status_msg}")
+
+                elif kind == "core_ready":
+                    self.current_state = "IDLE"
+                    self._set_state_badge("● READY", self.CLR_EMERALD, "#06281e")
+                    self.query_text.configure(
+                        text="Listening for voice... (Say 'Clanker', 'Jarvis', or 'Call')",
+                        text_color=self.CLR_TEXT_MUTED,
+                    )
+                    self._play_startup_greeting()
+
+                elif kind == "wake_trigger":
                     self._start_voice_recording_thread()
 
                 elif kind == "direct_command":
