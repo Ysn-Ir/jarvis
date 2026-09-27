@@ -110,12 +110,7 @@ class IntentRouter:
         if compound_decision:
             return compound_decision
 
-        # 4. Single Deterministic Fast-Path Patterns (<1ms)
-        single_decision = self._route_single_deterministic(text, utterance)
-        if single_decision:
-            return single_decision
-
-        # 4.5 Official Laya ModernBERT Neural Decision Engine (<40ms Local)
+        # 4. Primary: Official Laya ModernBERT Neural Decision Engine (<40ms Local)
         # Evaluates natural colloquial speech without brittle regexes
         try:
             from laya.router.laya_engine import get_laya_engine
@@ -125,12 +120,18 @@ class IntentRouter:
         except Exception as e:
             pass
 
-        # 5. Ultra-Fast LLM Intent Classifier Layer (<250ms on Groq)
+        # 5. Fallback: Deterministic OS Fast-Path Patterns (<1ms)
+        # Rock-solid fallback covering all hardware, apps, filesystem, windowing & telemetry controls
+        single_decision = self._route_single_deterministic(text, utterance)
+        if single_decision:
+            return single_decision
+
+        # 6. Ultra-Fast LLM Intent Classifier Layer (<250ms on Groq)
         llm_decision = self._classify_with_fast_llm(utterance)
         if llm_decision:
             return llm_decision
 
-        # 6. Fallback to Autonomous ReAct Agent Loop for genuinely open-ended tasks
+        # 7. Fallback to Autonomous ReAct Agent Loop for genuinely open-ended tasks
         return RouteDecision(
             path=ExecutionPath.REASONING_PATH,
             action="plan_and_execute",
@@ -662,7 +663,8 @@ class IntentRouter:
         # History & Past Queries (<0.0ms)
         if (
             re.search(r"\b(?:check|show|view|display|what\s+is)\s+(?:the\s+)?(?:conversation\s+)?history\b", text)
-            or text in ["check history", "check the history", "show history", "show the history", "history", "what did i ask", "what did i say", "what was my last command", "repeat my last command"]
+            or re.search(r"\bwhat\s+did\s+i\s+(?:ask|say)(?:\s+(?:earlier|before|previously|last))?\b", text)
+            or any(p in text for p in ["check history", "check the history", "show history", "show the history", "what did i ask", "what did i say", "what was my last command", "repeat my last command"])
         ):
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="get_conversation_history")
 
@@ -877,7 +879,7 @@ class IntentRouter:
                 "- {\"action\": \"open_app\", \"app\": \"<name>\"}\n"
                 "- {\"action\": \"close_app\", \"app\": \"<name>\"}\n"
                 "- {\"action\": \"play_youtube\", \"query\": \"<title>\"}\n"
-                "- {\"action\": \"browser_search\", \"query\": \"<query>\", \"engine\": \"google\"|\"youtube\"}\n"
+                "- {\"action\": \"browser_search\", \"query\": \"<query>\", \"engine\": \"google\"|\"youtube\"} (ONLY if user explicitly asks to search the web or google something)\n"
                 "- {\"action\": \"open_url\", \"url\": \"<url>\"}\n"
                 "- {\"action\": \"send_message\", \"recipient\": \"<name>\", \"message\": \"<text>\"}\n"
                 "- {\"action\": \"telegram_send_message\", \"recipient\": \"<name>\", \"message\": \"<text>\"}\n"
@@ -888,7 +890,7 @@ class IntentRouter:
                 "- {\"action\": \"draw_shape\", \"shape\": \"circle\"|\"heart\"|\"star\"|\"square\"|\"triangle\"}\n"
                 "- {\"action\": \"check_battery\"} or {\"action\": \"check_ram\"} or {\"action\": \"check_cpu\"}\n"
                 "- {\"action\": \"compound\", \"actions\": [{\"action\": \"open_app\", \"app\": \"paint\"}, {\"action\": \"draw_shape\", \"shape\": \"circle\"}]}\n"
-                "- {\"action\": \"reasoning\"} (ONLY if complex multi-step reasoning, file coding, or open calculation is strictly needed)\n"
+                "- {\"action\": \"reasoning\"} (FOR ALL questions, explanations, knowledge queries, science, trivia, facts, e.g. 'what is X', 'who is Y', 'explain Z')\n"
             )
 
             response = client.chat.completions.create(

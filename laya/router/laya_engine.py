@@ -25,17 +25,14 @@ class LayaDecisionEngine:
                 "type": "choice",
                 "instructions": "What desktop action should be taken for `command`?",
                 "criteria": {
-                    "volume_up": "increase, boost, or raise sound or volume, turn up audio, make louder",
-                    "volume_down": "decrease, lower, or turn down sound or volume, turn down audio, make quieter",
-                    "open_folder": "open or explore folder on desktop or browse files and folders",
+                    "volume_up": "increase, boost, or raise sound volume, turn up audio, louder",
+                    "volume_down": "decrease, lower, or turn down sound volume, turn down audio, softer",
+                    "open_folder": "open or explore folder on desktop or browse files",
                     "close_all_apps": "close or quit all applications, windows, or programs",
                     "open_gmail": "check or open email, gmail, or webmail inbox",
                     "telegram_launch": "open or launch telegram messages or telegram app",
                     "take_screenshot": "capture or take a screenshot of screen",
-                    "open_app": "open or launch an application like notepad, paint, chrome, calculator, spotify",
-                    "system_power": "shut down, restart, reboot, or power off the computer",
-                    "conversation_history": "check conversation history, what did I ask, repeat last query",
-                    "other": "conversational question, knowledge query, chat, or explanation"
+                    "other": "everything else, general questions, knowledge, or chat"
                 }
             },
             "is_destructive": {
@@ -143,6 +140,8 @@ class LayaDecisionEngine:
 
             # 1. Volume Up
             if choice == "volume_up":
+                if not any(w in clean for w in ["volume", "sound", "audio", "louder", "boost", "turn up", "raise", "higher", "make it louder"]):
+                    return None
                 num_m = re.search(r"\b(?:by\s+)?(\d{1,2})\s*(?:percent|%|steps?)?\b", clean)
                 steps = (int(num_m.group(1)) // 2) if num_m else 8
                 return RouteDecision(
@@ -155,6 +154,8 @@ class LayaDecisionEngine:
 
             # 2. Volume Down
             if choice == "volume_down":
+                if not any(w in clean for w in ["volume", "sound", "audio", "quieter", "softer", "turn down", "lower", "decrease", "reduce"]):
+                    return None
                 num_m = re.search(r"\b(?:by\s+)?(\d{1,2})\s*(?:percent|%|steps?)?\b", clean)
                 steps = (int(num_m.group(1)) // 2) if num_m else 8
                 return RouteDecision(
@@ -167,6 +168,8 @@ class LayaDecisionEngine:
 
             # 3. Open Folder
             if choice == "open_folder":
+                if not any(w in clean for w in ["folder", "desktop", "directory", "files", "explore", "browse"]):
+                    return None
                 # Check for target folder name
                 folder = "desktop"
                 folder_m = re.search(r"\b(?:open|explore|view)\s+(?:the\s+|a\s+)?folder\s+([a-zA-Z0-9_\-\.\s]+)", clean)
@@ -191,6 +194,10 @@ class LayaDecisionEngine:
 
             # 4. Close All Applications
             if choice == "close_all_apps":
+                if any(w in clean for w in ["shut down the computer", "shutdown", "turn off", "power off", "reboot", "restart", "computer", "pc"]):
+                    return None
+                if not any(w in clean for w in ["close", "quit", "exit", "kill", "close all", "terminate"]):
+                    return None
                 return RouteDecision(
                     path=ExecutionPath.FAST_PATH,
                     action="close_all_apps",
@@ -201,6 +208,8 @@ class LayaDecisionEngine:
 
             # 5. Open Gmail
             if choice == "open_gmail":
+                if not any(w in clean for w in ["gmail", "email", "emails", "mail", "inbox", "webmail"]):
+                    return None
                 if any(w in clean for w in ["check", "read", "fetch", "summarize", "any new"]):
                     return RouteDecision(
                         path=ExecutionPath.FAST_PATH,
@@ -219,6 +228,8 @@ class LayaDecisionEngine:
 
             # 6. Telegram Launch
             if choice == "telegram_launch":
+                if "telegram" not in clean:
+                    return None
                 return RouteDecision(
                     path=ExecutionPath.FAST_PATH,
                     action="telegram_launch",
@@ -229,6 +240,8 @@ class LayaDecisionEngine:
 
             # 7. Take Screenshot
             if choice == "take_screenshot":
+                if not any(w in clean for w in ["screenshot", "screen", "capture"]):
+                    return None
                 return RouteDecision(
                     path=ExecutionPath.FAST_PATH,
                     action="take_screenshot",
