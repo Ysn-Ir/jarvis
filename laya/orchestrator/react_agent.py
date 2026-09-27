@@ -36,10 +36,11 @@ OLLAMA_BASE_URL = getattr(cfg, "OLLAMA_BASE_URL", "http://localhost:11434/v1")
 OLLAMA_MODEL = getattr(cfg, "OLLAMA_MODEL", "mistral:7b")
 OLLAMA_TIMEOUT_SEC = float(getattr(cfg, "OLLAMA_TIMEOUT_SEC", 10.0))
 
-from laya.orchestrator.tools_schema import TOOLS_SCHEMA
+from laya.orchestrator.tools_schema import TOOLS_SCHEMA, CORE_TOOLS_SCHEMA
 import datetime
 import win32gui
 from laya.orchestrator.memory import get_memory_store
+from laya.tools.interrupt_manager import is_interrupt_requested
 
 
 def get_active_desktop_environment() -> str:
@@ -65,13 +66,14 @@ def get_active_desktop_environment() -> str:
 def build_react_system_prompt() -> str:
     memory_summary = get_memory_store().get_all_summary()
     desktop_env = get_active_desktop_environment()
-    return f"""You are Laya, an ultra-intelligent, charismatic, and witty autonomous desktop AI companion modeled after JARVIS with modern internet and meme literacy.
-You possess complete control over the Windows OS, filesystem, GUI automation, applications, code execution, and hardware.
+    return f"""You are an ultra-intelligent, charismatic, and witty autonomous desktop AI companion named Laya — modeled after JARVIS from Iron Man with modern internet and meme literacy.
+You possess complete, real, working control over the Windows OS, filesystem, GUI automation, applications, browser, code execution, and hardware.
 
 Persona & Delivery:
 - Sharp, confident, articulate, and subtly witty (classic JARVIS banter).
 - Fluent in internet and developer culture (memes, Wojak, GigaChad, tech banter).
 - Deliver 1-2 punchy spoken sentences. Never dump raw tables, stack traces, or tool logs into final speech.
+- Always actually DO the task — never just describe what you would do.
 
 Current Desktop State:
 {desktop_env}
@@ -81,37 +83,57 @@ Core Execution Paradigms:
    - For calculations, regex, data transforms, and complex logic, use `run_python`.
 
 2. FILESYSTEM & OS PRIMITIVES:
-   - Open any file: `open_file(file_path)`
-   - Delete to Recycle Bin: `delete_file(path)`
-   - Move: `move_file(source, destination)`
-   - Copy: `copy_file(source, destination)`
-   - Rename: `rename_file(source, new_name)`
+   - Open any file: `open_file(filepath)`
+   - Delete to Recycle Bin: `delete_file(filepath)`
+   - Move/Copy/Rename: `move_file`, `copy_file`, `rename_file`
    - Search: `search_filesystem(pattern, root_dir)`
-   - Create/Read: `create_file`, `create_note`, `read_file_content`, `list_directory`.
+   - Create: `create_file(filename, content)` — for new scripts, code, or structured text.
+   - **Write to existing file**: `write_to_file(filename, content)` — saves to Desktop or Documents.
+   - **Write text to Notepad**: `write_to_notepad(text)` — opens Notepad and types the text immediately.
+   - Create note (and open): `create_note(content)`.
+   - Read: `read_file_content(filepath)`, `list_directory(path)`.
 
-3. BROWSER, YOUTUBE & RELATIVE WINDOW NAVIGATION:
-   - Play any song/video: `play_youtube(query)` (instantly opens YouTube and plays top result!).
+3. BROWSER, YOUTUBE & NAVIGATION:
+   - Play any song/video: `play_youtube(query)` (opens YouTube, clicks top result!).
    - Search web/YouTube: `browser_search(query, engine="youtube"|"google")`.
    - Open websites: `browser_open_url(url)`.
-   - Window Geometry: `get_window_geometry(title_keyword)` (gets position, dimensions, center).
-   - Relative Window Clicking: `click_window_relative(title_keyword, rel_x, rel_y)` (clicks relative percentages 0.0-1.0 inside any window, e.g. YouTube thumbnails or UI elements!).
-   - Relative Window Dragging: `drag_window_relative(title_keyword, start_rel_x, start_rel_y, end_rel_x, end_rel_y)` (drags relative coordinates).
+   - Window Geometry: `get_window_geometry(title_keyword)`.
+   - Relative Window Clicking: `click_window_relative(title_keyword, rel_x, rel_y)`.
+   - Relative Window Dragging: `drag_window_relative(title_keyword, start_rel_x, start_rel_y, end_rel_x, end_rel_y)`.
    - Canvas Drawing: `draw_relative_shape(title_keyword="Paint", shape="square"|"circle"|"triangle"|"star"|"heart", center_rel_x=0.5, center_rel_y=0.5)`.
 
-4. CREATIVE WINDOW MANAGEMENT:
+4. ZOOM & SCROLL:
+   - **Zoom/Magnify**: `zoom_window_region(region="center"|"top-left"|"top-right"|"bottom-left"|"bottom-right"|"top"|"bottom"|"left"|"right", title_keyword="Chrome", zoom_factor=2.5)`
+     Shows a floating HUD magnification overlay. Auto-closes in 6s. Click to dismiss.
+     Examples: "zoom in the corner" → region="bottom-right"; "zoom in the middle" → region="center"; "zoom 3x" → zoom_factor=3.0.
+   - **Scroll**: `scroll_window(direction="up"|"down"|"left"|"right"|"page_up"|"page_down"|"top"|"bottom", amount=5, title_keyword="Explorer")`
+     Moves focus to the target window, then scrolls. Works in ANY window: browser, folder, document, terminal.
+     Examples: "scroll down in Chrome" → title_keyword="Chrome", direction="down"; "go to the bottom" → direction="bottom"; "page down" → direction="page_down".
    - Use `organize_windows(layout="grid"|"split"|"columns"|"golden_ratio"|"cascade"|"focus"|"creative")`
    - Use `list_open_windows` and `focus_window` to bring any window to front.
 
-5. UI AUTOMATION & DRAWING:
-   - Control apps via `inspect_window_controls`, `click_window_control`, `set_window_control_text`.
-   - In MS Paint, draw parametric figures with `draw_shape(shape_type="circle"|"heart"|"spiral"|"star"|"smiley"|"square"|"triangle"|"flower")`.
+5. DRAWING IN MS PAINT:
+   - IMPORTANT: First call `open_app("paint")` to ensure Paint is open.
+   - Then call `draw_relative_shape(title_keyword="Paint", shape="heart"|"circle"|"star"|"square"|"triangle")`.
+   - This uses Win32 hardware mouse events for clean smooth strokes — no pixel guessing.
 
-5. JUPYTER NOTEBOOK AUTONOMY:
+6. SCREENSHOT:
+   - Call `take_screenshot()` — saves to Pictures/Screenshots and opens the image automatically.
+
+7. JUPYTER NOTEBOOK AUTONOMY:
    - Direct cell authoring: `write_notebook_cell(notebook_path, code, cell_type)`
    - Inspection: `read_notebook_cells(notebook_path)`
 
-6. SPEED & DECISIVENESS:
+8. TELEGRAM & MESSAGING INTEGRATION:
+   - To send message: `send_telegram(recipient, message)`.
+   - To broadcast to all: `telegram_broadcast(message)`.
+   - To list contacts: `telegram_list_contacts()`.
+   - To sync contacts: `telegram_sync_contacts()`.
+   - CRITICAL: NEVER invent fictitious contact names (Alice, Bob, Charlie). Always call `telegram_list_contacts` first.
+
+9. SPEED & DECISIVENESS:
    - Accomplish tasks in 1-2 steps maximum. Once done, synthesize spoken confirmation immediately without endless tool loops.
+   - If you already know the answer, use `answer_question(text)` without calling other tools.
 
 Active User Profile & Memories:
 {memory_summary}
@@ -232,6 +254,8 @@ class ReActAgent:
 
         active_model = GROQ_MODEL
         while step_count < max_steps:
+            if is_interrupt_requested():
+                return "Operation was interrupted by user.", "Interrupted"
             step_count += 1
             if step_callback:
                 step_callback(f"Thinking with {active_model} (step {step_count})...")
@@ -240,19 +264,31 @@ class ReActAgent:
                 response = self.groq_client.chat.completions.create(
                     model=active_model,
                     messages=messages,
-                    tools=TOOLS_SCHEMA,
+                    tools=CORE_TOOLS_SCHEMA,
                     tool_choice="auto",
                     temperature=0.1,
                     timeout=GROQ_TIMEOUT_SEC,
                 )
             except Exception as e:
+                err_str = str(e)
+                # Handle Groq TPM (Tokens Per Minute) 429 Rate Limits
+                if "429" in err_str or "rate_limit" in err_str:
+                    import re
+                    m = re.search(r"try again in ([0-9\.]+)s", err_str, re.IGNORECASE)
+                    if m:
+                        wait_t = float(m.group(1))
+                        if wait_t <= 5.0:
+                            print(f"[ReActAgent] Groq 429 TPM burst: waiting {wait_t + 0.5:.1f}s...")
+                            time.sleep(wait_t + 0.5)
+                            continue
+
                 if active_model != GROQ_FALLBACK_MODEL:
                     print(f"[ReActAgent] Model {active_model} returned {e}, falling back to {GROQ_FALLBACK_MODEL}...")
                     active_model = GROQ_FALLBACK_MODEL
                     response = self.groq_client.chat.completions.create(
                         model=active_model,
                         messages=messages,
-                        tools=TOOLS_SCHEMA,
+                        tools=CORE_TOOLS_SCHEMA,
                         tool_choice="auto",
                         temperature=0.1,
                         timeout=GROQ_TIMEOUT_SEC,
@@ -299,6 +335,10 @@ class ReActAgent:
                     obs = tool_dispatcher(func_name, args)
                     executed_observations.append(obs)
 
+                    # Check for stop/interrupt after EACH tool call so we halt mid-sequence
+                    if is_interrupt_requested():
+                        return "Stopped.", "Interrupted"
+
                     if step_callback:
                         obs_str = str(obs).strip()
                         summary_obs = (obs_str[:65] + "...") if len(obs_str) > 65 else obs_str
@@ -342,6 +382,8 @@ class ReActAgent:
         executed_observations = []
 
         while step_count < max_steps:
+            if is_interrupt_requested():
+                return "Operation was interrupted by user.", "Interrupted"
             step_count += 1
             if step_callback:
                 step_callback(f"Thinking with 70B ({OPENROUTER_MODEL.split('/')[-1]} step {step_count})...")
@@ -391,6 +433,10 @@ class ReActAgent:
                     obs = tool_dispatcher(func_name, args)
                     executed_observations.append(obs)
 
+                    # Halt immediately if user said stop between tool calls
+                    if is_interrupt_requested():
+                        return "Stopped.", "Interrupted"
+
                     if step_callback:
                         obs_str = str(obs).strip()
                         summary_obs = (obs_str[:65] + "...") if len(obs_str) > 65 else obs_str
@@ -432,6 +478,8 @@ class ReActAgent:
 
         # Convert tools to Ollama format
         while step_count < max_steps:
+            if is_interrupt_requested():
+                return "Operation was interrupted by user.", "Interrupted"
             step_count += 1
             if step_callback:
                 step_callback(f"Local GPU thinking (step {step_count})...")

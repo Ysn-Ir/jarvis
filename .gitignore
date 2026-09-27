@@ -11,3 +11,5 @@ ENV/
 screenshots/
 *.db
 data/
+scratch/
+@AutomationLog.txt

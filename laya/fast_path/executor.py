@@ -35,6 +35,20 @@ class FastPathExecutor:
         return cls._instance
 
     # -------------------------------------------------------------
+    # Emergency Abort & Stop Control (<0.0ms)
+    # -------------------------------------------------------------
+    def stop_action(self) -> str:
+        """Immediately abort all ongoing operations, speech synthesis, and automation."""
+        from laya.tools.interrupt_manager import request_interrupt
+        request_interrupt("User requested stop")
+        try:
+            from laya.audio.tts import get_tts_engine
+            get_tts_engine().stop()
+        except Exception:
+            pass
+        return "Stopped."
+
+    # -------------------------------------------------------------
     # Audio & Hardware Controls
     # -------------------------------------------------------------
     def volume_up(self, steps: int = 5) -> str:
@@ -126,22 +140,179 @@ class FastPathExecutor:
         ctypes.windll.user32.LockWorkStation()
         return "Your PC is now locked."
 
+    def shutdown_system(self) -> str:
+        subprocess.run(["shutdown", "/s", "/t", "30"], check=False)
+        return "System shutdown scheduled in 30 seconds. Say 'abort shutdown' to cancel."
 
-    def take_screenshot(self) -> str:
+    def restart_system(self) -> str:
+        subprocess.run(["shutdown", "/r", "/t", "30"], check=False)
+        return "System restart scheduled in 30 seconds. Say 'abort shutdown' to cancel."
+
+
+    def take_screenshot(self, open_after: bool = True) -> str:
+        """Capture a screenshot of the primary display, save it, and show it."""
+        from laya.tools.win32_utils import ensure_desktop_access
+        ensure_desktop_access()
+        out_dir = Path.home() / "Pictures" / "Screenshots"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        filename = f"screenshot_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+        filepath = out_dir / filename
+        import threading
+        captured = False
+        capture_error = []
+
+        def _do_capture():
+            nonlocal captured
+            try:
+                # In clean worker thread, bind to interactive input desktop
+                user32 = ctypes.windll.user32
+                h_desk = user32.OpenInputDesktop(0, False, 0x01FF)
+                if h_desk:
+                    user32.SetThreadDesktop(h_desk)
+
+                # Tier 1: PIL ImageGrab
+                from PIL import ImageGrab
+                img = ImageGrab.grab(all_screens=False)
+                img.save(str(filepath))
+                captured = True
+                return
+            except Exception as e:
+                capture_error.append(str(e))
+
+            # Tier 2: mss
+            try:
+                import mss
+                import mss.tools
+                with mss.mss() as sct:
+                    monitor = sct.monitors[1]
+                    sct_img = sct.grab(monitor)
+                    mss.tools.to_png(sct_img.rgb, sct_img.size, output=str(filepath))
+                    captured = True
+                    return
+            except Exception as e:
+                capture_error.append(str(e))
+
+            # Tier 3: pyautogui
+            try:
+                im = pyautogui.screenshot()
+                im.save(str(filepath))
+                captured = True
+            except Exception as e:
+                capture_error.append(str(e))
+
+        t = threading.Thread(target=_do_capture)
+        t.start()
+        t.join(timeout=2.0)
+
+        if not captured:
+            err_msg = "; ".join(capture_error) if capture_error else "unknown error"
+            return f"Failed to take screenshot: {err_msg}"
+
+        if open_after and os.path.exists(filepath):
+            try:
+                os.startfile(str(filepath))
+            except Exception:
+                pass
+        return f"Screenshot captured and saved to {filepath.name}."
+
+    def open_camera(self) -> str:
+        """Launch Windows native Camera app."""
         try:
-            import mss
-            import mss.tools
-            out_dir = Path.home() / "Pictures" / "Screenshots"
-            out_dir.mkdir(parents=True, exist_ok=True)
-            filename = f"screenshot_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
-            filepath = out_dir / filename
-            with mss.mss() as sct:
-                monitor = sct.monitors[1]
-                sct_img = sct.grab(monitor)
-                mss.tools.to_png(sct_img.rgb, sct_img.size, output=str(filepath))
-            return f"Screenshot saved to {filepath.name}."
+            os.startfile("microsoft.windows.camera:")
+            return "Opened Camera."
         except Exception as e:
-            return f"Failed to take screenshot: {e}"
+            return f"Failed to open Camera: {e}"
+
+    def take_photo(self) -> str:
+        """Take a photo with the webcam instantly and save to Pictures."""
+        try:
+            import cv2
+            out_dir = Path.home() / "Pictures" / "Camera"
+            out_dir.mkdir(parents=True, exist_ok=True)
+            filename = f"photo_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
+            filepath = out_dir / filename
+
+            cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+            if not cap.isOpened():
+                cap = cv2.VideoCapture(0)
+
+            if not cap.isOpened():
+                os.startfile("microsoft.windows.camera:")
+                return "Webcam not detected directly. Opened Windows Camera app."
+
+            # Allow camera sensor to auto-adjust exposure
+            ret, frame = False, None
+            for _ in range(5):
+                ret, frame = cap.read()
+            cap.release()
+
+            if ret and frame is not None:
+                cv2.imwrite(str(filepath), frame)
+                try:
+                    os.startfile(str(filepath))
+                except Exception:
+                    pass
+                return f"Photo captured and saved to {filepath.name}."
+            else:
+                os.startfile("microsoft.windows.camera:")
+                return "Opened Windows Camera app to take photo."
+        except Exception as e:
+            try:
+                os.startfile("microsoft.windows.camera:")
+                return "Opened Windows Camera app."
+            except Exception:
+                return f"Failed to capture photo: {e}"
+
+    def record_screen(self) -> str:
+        """Toggle screen recording via native Windows Game Bar shortcut (Win + Alt + R)."""
+        try:
+            pyautogui.hotkey('win', 'alt', 'r')
+            time.sleep(0.1)
+            return "Screen recording toggled (Win + Alt + R). Videos save to Videos/Captures."
+        except Exception as e:
+            return f"Failed to trigger screen recording: {e}"
+
+    def record_camera_video(self, duration: int = 5) -> str:
+        """Record a short video clip from the webcam and save to Videos/Captures."""
+        try:
+            import cv2
+            out_dir = Path.home() / "Videos" / "Captures"
+            out_dir.mkdir(parents=True, exist_ok=True)
+            filename = f"webcam_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
+            filepath = out_dir / filename
+
+            cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+            if not cap.isOpened():
+                cap = cv2.VideoCapture(0)
+            if not cap.isOpened():
+                os.startfile("microsoft.windows.camera:")
+                return "Webcam not detected. Opened Camera app."
+
+            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)) or 640
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or 480
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            fps = 20.0
+            out = cv2.VideoWriter(str(filepath), fourcc, fps, (width, height))
+
+            total_frames = int(fps * max(2, min(30, int(duration))))
+            for _ in range(total_frames):
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                out.write(frame)
+
+            cap.release()
+            out.release()
+
+            if os.path.exists(filepath):
+                try:
+                    os.startfile(str(filepath))
+                except Exception:
+                    pass
+                return f"Recorded {duration}s video saved to {filepath.name}."
+            return "Failed to save video recording."
+        except Exception as e:
+            return f"Error recording video: {e}"
 
     def set_brightness(self, level: int) -> str:
         level = max(0, min(100, int(level)))
@@ -231,6 +402,16 @@ class FastPathExecutor:
         from laya.tools.window_organizer import get_window_organizer
         return get_window_organizer().organize(layout=layout, target_apps=target_apps)
 
+    def scroll_window(self, direction: str = "down", amount: int = 5, title_keyword: str = "") -> str:
+        """Scroll window up, down, left, right, top, bottom, or by pages."""
+        from laya.tools.computer_use import get_computer_use_tools
+        return get_computer_use_tools().scroll_window(direction=direction, amount=amount, title_keyword=title_keyword)
+
+    def zoom_window_region(self, region: str = "center", zoom_factor: float = 2.0, title_keyword: str = "") -> str:
+        """Zoom in a region of a window (top-left, center, bottom-right, etc.)."""
+        from laya.tools.computer_use import get_computer_use_tools
+        return get_computer_use_tools().zoom_window_region(region=region, zoom_factor=zoom_factor, title_keyword=title_keyword)
+
     def close_app(self, process_name: str) -> str:
         key = process_name.lower().strip()
         if not key.endswith(".exe"):
@@ -302,8 +483,11 @@ class FastPathExecutor:
 
     def execute_compound(self, actions: list) -> str:
         """Execute a list of fast-path actions sequentially and instantly."""
+        from laya.tools.interrupt_manager import is_interrupt_requested
         results = []
         for act in actions:
+            if is_interrupt_requested():
+                return "Stopped."
             action_name = act.get("action")
             params = act.get("params", {})
             handler = getattr(self, action_name, None)
@@ -369,13 +553,17 @@ class FastPathExecutor:
         return self.organize_windows(layout=layout)
 
     # -------------------------------------------------------------
-    # Music & Spotify Automation
+    # Music, Video & YouTube Automation
     # -------------------------------------------------------------
+    def play_youtube(self, query: str = "") -> str:
+        """Start playing a video or music track on YouTube directly with zero clicks."""
+        from laya.tools.browser_automator import get_browser_automator
+        return get_browser_automator().play_youtube(query or "synthwave lofi chillhop mix")
+
     def click_song(self, query: str = "") -> str:
         """Click on / start playing a song via active media player, Spotify, or YouTube."""
         clean_q = query.lower().strip()
         if not clean_q or clean_q in ["a song", "song", "music", "some music", "the song"]:
-            # If media player already running, toggle play
             win32api.keybd_event(win32con.VK_MEDIA_PLAY_PAUSE, 0, 0, 0)
             win32api.keybd_event(win32con.VK_MEDIA_PLAY_PAUSE, 0, win32con.KEYEVENTF_KEYUP, 0)
             return "Playing song."
@@ -389,6 +577,14 @@ class FastPathExecutor:
         if clean_q and clean_q not in ["a song", "music", "song", "some music"]:
             import urllib.parse
             import webbrowser
+            # Try desktop spotify protocol first
+            try:
+                os.startfile(f"spotify:search:{urllib.parse.quote(query)}")
+                time.sleep(0.5)
+                pyautogui.press("enter")
+                return f"Playing '{query}' on Spotify."
+            except Exception:
+                pass
             spotify_url = f"https://open.spotify.com/search/{urllib.parse.quote(query)}"
             webbrowser.open(spotify_url)
             return f"Opening Spotify and playing '{query}'."
@@ -396,6 +592,69 @@ class FastPathExecutor:
             win32api.keybd_event(win32con.VK_MEDIA_PLAY_PAUSE, 0, 0, 0)
             win32api.keybd_event(win32con.VK_MEDIA_PLAY_PAUSE, 0, win32con.KEYEVENTF_KEYUP, 0)
             return "Spotify opened and playback started."
+
+    # -------------------------------------------------------------
+    # Browser Automation Fast-Path
+    # -------------------------------------------------------------
+    def browser_search(self, query: str, engine: str = "google") -> str:
+        """Search Google or YouTube directly in browser."""
+        from laya.tools.browser_automator import get_browser_automator
+        return get_browser_automator().search_web(query, engine=engine)
+
+    def browser_open_url(self, url: str) -> str:
+        """Navigate browser directly to URL."""
+        from laya.tools.browser_automator import get_browser_automator
+        return get_browser_automator().open_url(url)
+
+    def write_to_notepad(self, text: str, filename: Optional[str] = None) -> str:
+        """Write text to Notepad — opens Notepad if not running, then types or pastes the text."""
+        import threading
+        from laya.tools.win32_utils import find_window_by_query, robust_bring_to_front
+        if filename:
+            # Write to a named file and open it in Notepad
+            target = Path.home() / "Documents" / "LayaDocs" / (filename if filename.endswith(".txt") else f"{filename}.txt")
+            try:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with open(target, "w", encoding="utf-8") as f:
+                    f.write(text + "\n")
+                os.startfile(str(target))
+                return f"Written '{filename}' and opened in Notepad."
+            except Exception as e:
+                return f"Failed to write Notepad file: {e}"
+        # Otherwise type directly into active/open Notepad window
+        win = find_window_by_query("notepad")
+        if not win:
+            os.startfile("notepad.exe")
+            time.sleep(0.7)
+            win = find_window_by_query("notepad")
+        if win and win.get("hwnd"):
+            robust_bring_to_front(win["hwnd"])
+            time.sleep(0.15)
+            pyperclip.copy(text)
+            pyautogui.hotkey("ctrl", "v")
+            return f"Typed text into Notepad: '{text[:50]}{'...' if len(text) > 50 else ''}'."
+        return "Could not find or open Notepad."
+
+
+    def browser_new_tab(self, url: Optional[str] = None) -> str:
+        from laya.tools.browser_automator import get_browser_automator
+        return get_browser_automator().new_tab(url)
+
+    def browser_close_tab(self) -> str:
+        from laya.tools.browser_automator import get_browser_automator
+        return get_browser_automator().close_tab()
+
+    def browser_switch_tab(self, direction: str = "next") -> str:
+        from laya.tools.browser_automator import get_browser_automator
+        return get_browser_automator().switch_tab(direction)
+
+    def browser_scroll(self, direction: str = "down", amount: int = 5) -> str:
+        from laya.tools.browser_automator import get_browser_automator
+        return get_browser_automator().scroll(direction, amount)
+
+    def browser_refresh(self) -> str:
+        from laya.tools.browser_automator import get_browser_automator
+        return get_browser_automator().refresh()
 
     # -------------------------------------------------------------
     # WhatsApp & Telegram Direct Automation (<50ms trigger, zero LLM)
@@ -505,57 +764,123 @@ class FastPathExecutor:
             return f"Opened WhatsApp to send message to '{contact}'."
 
     # -------------------------------------------------------------
-    # Telegram Full Capabilities (Send, Read, Search, Call)
+    # Universal Messaging & Telegram (Send, Read, Search, Call)
     # -------------------------------------------------------------
+    def send_message(self, recipient: str, message: str = "", platform: str = "auto") -> str:
+        """Intelligently dispatch a message to a recipient via Telegram or WhatsApp with zero LLM delay."""
+        recipient = recipient.strip()
+        message = message.strip() or "Hello from Laya!"
+
+        from laya.tools.contacts_store import get_contacts_store
+        contact = get_contacts_store().get_contact(recipient)
+
+        # 1. Check contact store preferences
+        if contact:
+            if contact.get("telegram") and not contact.get("whatsapp"):
+                return self.telegram_send_message(recipient=contact.get("telegram") or recipient, message=message)
+            if contact.get("whatsapp") and not contact.get("telegram"):
+                return self.whatsapp_message(contact=contact.get("whatsapp") or recipient, message=message)
+
+        # 2. Check open desktop messenger windows
+        from laya.tools.win32_utils import find_window_by_query
+        wa_win = find_window_by_query("whatsapp")
+        tg_win = find_window_by_query("telegram")
+
+        if tg_win and not wa_win:
+            return self.telegram_send_message(recipient=recipient, message=message)
+        elif wa_win and not tg_win:
+            return self.whatsapp_message(contact=recipient, message=message)
+
+        # 3. Default to Telegram
+        return self.telegram_send_message(recipient=recipient, message=message)
+
     def telegram_message(self, contact: str, message: str) -> str:
         """Send a message to a specific contact on Telegram with zero LLM delay."""
         from laya.tools.telegram_client import get_telegram_manager
         return get_telegram_manager().send_message(recipient=contact, message=message)
+
+    def telegram_send_message(self, recipient: str, message: str) -> str:
+        return self.telegram_message(contact=recipient, message=message)
+
+    def telegram_voice_call(self, recipient: str, call_type: str = "voice") -> str:
+        """Initiate a voice or video call on Telegram via TelegramManager."""
+        from laya.tools.telegram_client import get_telegram_manager
+        return get_telegram_manager().call(recipient=recipient, call_type=call_type)
 
     def telegram_read(self, contact: str, limit: int = 5) -> str:
         """Read recent messages from a contact on Telegram."""
         from laya.tools.telegram_client import get_telegram_manager
         return get_telegram_manager().read_messages(recipient=contact, limit=limit)
 
+    def telegram_read_messages(self, chat: str = "me", limit: int = 5) -> str:
+        return self.telegram_read(contact=chat, limit=limit)
+
     def telegram_search(self, query: str, limit: int = 5) -> str:
         """Search messages across Telegram."""
         from laya.tools.telegram_client import get_telegram_manager
         return get_telegram_manager().search_messages(query=query, limit=limit)
 
-    def telegram_call(self, contact: str) -> str:
+    def telegram_search_messages(self, query: str, limit: int = 5) -> str:
+        return self.telegram_search(query=query, limit=limit)
+
+    def telegram_broadcast(self, message: str, limit: int = 30) -> str:
+        """Broadcast a message to contacts and active chats on Telegram."""
+        from laya.tools.telegram_client import get_telegram_manager
+        return get_telegram_manager().broadcast_message(message=message, limit=limit)
+
+    def broadcast_message(self, message: str, limit: int = 30) -> str:
+        """Universal broadcast message to contacts across platforms."""
+        return self.telegram_broadcast(message=message, limit=limit)
+
+    def telegram_sync_contacts(self) -> str:
+        """Sync Telegram contacts into local Laya address book."""
+        from laya.tools.telegram_client import get_telegram_manager
+        return get_telegram_manager().sync_telegram_contacts()
+
+    def telegram_list_contacts(self) -> str:
+        """List contacts from Telegram."""
+        from laya.tools.telegram_client import get_telegram_manager
+        return get_telegram_manager().list_telegram_contacts()
+
+    def telegram_launch_login(self) -> str:
+        """Launch the Telegram login and setup GUI."""
+        from laya.tools.telegram_client import get_telegram_manager
+        return get_telegram_manager().launch_login_gui()
+
+    def telegram_save_credentials(self, api_id: str, api_hash: str) -> str:
+        """Save Telegram API credentials."""
+        from laya.tools.telegram_client import get_telegram_manager
+        return get_telegram_manager().save_credentials(api_id, api_hash)
+
+    def telegram_call(self, contact: str, call_type: str = "voice") -> str:
         """Call a contact on Telegram instantly with zero LLM delay."""
         contact = contact.strip()
         from laya.tools.contacts_store import get_contacts_store
         c_record = get_contacts_store().get_contact(contact)
-        target = c_record.get("telegram") if c_record else contact.lstrip("@")
+        target = (c_record.get("telegram") if c_record else None) or contact.lstrip("@")
+        clean_user = target.lstrip("@")
 
         from laya.tools.win32_utils import ensure_desktop_access, robust_bring_to_front, find_window_by_query
         ensure_desktop_access()
+
+        # First, open the chat via tg:// protocol — most reliable
+        try:
+            import urllib.parse as _up
+            os.startfile(f"tg://resolve?domain={_up.quote(clean_user)}")
+            time.sleep(0.8)
+        except Exception:
+            pass
 
         win = find_window_by_query("telegram")
         if win and win.get("hwnd"):
             hwnd = win["hwnd"]
             robust_bring_to_front(hwnd)
-            time.sleep(0.25)
-            pyautogui.press("escape")
-            time.sleep(0.1)
-            pyautogui.hotkey("ctrl", "f")
             time.sleep(0.2)
-            pyperclip.copy(target)
-            pyautogui.hotkey("ctrl", "v")
-            time.sleep(0.5)
-            pyautogui.press("enter")
-            time.sleep(0.4)
+            # Ctrl+U triggers voice call in Telegram Desktop
             pyautogui.hotkey("ctrl", "u")
             return f"Initiated Telegram voice call to '{contact}'."
 
-        clean_user = target.lstrip("@")
-        try:
-            os.startfile(f"tg://resolve?domain={clean_user}")
-            return f"Opened Telegram to call '{contact}'."
-        except Exception:
-            os.startfile(f"https://t.me/{clean_user}")
-            return f"Opened Telegram profile for '{contact}'."
+        return f"Opened Telegram chat for '{contact}'. Use Ctrl+U to start a call."
 
     # -------------------------------------------------------------
     # Contact Book CRUD Operations (Zero LLM, Instant)
@@ -676,20 +1001,36 @@ class FastPathExecutor:
         profile_details = ", ".join([f"{k}: {v}" for k, v in list(profile.items())[:3]]) if profile else "building autonomous AI systems"
         return f"You are the boss here. I know you're working on: {profile_details}. What are we conquering today?"
 
-    # -------------------------------------------------------------
-    # High-Speed Browser Direct Automation
-    # -------------------------------------------------------------
-    def browser_search(self, query: str, engine: str = "google") -> str:
-        from laya.tools.browser_automator import get_browser_automator
-        return get_browser_automator().search_web(query, engine=engine)
+    # NOTE: browser_search, browser_open_url, play_youtube are defined above (lines ~569-534)
+    # Keeping them as single canonical definitions to avoid Python override shadowing.
 
-    def browser_open_url(self, url: str) -> str:
-        from laya.tools.browser_automator import get_browser_automator
-        return get_browser_automator().open_url(url)
+    def stop_action(self) -> str:
+        """Trigger universal interruption across all running operations."""
+        from laya.tools.interrupt_manager import request_interrupt
+        request_interrupt("User voice request to stop")
+        return "Operation stopped."
 
-    def play_youtube(self, query: str) -> str:
-        from laya.tools.browser_automator import get_browser_automator
-        return get_browser_automator().play_youtube(query)
+    def hide_hud(self) -> str:
+        """Hide the HUD interface from screen."""
+        try:
+            from laya.ui.hud import LayaHUD
+            if hasattr(LayaHUD, "_active_instance") and LayaHUD._active_instance:
+                LayaHUD._active_instance._hide_hud()
+                return "HUD hidden."
+        except Exception:
+            pass
+        return "UI hidden."
+
+    def show_hud(self) -> str:
+        """Show the HUD interface on screen."""
+        try:
+            from laya.ui.hud import LayaHUD
+            if hasattr(LayaHUD, "_active_instance") and LayaHUD._active_instance:
+                LayaHUD._active_instance._show_hud()
+                return "HUD displayed."
+        except Exception:
+            pass
+        return "UI displayed."
 
 
 def get_fast_path_executor() -> FastPathExecutor:

@@ -68,27 +68,49 @@ class STTEngine:
     def transcribe(self, audio_data: np.ndarray) -> str:
         """
         Transcribe normalized 1D float32 audio numpy array at 16kHz.
-        Returns transcribed text string.
+        Returns transcribed text string, or empty string if speech is not detected or
+        if the output is likely a hallucination (silence, noise, or too-short clip).
         """
         if self.model is None or audio_data is None or len(audio_data) == 0:
             return ""
 
+        # Reject near-silence — Whisper hallucinates on quiet audio
+        rms = float(np.sqrt(np.mean(audio_data.astype(np.float32)**2)))
+        if rms < 0.003:
+            return ""
+
         try:
-            # Low latency inference: beam_size=1, condition_on_previous_text=False
             segments, info = self.model.transcribe(
                 audio_data,
-                beam_size=1,
+                beam_size=3,                  # 3 gives better accuracy than 1 for command STT
                 temperature=0.0,
                 language="en",
                 condition_on_previous_text=False,
-                vad_filter=False, # We already ran dynamic VAD on input
+                vad_filter=True,              # Whisper's built-in VAD — critical for noise rejection
+                no_speech_threshold=0.6,      # Reject if >60% no-speech probability
             )
-            text_parts = [segment.text.strip() for segment in segments]
-            result = " ".join(text_parts).strip()
+            seg_list = list(segments)
+            good_parts = []
+            for seg in seg_list:
+                # Skip segments the model itself thinks are not speech
+                if hasattr(seg, 'no_speech_prob') and seg.no_speech_prob > 0.6:
+                    continue
+                # Skip low-confidence segments (avg_logprob < -1.0 means very uncertain)
+                if hasattr(seg, 'avg_logprob') and seg.avg_logprob < -1.0:
+                    continue
+                t = seg.text.strip()
+                if t:
+                    good_parts.append(t)
+
+            result = " ".join(good_parts).strip()
+            # Final sanity: reject single-char or pure-punctuation outputs
+            if len(result.strip(".,!? \t\n")) < 2:
+                return ""
             return result
         except Exception as e:
             print(f"[STT Error] Transcription failed: {e}", file=sys.stderr)
             return ""
+
 
 
 def get_stt_engine() -> STTEngine:

@@ -49,6 +49,14 @@ class TTSEngine:
             self._sapi_engine = pyttsx3.init("sapi5")
             self._sapi_engine.setProperty("rate", self.rate)
             self._sapi_engine.setProperty("volume", self.volume)
+            # Explicitly choose male voice (e.g. Microsoft David)
+            voices = self._sapi_engine.getProperty("voices")
+            for v in voices:
+                v_name = (getattr(v, "name", "") or "").lower()
+                v_gender = str(getattr(v, "gender", "") or "").lower()
+                if "david" in v_name or "male" in v_gender or "male" in v_name:
+                    self._sapi_engine.setProperty("voice", v.id)
+                    break
         except Exception:
             pass
 

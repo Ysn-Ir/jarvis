@@ -175,16 +175,35 @@ class WindowGeometryManager:
         width = max(1, right - left)
         height = max(1, bottom - top)
 
-        cx = left + int(width * max(0.05, min(0.95, center_rel_x)))
-        cy = top + int(height * max(0.05, min(0.95, center_rel_y)))
-        radius = int(min(width, height) * max(0.02, min(0.4, size_rel / 2.0)))
+        is_paint = any(w in geo.get("title", "").lower() or w in title_keyword.lower() for w in ["paint", "mspaint"])
+        if is_paint:
+            # In Win11 Paint, press P for pencil tool (reliable), not 'b' which maps to nothing
+            # Click the canvas area first to ensure focus, then select pencil
+            time.sleep(0.1)
+            pyautogui.press('p')  # P = Pencil in modern Paint & classic Paint
+            time.sleep(0.12)
+            # Calculate canvas area, accounting for Win11 Paint ribbon (~120-170px)
+            ribbon_offset = 135
+            canvas_top = top + ribbon_offset
+            canvas_bottom = max(canvas_top + 150, bottom - 30)
+            canvas_left = left + 10
+            canvas_right = max(canvas_left + 150, right - 10)
+            c_width = canvas_right - canvas_left
+            c_height = canvas_bottom - canvas_top
+            cx = canvas_left + int(c_width * max(0.1, min(0.9, center_rel_x)))
+            cy = canvas_top + int(c_height * max(0.1, min(0.9, center_rel_y)))
+            radius = int(min(c_width, c_height) * max(0.05, min(0.4, size_rel / 2.0)))
+        else:
+            cx = left + int(width * max(0.05, min(0.95, center_rel_x)))
+            cy = top + int(height * max(0.05, min(0.95, center_rel_y)))
+            radius = int(min(width, height) * max(0.02, min(0.4, size_rel / 2.0)))
 
         import math
         shape_lower = shape.lower().strip()
         points: List[Tuple[int, int]] = []
 
         if shape_lower in ["circle", "oval"]:
-            steps = 32
+            steps = 36
             for i in range(steps + 1):
                 angle = 2 * math.pi * (i / steps)
                 px = cx + int(radius * math.cos(angle))
@@ -227,15 +246,29 @@ class WindowGeometryManager:
         if not points:
             return "No points generated for shape."
 
-        pyautogui.moveTo(points[0][0], points[0][1], duration=0.15)
-        pyautogui.mouseDown(button="left")
-        time.sleep(0.05)
-        for pt in points[1:]:
-            pyautogui.moveTo(pt[0], pt[1], duration=0.03)
-        time.sleep(0.05)
-        pyautogui.mouseUp(button="left")
+        # Focus canvas area
+        pyautogui.click(cx, cy)
+        time.sleep(0.1)
 
-        return f"Drawn {shape} on '{geo['title']}' at relative center ({center_rel_x:.2f}, {center_rel_y:.2f})."
+        # Move to initial coordinate
+        start_x, start_y = points[0]
+        win32api.SetCursorPos((start_x, start_y))
+        time.sleep(0.05)
+
+        # Left mouse down to engage ink
+        win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
+        time.sleep(0.04)
+
+        # Stream coordinates with MOUSEEVENTF_MOVE to generate real hardware stroke
+        for pt in points[1:]:
+            win32api.SetCursorPos((pt[0], pt[1]))
+            win32api.mouse_event(win32con.MOUSEEVENTF_MOVE, 0, 0, 0, 0)
+            time.sleep(0.015)
+
+        time.sleep(0.04)
+        win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
+
+        return f"Drawn {shape} on '{geo['title']}' with ink."
 
 
 def get_window_geometry_manager() -> WindowGeometryManager:

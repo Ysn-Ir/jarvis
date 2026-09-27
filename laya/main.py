@@ -16,11 +16,28 @@ if hasattr(sys.stdout, "reconfigure"):
 # Ensure package is resolvable
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+import socket
 from laya.config import FAST_PATH_BUDGET_MS
 from laya.router import get_intent_router, ExecutionPath
 from laya.fast_path import get_fast_path_executor
 from laya.orchestrator import get_orchestrator
 from laya.audio import get_tts_engine, get_stt_engine, AudioCapture
+
+_single_instance_socket = None
+
+
+def acquire_single_instance_lock(port: int = 49876) -> bool:
+    """Ensure only one instance of Laya can run simultaneously across the system."""
+    global _single_instance_socket
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 0)
+        s.bind(("127.0.0.1", port))
+        s.listen(1)
+        _single_instance_socket = s
+        return True
+    except (OSError, socket.error):
+        return False
 
 
 class LayaAssistant:
@@ -40,7 +57,10 @@ class LayaAssistant:
         """Process natural language query through the 3-tier execution architecture with multi-turn memory."""
         t_start = time.perf_counter()
 
-        # Step 1: Sub-millisecond routing
+        # CRITICAL: Clear any stale interrupt flag from a previous command before starting
+        from laya.tools.interrupt_manager import reset_interrupt, is_interrupt_requested
+        reset_interrupt()
+
         t_route_0 = time.perf_counter()
         decision = self.router.route(query)
         dt_router = (time.perf_counter() - t_route_0) * 1000
@@ -87,6 +107,11 @@ class LayaAssistant:
             if quip and not any(w in result_text.lower() for w in [reaction, "chudjak", "gigachad", "monkas", "feels bad", "feels good"]):
                 spoken_text = f"{quip}{result_text}"
 
+        from laya.tools.interrupt_manager import is_interrupt_requested
+        if is_interrupt_requested():
+            # Don't speak — TTS already stopped by interrupt handler
+            return "Stopped."
+
         if speak:
             self.tts.speak(spoken_text)
 
@@ -108,12 +133,12 @@ class LayaAssistant:
     def run_voice_loop(self):
         """Interactive voice loop with Push-to-Talk or Dynamic VAD."""
         print("\n" + "=" * 65)
-        print("🎙️  LAYA VOICE INTERFACE ACTIVE")
+        print("🎙️  VOICE INTERFACE ACTIVE")
         print("   - Press [ENTER] to speak")
         print("   - Type 'exit' to quit")
         print("=" * 65 + "\n")
 
-        self.tts.speak("Laya is listening.")
+        self.tts.speak("Assistant is online and listening.")
         stt = get_stt_engine()
         capture = AudioCapture()
 
@@ -121,7 +146,7 @@ class LayaAssistant:
             try:
                 user_input = input("\n[Enter to Speak / or type query] > ").strip()
                 if user_input.lower() in ["exit", "quit", "q"]:
-                    print("Exiting Laya. Goodbye!")
+                    print("Exiting assistant. Goodbye!")
                     break
 
                 if user_input:
@@ -161,6 +186,17 @@ def main():
     parser.add_argument("--hud", action="store_true", help="Launch transparent desktop HUD interface with wake word")
     parser.add_argument("--voice", "-v", action="store_true", help="Launch interactive voice mode in console")
     args = parser.parse_args()
+
+    # Enforce single instance for long-running voice & HUD listeners
+    if args.hud or args.voice or not args.query:
+        if not acquire_single_instance_lock():
+            print("\n" + "=" * 65)
+            print("⚠️  [Laya] Another instance of Laya is already running.")
+            print("   Only one instance can run at a time to prevent audio device")
+            print("   conflicts and duplicate execution.")
+            print("   Please close the existing HUD/terminal window before launching a new one.")
+            print("=" * 65 + "\n")
+            sys.exit(0)
 
     assistant = LayaAssistant()
 

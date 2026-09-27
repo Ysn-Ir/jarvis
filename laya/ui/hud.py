@@ -22,11 +22,21 @@ from laya.fast_path.executor import get_fast_path_executor
 from laya.ui.meme_engine import get_meme_engine
 from laya.orchestrator.memory import get_memory_store
 from laya.audio.meme_audio import play_meme_audio
+from laya.tools.interrupt_manager import (
+    request_interrupt,
+    is_interrupt_requested,
+    reset_interrupt,
+)
+from laya.config import UI_VISIBILITY_MODE
+
 
 
 class LayaHUD(ctk.CTk):
+    _active_instance: Optional["LayaHUD"] = None
+
     def __init__(self, assistant_instance=None):
         super().__init__()
+        LayaHUD._active_instance = self
 
         self.assistant = assistant_instance
         self.tts = get_tts_engine()
@@ -41,11 +51,13 @@ class LayaHUD(ctk.CTk):
         self.is_recording = False
         self.is_processing = False
         self.is_collapsed = False
+        self.is_visible_on_screen = False
+        self.auto_hide_timer = None
         self.current_state = "IDLE"  # IDLE, LISTENING, PROCESSING, SPEAKING
         self._meme_dismiss_timer = None
 
         # Geometry Settings
-        self.title("Laya AI")
+        self.title("AI Assistant")
         self.hud_width = 440
         self.hud_height = 530
         self.pill_height = 64
@@ -88,17 +100,19 @@ class LayaHUD(ctk.CTk):
         self._build_top_island()
         self._build_content_cards()
 
-        # Global hotkey bindings: ESC to immediately shut speech off and cancel
+        # Global hotkey bindings: ESC to immediately shut speech off, interrupt, and hide UI
         self.bind_all("<Escape>", lambda e: self._on_escape_pressed())
 
-        # Initialize Continuous Wake Word Engine
+        # Initialize Continuous Wake Word & Barge-In Engine
         self.wake_detector: Optional[WakeWordDetector] = None
         self._init_wake_word()
 
         # Periodic Event & Animation Loops
         self.after(35, self._drain_queue)
         self.after(40, self._animate_waveform)
-        self.after(800, self._play_startup_greeting)
+
+        # Start hidden by default - only shows when user summons ("call", wake phrase, or hotkey)
+        self.withdraw()
 
     # -------------------------------------------------------------
     # 1. Floating Dynamic Island Capsule (Top Header)
@@ -122,7 +136,7 @@ class LayaHUD(ctk.CTk):
         # Minimalist Brand Icon & Label
         self.brand_label = ctk.CTkLabel(
             self.island_frame,
-            text="✦ LAYA",
+            text="✦ ASSISTANT",
             font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
             text_color=self.CLR_WHITE,
         )
@@ -219,7 +233,7 @@ class LayaHUD(ctk.CTk):
 
         self.query_text = ctk.CTkLabel(
             self.bubble_frame,
-            text="Listening for voice... (Say 'Hey Laya')",
+            text="Listening for voice... (Say 'Call' or wake phrase)",
             font=ctk.CTkFont(family="Segoe UI", size=12, slant="italic"),
             text_color=self.CLR_TEXT_DIM,
             wraplength=400,
@@ -289,9 +303,9 @@ class LayaHUD(ctk.CTk):
         self.result_box.insert(
             "end",
             "I am ready. Try saying:\n"
-            "• 'Hey Laya, open paint and draw a circle'\n"
-            "• 'Hey Laya, open spotify and play music'\n"
-            "• 'Hey Laya, raise the volume by 10 percent'"
+            "• 'Call, open paint and draw a circle'\n"
+            "• 'Call, open spotify and play music'\n"
+            "• 'Call, raise the volume by 10 percent'"
         )
         self.result_box.configure(state="disabled")
 
@@ -324,7 +338,7 @@ class LayaHUD(ctk.CTk):
         # Text Prompt Field
         self.input_field = ctk.CTkEntry(
             self.input_pill,
-            placeholder_text="Ask Laya or type a command...",
+            placeholder_text="Ask Assistant or type a command...",
             fg_color="transparent",
             border_width=0,
             text_color=self.CLR_WHITE,
@@ -476,10 +490,54 @@ class LayaHUD(ctk.CTk):
         self.geometry(f"+{x}+{y}")
 
     def _on_close(self):
-        if self.wake_detector:
-            self.wake_detector.stop()
-        self.destroy()
-        sys.exit(0)
+        # Hide HUD window instead of exiting process so background listening for 'call' remains active
+        print("[HUD] Close clicked: hiding UI window. Background listening for 'call' is still active.")
+        self._hide_hud()
+
+    def _show_hud(self):
+        """Unhide HUD, bring to foreground, and display on screen."""
+        if self.auto_hide_timer:
+            try:
+                self.after_cancel(self.auto_hide_timer)
+            except Exception:
+                pass
+            self.auto_hide_timer = None
+        self.deiconify()
+        self.lift()
+        self.attributes("-topmost", True)
+        self.is_visible_on_screen = True
+
+    def _hide_hud(self):
+        """Hide HUD from screen while preserving background listening threads."""
+        if self.auto_hide_timer:
+            try:
+                self.after_cancel(self.auto_hide_timer)
+            except Exception:
+                pass
+            self.auto_hide_timer = None
+        self.withdraw()
+        self.is_visible_on_screen = False
+
+    def _schedule_auto_hide(self, delay_ms: int = 5000):
+        """Auto-hide HUD after idle delay when in call_only mode."""
+        if UI_VISIBILITY_MODE != "call_only":
+            return
+        if self.auto_hide_timer:
+            try:
+                self.after_cancel(self.auto_hide_timer)
+            except Exception:
+                pass
+        self.auto_hide_timer = self.after(delay_ms, self._hide_hud)
+
+    @classmethod
+    def show_active_hud(cls):
+        if cls._active_instance:
+            cls._active_instance._show_hud()
+
+    @classmethod
+    def hide_active_hud(cls):
+        if cls._active_instance:
+            cls._active_instance._hide_hud()
 
     def _toggle_collapse(self):
         if not self.is_collapsed:
@@ -498,7 +556,6 @@ class LayaHUD(ctk.CTk):
             self._toggle_collapse()
 
     # -------------------------------------------------------------
-    # -------------------------------------------------------------
     # 5. Continuous Single-Pass Wake Word & Barge-In Integration
     # -------------------------------------------------------------
     def _init_wake_word(self):
@@ -513,30 +570,36 @@ class LayaHUD(ctk.CTk):
             print(f"[HUD] Wake word note: {e}")
 
     def _on_interrupt_requested(self):
-        """User spoke interrupt word ('stop', 'shut up', 'quiet') or wake word while speaking -> shut speech off immediately!"""
-        print("[HUD] Interruption vocal trigger received: silencing speech.")
+        """User spoke interrupt word ('stop', 'shut up', 'quiet', 'cancel') -> abort immediately!"""
+        print("[HUD] Interruption vocal trigger received: aborting and silencing.")
+        request_interrupt("Vocal interruption")
         self.tts.stop()
         self.msg_queue.put(("barge_in_stop", None))
 
     def _on_stop_clicked(self):
-        """User clicked STOP button -> immediately silence speech."""
-        print("[HUD] STOP button clicked: silencing speech.")
+        """User clicked STOP button -> immediately abort and silence."""
+        print("[HUD] STOP button clicked: aborting.")
+        request_interrupt("Stop button clicked")
         self.tts.stop()
         self.msg_queue.put(("barge_in_stop", None))
 
     def _on_escape_pressed(self):
-        """User hit Escape -> immediately silence speech and reset."""
-        print("[HUD] ESC pressed: silencing speech.")
+        """User hit Escape -> immediately abort, silence speech, and hide HUD."""
+        print("[HUD] ESC pressed: aborting and hiding UI.")
+        request_interrupt("ESC pressed")
         self.tts.stop()
+        self._hide_hud()
         self.msg_queue.put(("barge_in_stop", None))
 
     def _on_wake_heard(self):
-        """User spoke only wake word -> activate listening mode."""
+        """User spoke wake phrase ('call', etc.) -> show UI and activate listening mode."""
+        self._show_hud()
         self.tts.stop()
         self.msg_queue.put(("wake_trigger", None))
 
     def _on_direct_command_heard(self, command_text: str):
-        """User spoke wake word + command together -> execute immediately!"""
+        """User spoke 'call [command]' -> show UI and execute immediately."""
+        self._show_hud()
         self.tts.stop()
         self.msg_queue.put(("direct_command", command_text))
 
@@ -562,6 +625,7 @@ class LayaHUD(ctk.CTk):
         self._start_command_execution(query)
 
     def _start_voice_recording_thread(self):
+        self._show_hud()
         self._expand_if_collapsed()
         self.is_recording = True
         self.current_state = "LISTENING"
@@ -591,10 +655,11 @@ class LayaHUD(ctk.CTk):
             self.msg_queue.put(("reset_idle", None))
 
     def _start_command_execution(self, query: str):
+        self._show_hud()
+        reset_interrupt()
         # Silence speech and clear previous meme reaction before executing new command
         self.tts.stop()
         self._hide_meme_modal()
-        # reaction_frame removed
         self.last_query = query
         self._expand_if_collapsed()
         if self.wake_detector:
@@ -619,10 +684,14 @@ class LayaHUD(ctk.CTk):
                 result = f"Completed command: {query}"
 
             dt_ms = (time.time() - t0) * 1000
-            self.msg_queue.put(("result", result, dt_ms))
+            from laya.tools.interrupt_manager import is_interrupt_requested
+            if not is_interrupt_requested():
+                self.msg_queue.put(("result", result, dt_ms))
 
         except Exception as e:
-            self.msg_queue.put(("result", f"Execution error: {e}", 0))
+            from laya.tools.interrupt_manager import is_interrupt_requested
+            if not is_interrupt_requested():
+                self.msg_queue.put(("result", f"Execution error: {e}", 0))
         finally:
             self.is_processing = False
             self.is_recording = False
@@ -632,15 +701,18 @@ class LayaHUD(ctk.CTk):
     # 7. Thread-Safe Event Drainer
     # -------------------------------------------------------------
     def _drain_queue(self):
+        from laya.tools.interrupt_manager import is_interrupt_requested
         try:
             while True:
                 kind, *args = self.msg_queue.get_nowait()
 
                 if kind == "wake_trigger":
+                    self._show_hud()
                     self._start_voice_recording_thread()
 
                 elif kind == "direct_command":
                     cmd = args[0]
+                    self._show_hud()
                     self._start_command_execution(cmd)
 
                 elif kind == "state":
@@ -650,29 +722,35 @@ class LayaHUD(ctk.CTk):
                         self._set_state_badge("● PROCESSING", self.CLR_SILVER, "#1c1c1f")
 
                 elif kind == "step":
-                    self._append_step(str(args[0]))
+                    if not is_interrupt_requested():
+                        self._append_step(str(args[0]))
 
                 elif kind == "result":
                     res_text, dt_ms = args[0], args[1]
-                    self._render_result(res_text, dt_ms)
+                    if self.current_state != "STOPPED" and not is_interrupt_requested():
+                        self._render_result(res_text, dt_ms)
 
                 elif kind == "barge_in_stop":
-                    self.current_state = "IDLE"
-                    self._set_state_badge("● SILENCED", "#f43f5e", "#1c1917")
-                    self.query_text.configure(text="Speech stopped. Listening... (or type a command)", text_color=self.CLR_WHITE)
+                    self.current_state = "STOPPED"
+                    self._set_state_badge("● STOPPED", "#f43f5e", "#1c1917")
+                    self.query_text.configure(text="Stopped. Listening...", text_color=self.CLR_WHITE)
                     if self.wake_detector:
                         self.wake_detector.resume()
+                    self._schedule_auto_hide(delay_ms=2500)
 
                 elif kind == "reset_idle":
-                    self.current_state = "IDLE"
-                    self._set_state_badge("● READY", self.CLR_SILVER, "#18181c")
-                    self.query_text.configure(text="Listening for voice... (Say 'Hey Laya')", text_color=self.CLR_TEXT_DIM)
+                    if self.current_state != "STOPPED":
+                        self.current_state = "IDLE"
+                        self._set_state_badge("● READY", self.CLR_SILVER, "#18181c")
+                        self.query_text.configure(text="Listening for voice... (Say 'Call' or wake phrase)", text_color=self.CLR_TEXT_DIM)
                     if self.wake_detector:
                         self.wake_detector.resume()
+                    self._schedule_auto_hide(delay_ms=3000)
 
                 elif kind == "post_execution":
-                    self.current_state = "SPEAKING"
-                    self._set_state_badge("● COMPLETE", self.CLR_WHITE, "#27272a")
+                    if self.current_state != "STOPPED" and not is_interrupt_requested():
+                        self.current_state = "SPEAKING"
+                        self._set_state_badge("● COMPLETE", self.CLR_WHITE, "#27272a")
                     if self.wake_detector:
                         self.wake_detector.resume()
 
@@ -683,7 +761,8 @@ class LayaHUD(ctk.CTk):
         if self.current_state == "SPEAKING" and not self.tts.is_speaking():
             self.current_state = "IDLE"
             self._set_state_badge("● READY", self.CLR_SILVER, "#18181c")
-            self.query_text.configure(text="Listening for voice... (Say 'Hey Laya')", text_color=self.CLR_TEXT_DIM)
+            self.query_text.configure(text="Listening for voice... (Say 'Call' or wake phrase)", text_color=self.CLR_TEXT_DIM)
+            self._schedule_auto_hide(delay_ms=5000)
 
         self.after(35, self._drain_queue)
 

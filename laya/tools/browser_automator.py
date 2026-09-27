@@ -116,28 +116,56 @@ class BrowserAutomator:
         pyautogui.hotkey("ctrl", "r")
         return "Refreshed browser page."
 
-    def play_youtube(self, query: str) -> str:
-        """
-        Open YouTube, search for the query, and click the first video result using relative window geometry.
-        """
+    def get_youtube_video_url(self, query: str) -> Optional[str]:
+        """Fetch the top YouTube video ID for a query to launch playback directly with zero clicks."""
+        import re
+        import urllib.request
         clean_q = query.strip()
         encoded = urllib.parse.quote_plus(clean_q)
         url = f"https://www.youtube.com/results?search_query={encoded}"
+        req = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept-Language": "en-US,en;q=0.9",
+            }
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=3.0) as resp:
+                html = resp.read().decode("utf-8", errors="ignore")
+            
+            # YouTube results embed videoId in JSON and in /watch?v= links
+            vids = re.findall(r'"videoId":"([a-zA-Z0-9_-]{11})"', html)
+            if not vids:
+                vids = re.findall(r'/watch\?v=([a-zA-Z0-9_-]{11})', html)
+            
+            if vids:
+                seen = set()
+                unique_vids = [v for v in vids if not (v in seen or seen.add(v))]
+                top_id = unique_vids[0]
+                return f"https://www.youtube.com/watch?v={top_id}&autoplay=1"
+        except Exception as e:
+            print(f"[BrowserAutomator] Direct YouTube search error: {e}")
+        return None
 
-        webbrowser.open(url)
-        time.sleep(1.0)
-        self._focus_browser()
+    def play_youtube(self, query: str) -> str:
+        """
+        Open YouTube and directly start playing the requested video or music with zero clicking.
+        """
+        clean_q = query.strip()
+        direct_url = self.get_youtube_video_url(clean_q)
+        if direct_url:
+            webbrowser.open(direct_url)
+            time.sleep(0.5)
+            self._focus_browser()
+            return f"Playing '{clean_q}' on YouTube."
+
+        # Fallback to search results if network resolution timed out
+        encoded = urllib.parse.quote_plus(clean_q)
+        search_url = f"https://www.youtube.com/results?search_query={encoded}"
+        webbrowser.open(search_url)
         time.sleep(0.5)
-
-        # In standard YouTube desktop layout, the top video result is at rel_x=0.36, rel_y=0.30
-        from laya.tools.window_geometry import get_window_geometry_manager
-        geo_mgr = get_window_geometry_manager()
-
-        for b_name in ["Chrome", "Edge", "Firefox", "Brave", "YouTube"]:
-            res = geo_mgr.click_window_relative(b_name, rel_x=0.36, rel_y=0.30)
-            if "error" not in res:
-                return f"Started playing '{clean_q}' on YouTube."
-
+        self._focus_browser()
         return f"Opened YouTube search for '{clean_q}'."
 
 

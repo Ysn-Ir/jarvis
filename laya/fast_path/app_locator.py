@@ -110,25 +110,10 @@ class AppLocator:
     def _bring_to_foreground(self, query: str) -> bool:
         """If an application window is already running, restore and bring it to front."""
         try:
-            import win32gui
-            import win32con
-            found_hwnd = None
-            q_lower = query.lower().strip()
-
-            def enum_cb(hwnd, _):
-                nonlocal found_hwnd
-                if win32gui.IsWindowVisible(hwnd):
-                    title = win32gui.GetWindowText(hwnd).lower()
-                    if title and (q_lower in title or any(w in title for w in q_lower.split())):
-                        found_hwnd = hwnd
-                        return False
-                return True
-
-            win32gui.EnumWindows(enum_cb, None)
-            if found_hwnd:
-                win32gui.ShowWindow(found_hwnd, win32con.SW_RESTORE)
-                win32gui.SetForegroundWindow(found_hwnd)
-                return True
+            from laya.tools.win32_utils import find_window_by_query, robust_bring_to_front
+            win = find_window_by_query(query)
+            if win and win.get("hwnd"):
+                return robust_bring_to_front(win["hwnd"])
         except Exception:
             pass
         return False
@@ -158,8 +143,10 @@ class AppLocator:
             "vs code": "code",
             "visual studio code": "code",
             "notepad": "notepad.exe",
-            "paint": "mspaint.exe",
-            "mspaint": "mspaint.exe",
+            "paint": str(Path.home() / r"AppData\Local\Microsoft\WindowsApps\mspaint.exe"),
+            "mspaint": str(Path.home() / r"AppData\Local\Microsoft\WindowsApps\mspaint.exe"),
+            "camera": "microsoft.windows.camera:",
+            "webcam": "microsoft.windows.camera:",
             "calc": "calc.exe",
             "calculator": "calc.exe",
             "spotify": "spotify",

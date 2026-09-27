@@ -164,7 +164,7 @@ class OrchestratorEngine:
             elif tool in ["lock_workstation", "lock_pc", "lock"]:
                 delay = int(args.get("delay_sec", 0))
                 return self.fast_path.lock_workstation(delay_sec=delay)
-            elif tool == "take_screenshot":
+            elif tool in ["take_screenshot", "screenshot"]:
                 return self.fast_path.take_screenshot()
 
             # Web & Search Intelligence
@@ -194,10 +194,29 @@ class OrchestratorEngine:
                 )
 
             # Messaging & Comms
+            elif tool in ["send_message", "message"]:
+                return self.fast_path.send_message(
+                    recipient=args.get("recipient", "") or args.get("contact", ""),
+                    message=args.get("message", "")
+                )
+            elif tool in ["send_telegram", "telegram_send_message"]:
+                return self.fast_path.telegram_send_message(
+                    recipient=args.get("recipient", "") or args.get("contact", ""),
+                    message=args.get("message", "")
+                )
+            elif tool in ["telegram_broadcast", "broadcast_message"]:
+                return self.fast_path.telegram_broadcast(
+                    message=args.get("message", ""),
+                    limit=int(args.get("limit", 30))
+                )
+            elif tool == "telegram_sync_contacts":
+                return self.fast_path.telegram_sync_contacts()
+            elif tool == "telegram_list_contacts":
+                return self.fast_path.telegram_list_contacts()
             elif tool == "send_whatsapp":
                 return self.tool_registry.execute(
                     "send_whatsapp",
-                    contact=args.get("contact", ""),
+                    contact=args.get("contact", "") or args.get("recipient", ""),
                     message=args.get("message", "")
                 )
             elif tool == "send_email":
@@ -235,6 +254,10 @@ class OrchestratorEngine:
                 return self.fast_path.query_time()
             elif tool in ["query_date", "get_date", "date"]:
                 return self.fast_path.query_date()
+            elif tool == "search_tools":
+                from laya.tools.registry import ToolRegistry
+                tools = ToolRegistry.get_instance().search_tools(args.get("query", ""))
+                return f"Discovered tools matching '{args.get('query')}': {tools}"
 
             # Computer Use (GUI Automation)
             elif tool == "mouse_click":
@@ -248,6 +271,22 @@ class OrchestratorEngine:
                 return self.computer_use.mouse_move(x=args.get("x", 0), y=args.get("y", 0))
             elif tool == "mouse_scroll":
                 return self.computer_use.mouse_scroll(clicks=args.get("clicks", 3))
+            elif tool in ["scroll_window", "scroll", "scroll_active", "scroll_in_window"]:
+                return self.computer_use.scroll_window(
+                    direction=args.get("direction", "down"),
+                    amount=int(args.get("amount", 5)),
+                    title_keyword=args.get("title_keyword", "") or args.get("window", "")
+                )
+            elif tool in ["zoom_window_region", "zoom", "zoom_region", "magnify", "magnify_region"]:
+                return self.computer_use.zoom_window_region(
+                    region=args.get("region", "center"),
+                    title_keyword=args.get("title_keyword", "") or args.get("window", ""),
+                    zoom_factor=float(args.get("zoom_factor", 2.5)),
+                    rel_x=float(args.get("rel_x", 0.5)),
+                    rel_y=float(args.get("rel_y", 0.5)),
+                    rel_w=float(args.get("rel_w", 0.4)),
+                    rel_h=float(args.get("rel_h", 0.4)),
+                )
             elif tool == "keyboard_type":
                 return self.computer_use.keyboard_type(text=args.get("text", ""))
             elif tool == "keyboard_hotkey":
@@ -285,6 +324,18 @@ class OrchestratorEngine:
                 return self.fast_path.browser_open_url(url=url)
             elif tool in ["play_youtube", "youtube_play"]:
                 return self.fast_path.play_youtube(query=args.get("query", ""))
+
+            # Write to file / notepad tools
+            elif tool in ["write_to_file", "write_file"]:
+                return self.fast_path.write_to_file(
+                    filename=args.get("filename", "") or args.get("path", ""),
+                    content=args.get("content", "")
+                )
+            elif tool in ["write_to_notepad", "notepad_write", "type_to_notepad"]:
+                return self.fast_path.write_to_notepad(
+                    text=args.get("text", ""),
+                    filename=args.get("filename")
+                )
             elif tool == "get_window_geometry":
                 from laya.tools.window_geometry import get_window_geometry_manager
                 return str(get_window_geometry_manager().get_window_geometry(args.get("title_keyword", "")))

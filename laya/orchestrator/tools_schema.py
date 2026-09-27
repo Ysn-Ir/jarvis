@@ -872,7 +872,263 @@ TOOLS_SCHEMA: List[Dict[str, Any]] = [
                 "required": ["title_keyword", "shape"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "send_message",
+            "description": "Send a chat message to a contact or phone number via Telegram or WhatsApp.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "recipient": {"type": "string", "description": "Contact name, username, or phone number"},
+                    "message": {"type": "string", "description": "Text message content to send"}
+                },
+                "required": ["recipient", "message"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "send_telegram",
+            "description": "Send a direct message to a contact or username specifically on Telegram.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "recipient": {"type": "string", "description": "Telegram username or contact name"},
+                    "message": {"type": "string", "description": "Text message content"}
+                },
+                "required": ["recipient", "message"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "send_whatsapp",
+            "description": "Send a direct message to a contact specifically on WhatsApp.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "contact": {"type": "string", "description": "WhatsApp contact name or phone number"},
+                    "message": {"type": "string", "description": "Text message content"}
+                },
+                "required": ["contact", "message"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "telegram_broadcast",
+            "description": "Broadcast a message to all Telegram contacts, chats, or active users.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "message": {"type": "string", "description": "Announcement or broadcast message content to send to all contacts"}
+                },
+                "required": ["message"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "telegram_sync_contacts",
+            "description": "Fetch and synchronize all contacts from user's Telegram account into local address book.",
+            "parameters": {
+                "type": "object",
+                "properties": {}
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "telegram_list_contacts",
+            "description": "List and display contacts from the Telegram account.",
+            "parameters": {
+                "type": "object",
+                "properties": {}
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "write_to_file",
+            "description": "Write or append text content directly to a file (creates the file if needed). Use for saving notes, logs, data, or code to the filesystem.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filename": {"type": "string", "description": "Target filename or path (e.g. 'notes.txt', 'desktop/log.txt')"},
+                    "content": {"type": "string", "description": "Text content to write to the file"}
+                },
+                "required": ["filename", "content"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "write_to_notepad",
+            "description": "Open Notepad (or use the currently active Notepad window) and type or paste the given text into it. Optionally saves to a named .txt file.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string", "description": "Text to type or paste into Notepad"},
+                    "filename": {"type": "string", "description": "Optional .txt filename to save to (e.g. 'ideas.txt'); if omitted, types directly into open Notepad"}
+                },
+                "required": ["text"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "browser_search",
+            "description": "Search the web using Google or YouTube in the default browser and navigate to the results page.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Search query terms"},
+                    "engine": {"type": "string", "enum": ["google", "youtube", "bing", "duckduckgo"], "description": "Search engine to use (default: google)"}
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "browser_open_url",
+            "description": "Navigate the browser to a specific URL directly.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string", "description": "Full URL (e.g. 'https://github.com', 'https://reddit.com/r/python')"}
+                },
+                "required": ["url"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "answer_question",
+            "description": "Return a direct spoken answer to the user's question without calling any additional tools. Use when you have enough information to answer from memory, context, or general knowledge.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string", "description": "Complete answer text to speak to the user"}
+                },
+                "required": ["text"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "zoom_window_region",
+            "description": "Zoom into and magnify a specific region of any window or the full screen and display it in a floating HUD overlay. Use when the user says 'zoom in', 'magnify', 'show me a closer look', 'zoom into the corner/center/top-right', etc.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "region": {
+                        "type": "string",
+                        "enum": ["center", "top-left", "top-right", "bottom-left", "bottom-right", "top", "bottom", "left", "right", "custom"],
+                        "description": "Named region to zoom into. Use 'center' for middle, 'top-left', 'top-right', 'bottom-left', 'bottom-right' for corners, 'top'/'bottom'/'left'/'right' for edges."
+                    },
+                    "title_keyword": {
+                        "type": "string",
+                        "description": "Optional window title to zoom (e.g. 'Chrome', 'Explorer', 'Paint'). Leave empty to zoom the full screen."
+                    },
+                    "zoom_factor": {
+                        "type": "number",
+                        "description": "Magnification multiplier, e.g. 2.0 for 2×, 3.0 for 3× zoom. Default is 2.5."
+                    },
+                    "rel_x": {"type": "number", "description": "Custom region anchor X (0.0–1.0), used only when region='custom'"},
+                    "rel_y": {"type": "number", "description": "Custom region anchor Y (0.0–1.0), used only when region='custom'"},
+                    "rel_w": {"type": "number", "description": "Custom region width ratio (0.0–1.0), used only when region='custom'"},
+                    "rel_h": {"type": "number", "description": "Custom region height ratio (0.0–1.0), used only when region='custom'"}
+                },
+                "required": ["region"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "scroll_window",
+            "description": "Scroll up, down, left, or right inside the active window or any named application window (browser, File Explorer, document, terminal, etc.). Use for 'scroll up/down', 'scroll in Chrome', 'go to top/bottom', 'page down', etc.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "direction": {
+                        "type": "string",
+                        "enum": ["up", "down", "left", "right", "page_up", "page_down", "top", "bottom"],
+                        "description": "Scroll direction. 'top'/'bottom' jumps to start/end (Ctrl+Home/End). 'page_up'/'page_down' scrolls one full page."
+                    },
+                    "amount": {
+                        "type": "integer",
+                        "description": "Number of scroll notches (default 5). More = scroll further."
+                    },
+                    "title_keyword": {
+                        "type": "string",
+                        "description": "Optional window title to scroll (e.g. 'Chrome', 'Explorer', 'Notepad'). Empty means active window."
+                    }
+                },
+                "required": ["direction"]
+            }
+        }
     }
 ]
+
+# -----------------------------------------------------------------
+# High-Efficiency Core Toolset (~1,400 tokens)
+# Prevents context bloat and guarantees staying well under the 8,000 TPM limit
+# -----------------------------------------------------------------
+CORE_TOOL_NAMES = {
+    "answer_question",
+    "open_app",
+    "close_app",
+    "focus_window",
+    "write_to_notepad",
+    "write_to_file",
+    "create_file",
+    "open_file",
+    "browser_search",
+    "browser_open_url",
+    "play_youtube",
+    "scroll_window",
+    "zoom_window_region",
+    "draw_shape",
+    "keyboard_type",
+    "mouse_click",
+    "check_system",
+    "send_message",
+}
+
+CORE_TOOLS_SCHEMA: List[Dict[str, Any]] = [
+    tool for tool in TOOLS_SCHEMA
+    if tool.get("function", {}).get("name") in CORE_TOOL_NAMES
+]
+
+# Add on-demand tool discovery tool
+CORE_TOOLS_SCHEMA.append({
+    "type": "function",
+    "function": {
+        "name": "search_tools",
+        "description": "Discover specialized tools from the full capability registry (e.g. Word .docx, Excel .xlsx, PowerShell execution, window geometry, system diagnostics). Use when the core tools cannot fulfill a specialized user request.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Keywords describing the capability needed (e.g. 'excel', 'word', 'powershell', 'kill')"}
+            },
+            "required": ["query"]
+        }
+    }
+})
 
 

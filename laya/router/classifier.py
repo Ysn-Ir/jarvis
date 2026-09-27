@@ -35,12 +35,41 @@ class IntentRouter:
             )
 
         text = utterance.lower().strip()
-        # Clean leading wake words (Hey Laya, Laya, Jarvis, etc.)
-        text = re.sub(r"^(?:hey|hi|hello)?[\s,]*(?:laya|leia|layer|jarvis|computer)[,\.!\s]*", "", text, flags=re.IGNORECASE).strip()
+        # Clean leading conversational prefixes (Hey, Hi, Hello, OK, etc.)
+        text = re.sub(r"^(?:hey|hi|hello|ok|okay)?[\s,]*(?:assistant|system|computer|jarvis|bot|laya|leia|layer)[,\.!\s]*", "", text, flags=re.IGNORECASE).strip()
+
+        # Check for explicit phone/voice/video call requests BEFORE stripping "call"
+        call_match = re.search(r"^(?:(?:can\s+you\s+)?(?:call|voice\s+call|video\s+call|phone|ring|make\s+a\s+call\s+to)\s+)(.+?)(?:\s+(?:on|via|through|in)\s+(telegram|whatsapp))?$", text, re.I)
+        if call_match:
+            callee = call_match.group(1).strip()
+            platform = (call_match.group(2) or "telegram").lower().strip()
+            CALL_EXCLUDE_PREFIXES = ("open", "launch", "play", "close", "show", "hide", "search", "send", "check", "take", "write", "create", "draw", "raise", "lower", "set", "mute", "unmute", "turn", "stop", "what", "how", "who", "where", "why")
+            if callee and callee not in ["me", "i", "it", "my", "the", "a", "someone", "system", "assistant", "computer", "jarvis", "ready"]:
+                if not callee.lower().startswith(CALL_EXCLUDE_PREFIXES):
+                    if platform == "whatsapp":
+                        return RouteDecision(path=ExecutionPath.FAST_PATH, action="whatsapp_call", params={"contact": callee, "call_type": "voice"})
+                    else:
+                        return RouteDecision(path=ExecutionPath.FAST_PATH, action="telegram_call", params={"recipient": callee, "call_type": "voice"})
+
+        # Clean leading wake word "call" for other commands (e.g. "call open spotify" -> "open spotify")
+        text = re.sub(r"^call[\s,]+", "", text, flags=re.IGNORECASE).strip()
         text = text.strip(".!? ")
 
+        # Clean trailing conversational filler words (e.g. "scroll down now" -> "scroll down", "open chrome please" -> "open chrome")
+        text = re.sub(r"\s+(?:now|please|for me|quickly|right now|a bit|a little bit)$", "", text, flags=re.IGNORECASE).strip()
+
+        # 0. Instant Stop, Cancel, Quiet, Abort (<0.0ms)
+        if re.search(r"^(?:please\s+)?(?:stop|halt|cancel|abort|freeze|quiet|silence|be\s+quiet|shut\s*up|nevermind|never\s+mind|don't\s+do\s+that)(?:\s+(?:it|that|now|please|everything|all|talking))?$", text):
+            return RouteDecision(
+                path=ExecutionPath.FAST_PATH,
+                action="stop_action",
+                params={},
+                confidence=1.0,
+                reasoning="Instant abort/stop command."
+            )
+
         # 1. Instant greetings and readiness checks (<0.1ms)
-        if not text or text in ["laya", "hey", "hello", "hi", "hey laya", "jarvis"]:
+        if not text or text in ["call", "assistant", "system", "computer", "jarvis", "hey", "hello", "hi", "laya"]:
             return RouteDecision(
                 path=ExecutionPath.FAST_PATH,
                 action="query_identity",
@@ -139,6 +168,16 @@ class IntentRouter:
     # Single Deterministic Fast-Path Matcher
     # -------------------------------------------------------------
     def _route_single_deterministic(self, text: str, original: str) -> Optional[RouteDecision]:
+        # 0. Interruption, Abort & UI Visibility (<0.0ms)
+        if re.search(r"\b(?:stop|cancel|shut\s*up|abort|freeze|halt)\b", text) and len(text.split()) <= 3:
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="stop_action")
+
+        if re.search(r"\b(?:hide|dismiss|close|minimize)\s+(?:the\s+)?(?:ui|hud|window|overlay|assistant)\b|^hide$|^dismiss$", text):
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="hide_hud")
+
+        if re.search(r"\b(?:show|open|bring\s+up|display)\s+(?:the\s+)?(?:ui|hud|overlay)\b", text):
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="show_hud")
+
         # 1. Universal Mute & Audio Silence (<0.0ms)
         if re.search(r"\b(?:mute|unmute|silence|be\s+quiet|shut\s+up|quiet)\b", text):
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="mute")
@@ -166,9 +205,12 @@ class IntentRouter:
         if text in ["previous song", "previous track"]:
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="prev_track")
 
-        click_song_match = re.search(r"\b(?:click\s+on\s+(?:a\s+)?song|play\s+(?:a\s+)?song|start\s+(?:a\s+)?song|play\s+some\s+music|start\s+music)\b", text)
+        if text in ["play music", "launch music", "open music", "start music", "play some music", "listen to music"]:
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="play_youtube", params={"query": "synthwave lofi chillhop mix"})
+
+        click_song_match = re.search(r"\b(?:click\s+on\s+(?:a\s+)?song|play\s+(?:a\s+)?song|start\s+(?:a\s+)?song|launch\s+music|open\s+music)\b", text)
         if click_song_match:
-            return RouteDecision(path=ExecutionPath.FAST_PATH, action="click_song", params={"query": ""})
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="play_youtube", params={"query": "synthwave lofi chillhop mix"})
 
         spot_match = re.search(r"\b(?:open\s+spotify\s+(?:and\s+)?(?:play|launch|start)|play\s+(.+?)\s+on\s+spotify|play\s+spotify)\s*(.+)?$", text)
         if spot_match:
@@ -177,15 +219,15 @@ class IntentRouter:
 
         # 4. YouTube Direct Play & Search (<0.0ms)
         yt_play_match = re.match(
-            r"^(?:can\s+you\s+|could\s+you\s+|please\s+)?(?:play|start|listen\s+to)\s+(.+?)(?:\s+(?:on|from|in)\s+youtube)?$",
+            r"^(?:can\s+you\s+|could\s+you\s+|please\s+)?(?:play|start|watch|listen\s+to|open\s+video(?:\s+of)?|launch\s+video(?:\s+of)?)\s+(.+?)(?:\s+(?:on|from|in)\s+youtube)?$",
             text,
             flags=re.IGNORECASE
         )
-        if yt_play_match and ("youtube" in text or any(w in text for w in ["song", "songs", "music", "track", "video"])):
+        if yt_play_match:
             raw_query = yt_play_match.group(1).strip()
             raw_query = re.sub(r"\s+(?:on|from|in)\s+youtube\b", "", raw_query, flags=re.IGNORECASE).strip()
             raw_query = re.sub(r"^(?:like|some|uh|um)\s+", "", raw_query, flags=re.IGNORECASE).strip()
-            if not raw_query or raw_query in ["songs", "some songs", "music", "some music"]:
+            if not raw_query or raw_query in ["songs", "some songs", "music", "some music", "a song", "video", "a video", "videos"]:
                 raw_query = "synthwave lofi chillhop mix"
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="play_youtube", params={"query": raw_query})
 
@@ -292,46 +334,153 @@ class IntentRouter:
             target_c = (tg_call_match.group(1) or tg_call_match.group(2) or "").strip()
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="telegram_call", params={"contact": target_c})
 
+        # Broadcast Message to All Contacts / Users (<0.0ms)
+        is_broadcast = bool(
+            re.search(r"\b(?:broadcast|all\s+contacts|all\s+users|everyone|everybody|all\s+my\s+contacts)\b", text, re.I)
+            and (
+                re.search(r"\b(?:send|broadcast|message|messages|text|texts|tell|post|blast)\b", text, re.I)
+                or "to all" in text
+                or "to everyone" in text
+                or "to everybody" in text
+            )
+        )
+        if is_broadcast:
+            # Extract message content if provided
+            msg_m = re.search(r"(?:saying|that|with|say|:\s*)\s+(.+)$", text, re.I)
+            b_msg = ""
+            if msg_m:
+                b_msg = msg_m.group(1).strip().strip(":'\" ")
+                b_msg = re.sub(r"\s+(?:on|in|via)\s+telegram$", "", b_msg, flags=re.I).strip()
+            if not b_msg:
+                tg_colon_m = re.search(r"(?:on|to|in)?\s*telegram\s*[:]\s*(.+)$", text, re.I)
+                if tg_colon_m:
+                    b_msg = tg_colon_m.group(1).strip().strip(":'\" ")
+
+            if b_msg:
+                return RouteDecision(
+                    path=ExecutionPath.FAST_PATH,
+                    action="telegram_broadcast",
+                    params={"message": b_msg},
+                    confidence=1.0,
+                    reasoning="Fast-path Telegram broadcast to all contacts/users."
+                )
+            else:
+                return RouteDecision(
+                    path=ExecutionPath.CLARIFY,
+                    action="none",
+                    clarification_prompt="What message would you like me to broadcast to all contacts?",
+                    confidence=1.0,
+                    reasoning="Instant clarification for missing broadcast message content."
+                )
+
+        # Telegram Setup & Credential Input (<0.0ms)
+        if re.search(r"\b(?:login\s+to|connect|setup|authenticate)\s+telegram\b", text, re.I):
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="telegram_launch_login")
+
+        cred_match = re.search(r"(?:api\s+id|telegram\s+id)\s*(?:is\s*|:\s*|=\s*)?(\d+).*(?:api\s+hash|hash)\s*(?:is\s*|:\s*|=\s*)?([a-fA-F0-9]{20,})", text, re.I)
+        if cred_match:
+            return RouteDecision(
+                path=ExecutionPath.FAST_PATH,
+                action="telegram_save_credentials",
+                params={"api_id": cred_match.group(1).strip(), "api_hash": cred_match.group(2).strip()}
+            )
+
+        # Telegram Contacts Management (Sync, List) (<0.0ms)
+        if re.search(r"\b(?:sync|import|download|fetch|update)\s+(?:all\s+)?(?:telegram\s+)?contacts\b", text, re.I):
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="telegram_sync_contacts")
+
+        if re.search(r"\b(?:telegram\s+contacts|contacts\s+(?:in|on)\s+telegram|who\s+are\s+my\s+telegram\s+contacts|all\s+telegram\s+contacts|(?:list|show|view|get|display)\s+(?:all\s+)?telegram\s+contacts)\b", text, re.I):
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="telegram_list_contacts")
+
         # WhatsApp Messaging
-        wa_msg_match = re.search(r"\b(?:send\s+(?:a\s+)?message\s+(?:to\s+)?|message\s+|text\s+)(.+?)\s+(?:on|via|through)\s+whatsapp\s*(?:saying\s+|that\s+|with\s+|:\s*)?(.*)", text, re.I)
+        wa_msg_match = (
+            re.search(r"\b(?:send\s+(?:a\s+)?(?:message|text)\s+(?:on|via|through|in)\s+whatsapp\s+to\s+)(.+?)(?:\s*(?:saying|that|with|:)\s*(.*))?$", text, re.I)
+            or re.search(r"\b(?:send\s+(?:a\s+)?(?:message|text)\s+to\s+)(.+?)\s+(?:on|via|through|in)\s+whatsapp(?:\s*(?:saying|that|with|:)\s*(.*))?$", text, re.I)
+            or re.search(r"\b(?:message|text|tell)\s+(.+?)\s+(?:on|via|through|in)\s+whatsapp(?:\s*(?:saying|that|with|:)\s*(.*))?$", text, re.I)
+        )
         if wa_msg_match:
             target_c = wa_msg_match.group(1).strip()
-            target_m = wa_msg_match.group(2).strip() or "Hello from Laya"
+            target_m = (wa_msg_match.group(2) or "").strip().strip(":'\" ") or "Hello from Laya"
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="whatsapp_message", params={"contact": target_c, "message": target_m})
 
         wa_quick_match = re.search(r"\b(?:send\s+whatsapp\s+to|whatsapp)\s+([a-zA-Z0-9_\-\.]+)\s+(?:saying\s+|that\s+|with\s+|:\s*)?(.*)", text, re.I)
         if wa_quick_match:
             target_c = wa_quick_match.group(1).strip()
-            target_m = wa_quick_match.group(2).strip() or "Hello from Laya"
+            target_m = wa_quick_match.group(2).strip() or "Hello from Assistant"
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="whatsapp_message", params={"contact": target_c, "message": target_m})
 
         # Telegram Messaging
-        tg_msg_match = re.search(r"\b(?:send\s+(?:a\s+)?message\s+(?:to\s+)?|message\s+|text\s+)(.+?)\s+(?:on|via|through)\s+telegram\s*(?:saying\s+|that\s+|with\s+|:\s*)?(.*)", text, re.I)
+        tg_msg_match = (
+            re.search(r"\b(?:send\s+(?:a\s+)?(?:telegram\s+message|telegram\s+text|telegram|message\s+(?:on|in|via)\s+telegram|text\s+(?:on|in|via)\s+telegram)\s+to\s+)(.+?)(?:\s*(?:saying|that|with|:)\s*(.+))$", text, re.I)
+            or re.search(r"\b(?:send\s+(?:a\s+)?(?:message|text)\s+to\s+)(.+?)\s+(?:on|via|through|in)\s+telegram(?:\s*(?:saying|that|with|:)\s*(.+))?$", text, re.I)
+            or re.search(r"\b(?:message|text|tell)\s+(.+?)\s+(?:on|via|through|in)\s+telegram(?:\s*(?:saying|that|with|:)\s*(.+))?$", text, re.I)
+            or re.search(r"\b(?:send\s+(?:a\s+)?telegram\s+to|telegram)\s+(?!for\b|messages?\b|search\b|contacts?\b)([a-zA-Z0-9_\-\.]+)(?:\s+(?:saying|that|with|:)\s*|\s*:\s*|\s+)(.+)$", text, re.I)
+            or re.search(r"\b(?:send\s+(?:a\s+)?(?:telegram\s+message|telegram\s+text|telegram|message\s+(?:on|in|via)\s+telegram)\s+to\s+)(.+)$", text, re.I)
+        )
         if tg_msg_match:
             target_c = tg_msg_match.group(1).strip()
-            target_m = tg_msg_match.group(2).strip() or "Hello from Laya"
-            return RouteDecision(path=ExecutionPath.FAST_PATH, action="telegram_message", params={"contact": target_c, "message": target_m})
+            target_m = (tg_msg_match.group(2) or "").strip().strip(":'\" ") if (tg_msg_match.lastindex and tg_msg_match.lastindex >= 2) else ""
+            if target_c.lower() in ["all", "everyone", "all contacts", "all my contacts", "all users", "everybody", "to all contacts", "users", "contacts"]:
+                if not target_m:
+                    return RouteDecision(
+                        path=ExecutionPath.CLARIFY,
+                        action="none",
+                        clarification_prompt="What message would you like me to broadcast to all contacts?",
+                        confidence=1.0,
+                        reasoning="Clarification for missing broadcast message content."
+                    )
+                return RouteDecision(path=ExecutionPath.FAST_PATH, action="telegram_broadcast", params={"message": target_m})
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="telegram_send_message", params={"recipient": target_c, "message": target_m})
 
-        # Telegram Reading & Inbox (<0.0ms)
-        tg_read_match = re.search(r"\b(?:read|get|check|show)\s+(?:the\s+)?(?:recent\s+|latest\s+)?messages?\s+(?:from\s+)?(.+?)(?:\s+(?:on|in|from)\s+telegram)?\b|\bwhat\s+did\s+(.+?)\s+send(?:\s+on\s+telegram)?\b", text, re.I)
-        if tg_read_match and ("telegram" in text or "message" in text):
-            target_c = (tg_read_match.group(1) or tg_read_match.group(2) or "").strip()
-            target_c = re.sub(r"\s+(?:on|in|via)\s+telegram$", "", target_c, flags=re.I).strip()
-            if target_c and target_c not in ["me", "i", "it", "my", "the"]:
-                return RouteDecision(path=ExecutionPath.FAST_PATH, action="telegram_read", params={"contact": target_c})
+        # Underspecified Messaging Prompts (<0.0ms Clarification, NEVER list contacts)
+        if text in [
+            "send something", "send a message", "send message", "send a text", "send text",
+            "text someone", "write a message", "send a telegram", "send a whatsapp",
+            "send something to someone", "send message to someone", "send text to someone",
+            "send a text to someone", "send some text", "send msg"
+        ]:
+            return RouteDecision(
+                path=ExecutionPath.CLARIFY,
+                action="none",
+                clarification_prompt="Who would you like me to message, and what should I say?",
+                confidence=1.0,
+                reasoning="Instant clarification for underspecified messaging request."
+            )
 
-        # Telegram Message Search (<0.0ms)
-        tg_search_match = re.search(r"\b(?:search|find)\s+(?:messages?\s+(?:for|about)\s+|in\s+telegram\s+for\s+|telegram\s+for\s+)(.+)", text, re.I)
-        if tg_search_match:
-            search_q = tg_search_match.group(1).strip()
-            search_q = re.sub(r"\s+(?:on|in)\s+telegram$", "", search_q, flags=re.I).strip()
-            return RouteDecision(path=ExecutionPath.FAST_PATH, action="telegram_search", params={"query": search_q})
+        # Universal Cross-Platform Messaging (Telegram / WhatsApp) (<0.0ms)
+        gen_msg_match = re.search(
+            r"\b(?:send\s+(?:a\s+)?(?:message|text|something)\s+to|message|text|tell)\s+([a-zA-Z0-9_\-\.]+)(?:\s*(?:saying|that|with|:)\s*(.*))?$",
+            text,
+            re.I
+        )
+        if gen_msg_match:
+            target_c = gen_msg_match.group(1).strip()
+            target_m = (gen_msg_match.group(2) or "").strip().strip(":'\" ")
+            if target_c.lower() in ["all", "everyone", "everybody", "all contacts", "all users", "all my contacts", "to all contacts", "users", "contacts"]:
+                if not target_m:
+                    return RouteDecision(
+                        path=ExecutionPath.CLARIFY,
+                        action="none",
+                        clarification_prompt="What message would you like me to broadcast to all contacts?",
+                        confidence=1.0,
+                        reasoning="Clarification for missing broadcast message content."
+                    )
+                return RouteDecision(path=ExecutionPath.FAST_PATH, action="telegram_broadcast", params={"message": target_m})
 
-        tg_quick_match = re.search(r"\b(?:send\s+telegram\s+to|telegram)\s+(?!for\b|messages?\b|search\b)([a-zA-Z0-9_\-\.]+)\s+(?:saying\s+|that\s+|with\s+|:\s*)?(.*)", text, re.I)
-        if tg_quick_match:
-            target_c = tg_quick_match.group(1).strip()
-            target_m = tg_quick_match.group(2).strip() or "Hello from Laya"
-            return RouteDecision(path=ExecutionPath.FAST_PATH, action="telegram_message", params={"contact": target_c, "message": target_m})
+            if target_c.lower() not in ["me", "i", "it", "my", "the", "a", "someone", "joke", "story", "time", "date"]:
+                if not target_m:
+                    return RouteDecision(
+                        path=ExecutionPath.CLARIFY,
+                        action="none",
+                        clarification_prompt=f"What message would you like me to send to {target_c}?",
+                        confidence=1.0,
+                        reasoning=f"Clarification for missing message body for {target_c}."
+                    )
+                return RouteDecision(
+                    path=ExecutionPath.FAST_PATH,
+                    action="send_message",
+                    params={"recipient": target_c, "message": target_m}
+                )
 
         # Contact Store Management (Add, Find, List, Delete) (<0.0ms)
         contact_del_match = re.search(r"\b(?:delete|remove)\s+contact\s+([a-zA-Z0-9_\-\.\s]+)$", text, re.I)
@@ -368,6 +517,45 @@ class IntentRouter:
         if split_match:
             layout = "split" if any(w in text for w in ["split", "side by side", "tile"]) else "grid"
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="split_screen", params={"layout": layout})
+
+        # 9b. Window Scrolling & Zooming Navigation (<0.0ms)
+        scroll_match = re.search(
+            r"\b(?:scroll|page)\s+(down|up|left|right|top|bottom|beginning|end|to\s+the\s+top|to\s+the\s+bottom)(?:\s+(?:by|for)?\s*(\d+))?(?:\s+(?:in|on|inside)\s+(?:the\s+)?([a-zA-Z0-9\s_\-\.]+?))?$",
+            text,
+            flags=re.IGNORECASE
+        )
+        if scroll_match:
+            raw_dir = scroll_match.group(1).lower().replace("to the ", "").strip()
+            raw_amount = int(scroll_match.group(2)) if scroll_match.group(2) else 5
+            raw_win = (scroll_match.group(3) or "").strip()
+            if raw_win in ["window", "screen", "page", "it", "this"]:
+                raw_win = ""
+            return RouteDecision(
+                path=ExecutionPath.FAST_PATH,
+                action="scroll_window",
+                params={"direction": raw_dir, "amount": raw_amount, "title_keyword": raw_win},
+                confidence=1.0,
+                reasoning="Instant window scroll navigation."
+            )
+
+        zoom_match = re.search(
+            r"\bzoom\s+(?:in|into)\s*(?:on\s+|to\s+)?(?:the\s+)?(corner|top\s+left|top\s+right|bottom\s+left|bottom\s+right|middle|center|left|right|top|bottom)?(?:\s+(?:by|at)?\s*([0-9\.]+)\s*x)?(?:\s+(?:in|on|inside)\s+(?:the\s+)?([a-zA-Z0-9\s_\-\.]+?))?$",
+            text,
+            flags=re.IGNORECASE
+        )
+        if zoom_match:
+            raw_reg = (zoom_match.group(1) or "center").strip()
+            raw_factor = float(zoom_match.group(2)) if zoom_match.group(2) else 2.0
+            raw_win = (zoom_match.group(3) or "").strip()
+            if raw_win in ["window", "screen", "page", "it", "this"]:
+                raw_win = ""
+            return RouteDecision(
+                path=ExecutionPath.FAST_PATH,
+                action="zoom_window_region",
+                params={"region": raw_reg, "zoom_factor": raw_factor, "title_keyword": raw_win},
+                confidence=1.0,
+                reasoning="Instant window zoom navigation."
+            )
 
         # 10. Direct Math & Calculations (<0.1ms)
         if any(text.startswith(p) for p in ["what is ", "calculate ", "how much is ", "eval "]):
@@ -416,6 +604,112 @@ class IntentRouter:
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="brightness_up")
         if any(w in text for w in ["brightness down", "lower brightness", "dimmer"]):
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="brightness_down")
+
+        # Camera & Video / Screen Recording (<0.0ms)
+        if any(w in text for w in ["take a photo", "take photo", "take a picture", "take picture", "take a selfie", "capture photo", "snap a photo", "snap photo", "take a snapshot"]):
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="take_photo")
+        if any(w in text for w in ["open camera", "launch camera", "start camera", "turn on camera", "camera", "webcam", "take camera"]):
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="open_camera")
+        if any(w in text for w in ["record video", "take video", "take a video", "record camera", "record a video", "take video record", "video record"]):
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="record_camera_video", params={"duration": 5})
+        if any(w in text for w in ["record screen", "start screen recording", "record the screen", "screen record", "stop screen recording", "toggle screen recording"]):
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="record_screen")
+
+        # Telegram Messaging & Calls (<0.0ms)
+        tg_send = re.search(
+            r"(?:send\s+(?:a\s+)?(?:message|text)\s+(?:on|via|in|to)\s+telegram\s+to\s+([a-zA-Z0-9_@\s]+?)(?:\s*(?:saying|with|:|that)\s*(.+))?$|"
+            r"message\s+([a-zA-Z0-9_@\s]+?)\s+on\s+telegram(?:\s*(?:saying|with|:|that)\s*(.+))?$|"
+            r"send\s+telegram\s+(?:message\s+)?to\s+([a-zA-Z0-9_@\s]+?)(?:\s*(?:saying|with|:|that)\s*(.+))?$|"
+            r"tell\s+([a-zA-Z0-9_@\s]+?)\s+on\s+telegram\s+(?:that\s+)?(.+)$)",
+            text,
+            flags=re.IGNORECASE
+        )
+        if tg_send:
+            rec = tg_send.group(1) or tg_send.group(3) or tg_send.group(5) or tg_send.group(7) or ""
+            msg = tg_send.group(2) or tg_send.group(4) or tg_send.group(6) or tg_send.group(8) or ""
+            rec = rec.strip()
+            msg = msg.strip().strip("'\"")
+            if rec:
+                return RouteDecision(path=ExecutionPath.FAST_PATH, action="telegram_send_message", params={"recipient": rec, "message": msg or "Hello!"})
+
+        if any(w in text for w in ["read telegram", "read messages on telegram", "check telegram messages", "check telegram", "read my telegram"]):
+            chat_m = re.search(r"(?:from|with)\s+([a-zA-Z0-9_@\s]+)", text)
+            chat = chat_m.group(1).strip() if chat_m else "me"
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="telegram_read_messages", params={"chat": chat, "limit": 5})
+
+        tg_search = re.search(r"(?:search\s+telegram\s+for|search\s+for\s+(.+?)\s+on\s+telegram|find\s+telegram\s+message\s+(?:about\s+)?)\s*(.+)?", text)
+        if tg_search:
+            q = (tg_search.group(1) or tg_search.group(2) or "").strip()
+            if q:
+                return RouteDecision(path=ExecutionPath.FAST_PATH, action="telegram_search_messages", params={"query": q, "limit": 5})
+
+        tg_call = re.search(r"(?:call|voice\s+call)\s+([a-zA-Z0-9_@\s]+?)\s+(?:on|via|through)\s+telegram", text)
+        if tg_call:
+            rec = tg_call.group(1).strip()
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="telegram_call", params={"contact": rec})
+
+        # WhatsApp Calls & Messaging (<0.0ms)
+        wa_call = re.search(r"(?:make\s+(?:a\s+)?)?(?:video\s+call|call|voice\s+call)\s+(.+?)(?:\s+(?:on|via|through)\s+whatsapp)?$", text)
+        if wa_call and ("whatsapp" in text or "video call" in text):
+            target = wa_call.group(1).strip()
+            target = re.sub(r"\s+(?:on|via|through)\s+whatsapp\b", "", target, flags=re.IGNORECASE).strip()
+            call_type = "video" if "video" in text else "voice"
+            if target and target not in ["call", "someone", "whatsapp"]:
+                return RouteDecision(path=ExecutionPath.FAST_PATH, action="whatsapp_call", params={"contact": target, "call_type": call_type})
+
+        wa_send = re.search(
+            r"(?:send\s+(?:a\s+)?(?:message|text)\s+(?:on|via|in|to)\s+whatsapp\s+to\s+([a-zA-Z0-9_@\s\+]+?)(?:\s*(?:saying|with|:|that)\s*(.+))?$|"
+            r"message\s+([a-zA-Z0-9_@\s\+]+?)\s+on\s+whatsapp(?:\s*(?:saying|with|:|that)\s*(.+))?$|"
+            r"send\s+whatsapp\s+(?:message\s+)?to\s+([a-zA-Z0-9_@\s\+]+?)(?:\s*(?:saying|with|:|that)\s*(.+))?$|"
+            r"tell\s+([a-zA-Z0-9_@\s\+]+?)\s+on\s+whatsapp\s+(?:that\s+)?(.+)$)",
+            text,
+            flags=re.IGNORECASE
+        )
+        if wa_send:
+            rec = wa_send.group(1) or wa_send.group(3) or wa_send.group(5) or wa_send.group(7) or ""
+            msg = wa_send.group(2) or wa_send.group(4) or wa_send.group(6) or wa_send.group(8) or ""
+            rec = rec.strip()
+            msg = msg.strip().strip("'\"")
+            if rec:
+                return RouteDecision(path=ExecutionPath.FAST_PATH, action="whatsapp_message", params={"contact": rec, "message": msg or "Hello!"})
+
+        # Contacts Book CRUD (<0.0ms)
+        c_add = re.search(r"(?:add|save|create)\s+contact\s+([a-zA-Z0-9\s]+?)(?:\s+with\s+(?:phone|number)\s+([+\d\s\-]+))?(?:\s+(?:with\s+)?telegram\s+(@?[a-zA-Z0-9_]+))?$", text)
+        if c_add:
+            c_name = c_add.group(1).strip()
+            c_phone = (c_add.group(2) or "").strip()
+            c_tg = (c_add.group(3) or "").strip().lstrip("@")
+            if c_name and c_name not in ["a", "the", "new", "someone"]:
+                return RouteDecision(path=ExecutionPath.FAST_PATH, action="contact_add", params={"name": c_name, "phone": c_phone, "telegram": c_tg})
+
+        if re.search(r"^(?:list|show|view|display|get)(?:\s+all|\s+my)?\s+contacts$", text, re.I) or text in ["list contacts", "show contacts", "show my contacts", "all contacts", "my contacts", "get contacts", "saved contacts", "view contacts"]:
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="contact_list")
+
+        c_find = re.search(r"(?:find|search|lookup|who\s+is)\s+contact\s+([a-zA-Z0-9\s]+)", text)
+        if c_find:
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="contact_find", params={"query": c_find.group(1).strip()})
+
+        c_del = re.search(r"(?:delete|remove)\s+contact\s+([a-zA-Z0-9\s]+)", text)
+        if c_del:
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="contact_delete", params={"name": c_del.group(1).strip()})
+
+        # Red-Tier Safety Power Controls (<0.0ms)
+        if any(w in text for w in ["shutdown the computer", "shut down computer", "turn off the computer", "power off computer", "turn off pc"]):
+            return RouteDecision(
+                path=ExecutionPath.FAST_PATH,
+                action="shutdown_system",
+                safety_tier="RED",
+                confidence=1.0,
+                reasoning="Requires explicit user confirmation before executing system power off."
+            )
+        if any(w in text for w in ["restart the computer", "restart computer", "reboot computer", "reboot pc"]):
+            return RouteDecision(
+                path=ExecutionPath.FAST_PATH,
+                action="restart_system",
+                safety_tier="RED",
+                confidence=1.0,
+                reasoning="Requires explicit user confirmation before executing system reboot."
+            )
 
         # 15. Memes & Archetype Triggers (<0.0ms)
         meme_match = re.search(r"\b(gigachad|based|chudjak|nothing\s+ever\s+happens|pepe|monkas|wojak|feels\s+good|feels\s+bad|galaxy\s+brain|it's\s+over|cringe)\b", text)
@@ -505,6 +799,10 @@ class IntentRouter:
                 "- {\"action\": \"play_youtube\", \"query\": \"<title>\"}\n"
                 "- {\"action\": \"browser_search\", \"query\": \"<query>\", \"engine\": \"google\"|\"youtube\"}\n"
                 "- {\"action\": \"open_url\", \"url\": \"<url>\"}\n"
+                "- {\"action\": \"send_message\", \"recipient\": \"<name>\", \"message\": \"<text>\"}\n"
+                "- {\"action\": \"telegram_send_message\", \"recipient\": \"<name>\", \"message\": \"<text>\"}\n"
+                "- {\"action\": \"whatsapp_message\", \"contact\": \"<name>\", \"message\": \"<text>\"}\n"
+                "- {\"action\": \"clarify\", \"prompt\": \"<question>\"}\n"
                 "- {\"action\": \"volume_up\"} or {\"action\": \"volume_down\"} or {\"action\": \"set_volume\", \"level\": 50} or {\"action\": \"mute\"}\n"
                 "- {\"action\": \"organize_windows\", \"layout\": \"grid\"|\"split\"|\"columns\"|\"focus\"}\n"
                 "- {\"action\": \"draw_shape\", \"shape\": \"circle\"|\"heart\"|\"star\"|\"square\"|\"triangle\"}\n"
@@ -562,6 +860,14 @@ class IntentRouter:
                 return RouteDecision(path=ExecutionPath.FAST_PATH, action="browser_search", params={"query": data.get("query", ""), "engine": data.get("engine", "google")})
             elif act == "open_url":
                 return RouteDecision(path=ExecutionPath.FAST_PATH, action="browser_open_url", params={"url": data.get("url", "")})
+            elif act == "send_message":
+                return RouteDecision(path=ExecutionPath.FAST_PATH, action="send_message", params={"recipient": data.get("recipient", ""), "message": data.get("message", "Hello!")})
+            elif act == "telegram_send_message":
+                return RouteDecision(path=ExecutionPath.FAST_PATH, action="telegram_send_message", params={"recipient": data.get("recipient", ""), "message": data.get("message", "Hello!")})
+            elif act == "whatsapp_message":
+                return RouteDecision(path=ExecutionPath.FAST_PATH, action="whatsapp_message", params={"contact": data.get("contact", "") or data.get("recipient", ""), "message": data.get("message", "Hello!")})
+            elif act == "clarify":
+                return RouteDecision(path=ExecutionPath.CLARIFY, action="none", clarification_prompt=data.get("prompt", "Who would you like me to message, and what should I say?"))
             elif act == "draw_shape":
                 return RouteDecision(path=ExecutionPath.FAST_PATH, action="draw_shape", params={"shape": data.get("shape", "circle"), "title_keyword": "Paint"})
             elif act == "organize_windows":

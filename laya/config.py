@@ -20,10 +20,10 @@ MEMORY_DB_PATH = DATA_DIR / "laya_memory.db"
 
 # LLM Providers (Dual-Backend: Cloud Ultra-Fast Groq + Local Private Ollama)
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-# Default to ultra-fast Groq 20B (openai/gpt-oss-20b) for sub-300ms reflex speed; 120B fallback
+# Default to ultra-fast Groq 20B (openai/gpt-oss-20b) with qwen3.8-27b fallback
 GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-20b")
-GROQ_FALLBACK_MODEL = os.getenv("GROQ_FALLBACK_MODEL", "openai/gpt-oss-120b")
-GROQ_TIMEOUT_SEC = 4.0
+GROQ_FALLBACK_MODEL = os.getenv("GROQ_FALLBACK_MODEL", "qwen/qwen3.8-27b")
+GROQ_TIMEOUT_SEC = 12.0
 
 # Optional OpenRouter Provider fallback
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
@@ -43,9 +43,9 @@ AUDIO_BLOCK_SIZE = 1024
 
 # Voice Activity Detection (VAD) Settings
 # 0.85s of trailing silence provides instant reflex response without hanging
-VAD_ENERGY_THRESHOLD = 0.005       # Speech onset sensitivity
+VAD_ENERGY_THRESHOLD = 0.007       # Balanced speech onset sensitivity (avoids noise spikes)
 VAD_SILENCE_LIMIT_SEC = 0.85       # Snappy reflex silence limit
-VAD_MIN_SPEECH_SEC = 0.25         # Minimum speech length to avoid noise spikes
+VAD_MIN_SPEECH_SEC = 0.40         # Minimum speech length (0.4s) to reject noise clicks
 
 # Speech-to-Text (STT) Settings
 WHISPER_MODEL_NAME = os.getenv("WHISPER_MODEL", "small.en")
@@ -54,12 +54,18 @@ WHISPER_COMPUTE_TYPE = "float16" if torch.cuda.is_available() else "int8"
 
 # Text-to-Speech (TTS) Settings
 TTS_ENGINE = os.getenv("TTS_ENGINE", "edge-tts")      # "edge-tts" (Neural Laya) with "sapi5" fallback
-EDGE_TTS_VOICE = os.getenv("EDGE_TTS_VOICE", "en-US-AriaNeural")  # Sleek, charismatic Laya voice
+EDGE_TTS_VOICE = os.getenv("EDGE_TTS_VOICE", "en-US-ChristopherNeural")  # Sleek, charismatic JARVIS-style male voice
 TTS_RATE = 195                    # Conversational speaking rate (words/min)
 TTS_VOLUME = 1.0
 
 # Latency Budgets (ms)
 FAST_PATH_BUDGET_MS = 300.0
+
+# Wake Word & Trigger Phrases (Flexible: "call", "assistant", "hey", "computer", "jarvis", "clanker", or custom)
+WAKE_PHRASES = [p.strip().lower() for p in os.getenv("WAKE_PHRASES", "call,assistant,hey,computer,jarvis,system,yo,listen,clanker").split(",") if p.strip()]
+
+# UI Display Mode: "call_only" (hidden until called), or "always_on"
+UI_VISIBILITY_MODE = os.getenv("UI_VISIBILITY_MODE", "call_only")
 
 # Application Mappings
 APP_REGISTRY = {

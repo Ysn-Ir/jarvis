@@ -5,6 +5,7 @@ and screen coordinate interaction for full desktop autonomy.
 """
 
 import time
+from pathlib import Path
 from typing import Optional, List, Tuple
 import pyautogui
 import pyperclip
@@ -12,6 +13,7 @@ import pyperclip
 # Safety settings: allow automation even if cursor is at screen boundaries
 pyautogui.FAILSAFE = False
 pyautogui.PAUSE = 0.05
+
 
 
 class ComputerUseTools:
@@ -166,16 +168,29 @@ class ComputerUseTools:
             return f"Failed dragging mouse: {e}"
 
     def take_screenshot(self, filename: Optional[str] = None) -> str:
-        """Capture full desktop screenshot and return screen dimensions and save path."""
+        """Capture full desktop screenshot, save to Pictures/Screenshots, and open it."""
         try:
-            from laya.config import ROOT_DIR
-            shots_dir = ROOT_DIR / "data" / "screenshots"
-            shots_dir.mkdir(parents=True, exist_ok=True)
-            fname = filename or f"screenshot_{int(time.time())}.png"
-            path = shots_dir / fname
-            im = pyautogui.screenshot()
-            im.save(str(path))
-            return f"Captured desktop screenshot ({im.width}x{im.height}) saved to {path}."
+            import datetime as _dt
+            import os as _os
+            out_dir = Path.home() / "Pictures" / "Screenshots"
+            out_dir.mkdir(parents=True, exist_ok=True)
+            fname = filename or f"screenshot_{_dt.datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+            path = out_dir / fname
+            # Try PIL ImageGrab first (better quality), fallback to pyautogui
+            try:
+                from PIL import ImageGrab
+                img = ImageGrab.grab(all_screens=False)
+                img.save(str(path))
+                w, h = img.width, img.height
+            except Exception:
+                img = pyautogui.screenshot()
+                img.save(str(path))
+                w, h = img.width, img.height
+            try:
+                _os.startfile(str(path))
+            except Exception:
+                pass
+            return f"Screenshot captured ({w}x{h}) and saved to {path.name}."
         except Exception as e:
             return f"Failed capturing screenshot: {e}"
 
@@ -217,13 +232,20 @@ class ComputerUseTools:
             def _stroke(points_list: List[Tuple[int, int]], pause_sec: float = 0.012):
                 if not points_list:
                     return
+                from laya.tools.interrupt_manager import is_interrupt_requested
+                if is_interrupt_requested():
+                    return
                 pyautogui.moveTo(int(points_list[0][0]), int(points_list[0][1]))
                 time.sleep(0.04)
                 pyautogui.mouseDown(button="left")
-                for px, py in points_list[1:]:
-                    pyautogui.moveTo(int(px), int(py))
-                    time.sleep(pause_sec)
-                pyautogui.mouseUp(button="left")
+                try:
+                    for px, py in points_list[1:]:
+                        if is_interrupt_requested():
+                            break
+                        pyautogui.moveTo(int(px), int(py))
+                        time.sleep(pause_sec)
+                finally:
+                    pyautogui.mouseUp(button="left")
                 time.sleep(0.04)
 
             # 2. Compute stroke coordinates
@@ -338,8 +360,226 @@ class ComputerUseTools:
         except Exception as e:
             return f"Failed drawing shape: {e}"
 
+    # -------------------------------------------------------------
+    # Zoom / Magnify Region
+    # -------------------------------------------------------------
+    def zoom_window_region(
+        self,
+        region: str = "center",
+        title_keyword: str = "",
+        zoom_factor: float = 2.5,
+        rel_x: float = 0.5,
+        rel_y: float = 0.5,
+        rel_w: float = 0.4,
+        rel_h: float = 0.4,
+    ) -> str:
+        """
+        Capture and magnify a region of any window (or full screen) and display it
+        in a floating, transparent always-on-top HUD that auto-closes after 5 seconds.
+
+        region   : "center", "top-left", "top-right", "bottom-left", "bottom-right",
+                   "top", "bottom", "left", "right", or "custom" (uses rel_x/y/w/h).
+        title_keyword : Window title substring to magnify (empty = full screen).
+        zoom_factor   : Magnification multiplier (default 2.5×).
+        rel_x/y/w/h   : Relative anchor point & size when region="custom" (0.0–1.0).
+        """
+        import threading
+        import datetime
+
+        try:
+            from PIL import ImageGrab, Image, ImageTk
+            import tkinter as tk
+        except ImportError:
+            return "Zoom requires Pillow and tkinter (both are already installed with Python on Windows)."
+
+        try:
+            # --- Determine capture rectangle ---
+            if title_keyword:
+                from laya.tools.win32_utils import find_window_by_query, robust_bring_to_front
+                import win32gui
+                win = find_window_by_query(title_keyword)
+                if not win or not win.get("hwnd"):
+                    return f"No window found matching '{title_keyword}'."
+                hwnd = win["hwnd"]
+                robust_bring_to_front(hwnd)
+                time.sleep(0.15)
+                rect = win32gui.GetWindowRect(hwnd)
+                wx, wy, wr, wb = rect
+                ww, wh = wr - wx, wb - wy
+            else:
+                import pyautogui as _pag
+                sw, sh = _pag.size()
+                wx, wy, ww, wh = 0, 0, sw, sh
+
+            # --- Map named region to relative coords ---
+            region_map = {
+                "center":       (0.25, 0.25, 0.5, 0.5),
+                "top-left":     (0.0,  0.05, 0.45, 0.45),
+                "top-right":    (0.55, 0.05, 0.45, 0.45),
+                "bottom-left":  (0.0,  0.55, 0.45, 0.4),
+                "bottom-right": (0.55, 0.55, 0.45, 0.4),
+                "top":          (0.1,  0.05, 0.8, 0.35),
+                "bottom":       (0.1,  0.6,  0.8, 0.35),
+                "left":         (0.0,  0.1,  0.35, 0.8),
+                "right":        (0.65, 0.1,  0.35, 0.8),
+            }
+            key = region.lower().strip().replace("_", "-")
+            if key in region_map:
+                rx, ry, rw, rh = region_map[key]
+            else:
+                rx, ry, rw, rh = rel_x, rel_y, rel_w, rel_h
+
+            # Clamp to window bounds
+            cap_x = wx + int(ww * max(0.0, rx))
+            cap_y = wy + int(wh * max(0.0, ry))
+            cap_w = max(30, int(ww * min(1.0, rw)))
+            cap_h = max(30, int(wh * min(1.0, rh)))
+
+            # --- Capture & zoom ---
+            img = ImageGrab.grab(bbox=(cap_x, cap_y, cap_x + cap_w, cap_y + cap_h), all_screens=False)
+            zoom_factor = max(1.2, min(6.0, float(zoom_factor)))
+            zoomed_w = int(cap_w * zoom_factor)
+            zoomed_h = int(cap_h * zoom_factor)
+            img_zoomed = img.resize((zoomed_w, zoomed_h), Image.LANCZOS)
+
+            # Cap display size to 80% of screen
+            import pyautogui as _pag2
+            scr_w, scr_h = _pag2.size()
+            disp_w = min(zoomed_w, int(scr_w * 0.8))
+            disp_h = min(zoomed_h, int(scr_h * 0.8))
+            if disp_w < zoomed_w or disp_h < zoomed_h:
+                img_zoomed = img_zoomed.resize((disp_w, disp_h), Image.LANCZOS)
+
+            label_txt = f"{zoom_factor:.1f}× zoom — {region} — {cap_w}×{cap_h}px → {disp_w}×{disp_h}px"
+
+            def _show_hud():
+                root = tk.Tk()
+                root.title("Laya Zoom")
+                root.overrideredirect(True)
+                root.attributes("-topmost", True)
+                root.attributes("-alpha", 0.96)
+
+                # Position: center of screen
+                win_x = (scr_w - disp_w) // 2
+                win_y = (scr_h - disp_h) // 2 - 30
+                root.geometry(f"{disp_w}x{disp_h + 44}+{win_x}+{win_y}")
+                root.configure(bg="#0a0a14")
+
+                # Header bar
+                header = tk.Frame(root, bg="#0d1b2a", height=30)
+                header.pack(fill=tk.X, side=tk.TOP)
+                tk.Label(
+                    header, text=f"  🔍  LAYA ZOOM  ·  {label_txt}  ·  Click to dismiss",
+                    bg="#0d1b2a", fg="#00d4ff",
+                    font=("Segoe UI", 9, "bold"), anchor="w"
+                ).pack(side=tk.LEFT, padx=6, pady=4)
+
+                # Image canvas
+                tk_img = ImageTk.PhotoImage(img_zoomed)
+                canvas = tk.Canvas(root, width=disp_w, height=disp_h, bg="#000010", highlightthickness=0)
+                canvas.pack(fill=tk.BOTH, expand=True)
+                canvas.create_image(0, 0, anchor=tk.NW, image=tk_img)
+
+                # Subtle cyan border
+                canvas.create_rectangle(1, 1, disp_w - 1, disp_h - 1,
+                                         outline="#00d4ff", width=2)
+
+                def _close(_=None):
+                    root.destroy()
+
+                root.bind("<Button-1>", _close)
+                root.bind("<Escape>", _close)
+                root.bind("<Return>", _close)
+
+                # Auto-close after 6 seconds
+                root.after(6000, _close)
+                root.mainloop()
+
+            t = threading.Thread(target=_show_hud, daemon=True)
+            t.start()
+
+            return f"Zoomed {zoom_factor:.1f}× into {region} region ({cap_w}×{cap_h}px) of '{title_keyword or 'screen'}'."
+
+        except Exception as e:
+            return f"Zoom failed: {e}"
+
+    # -------------------------------------------------------------
+    # Smart Window Scroll
+    # -------------------------------------------------------------
+    def scroll_window(
+        self,
+        direction: str = "down",
+        amount: int = 5,
+        title_keyword: str = "",
+    ) -> str:
+        """
+        Scroll inside any named window (file explorer, browser, document, etc.)
+        by moving the cursor to that window's center then scrolling.
+
+        direction    : "up", "down", "left", "right", "page_up", "page_down",
+                       "top" (Ctrl+Home), "bottom" (Ctrl+End).
+        amount       : Number of scroll notches (default 5).
+        title_keyword: Window title to scroll (empty = active window).
+        """
+        try:
+            direction = direction.lower().strip()
+
+            # Focus the target window if specified
+            if title_keyword:
+                from laya.tools.win32_utils import find_window_by_query, robust_bring_to_front
+                import win32gui
+                win = find_window_by_query(title_keyword)
+                if win and win.get("hwnd"):
+                    hwnd = win["hwnd"]
+                    robust_bring_to_front(hwnd)
+                    time.sleep(0.15)
+                    rect = win32gui.GetWindowRect(hwnd)
+                    cx = (rect[0] + rect[2]) // 2
+                    cy = (rect[1] + rect[3]) // 2
+                    pyautogui.moveTo(cx, cy, duration=0.1)
+                else:
+                    return f"No window found matching '{title_keyword}'."
+            else:
+                # Keep focus on current active window
+                pos = pyautogui.position()
+                pyautogui.moveTo(pos.x, pos.y)
+
+            # Keyboard-based navigation for page-level and edge jumps
+            if direction in ["page_down", "pagedown", "page down"]:
+                pyautogui.press("pagedown")
+                return f"Page down in '{title_keyword or 'active window'}'."
+
+            elif direction in ["page_up", "pageup", "page up"]:
+                pyautogui.press("pageup")
+                return f"Page up in '{title_keyword or 'active window'}'."
+
+            elif direction in ["top", "home", "beginning"]:
+                pyautogui.hotkey("ctrl", "home")
+                return f"Jumped to top of '{title_keyword or 'active window'}'."
+
+            elif direction in ["bottom", "end"]:
+                pyautogui.hotkey("ctrl", "end")
+                return f"Jumped to bottom of '{title_keyword or 'active window'}'."
+
+            elif direction in ["left"]:
+                pyautogui.hscroll(-abs(amount))
+                return f"Scrolled left {amount} notches in '{title_keyword or 'active window'}'."
+
+            elif direction in ["right"]:
+                pyautogui.hscroll(abs(amount))
+                return f"Scrolled right {amount} notches in '{title_keyword or 'active window'}'."
+
+            elif direction in ["up"]:
+                pyautogui.scroll(abs(amount))
+                return f"Scrolled up {amount} notches in '{title_keyword or 'active window'}'."
+
+            else:  # default: down
+                pyautogui.scroll(-abs(amount))
+                return f"Scrolled down {amount} notches in '{title_keyword or 'active window'}'."
+
+        except Exception as e:
+            return f"Scroll failed: {e}"
+
 
 def get_computer_use_tools() -> ComputerUseTools:
     return ComputerUseTools.get_instance()
-
-

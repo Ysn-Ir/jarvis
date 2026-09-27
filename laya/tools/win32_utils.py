@@ -106,23 +106,38 @@ def get_open_windows(min_size: Tuple[int, int] = (100, 100)) -> List[Dict[str, A
 
 
 def find_window_by_query(query: str) -> Optional[Dict[str, Any]]:
-    """Find the best matching window by application name or title keyword."""
+    """Find the best matching window by application name, process name, or title keyword."""
     if not query or not query.strip():
         return None
     q = query.lower().strip()
     windows = get_open_windows(min_size=(50, 50))
 
-    # 1. Exact match on title or app keyword
+    # 1. Process name match (e.g. 'telegram' matches Telegram.exe regardless of chat window title)
+    try:
+        import psutil
+        for win in windows:
+            pid = win.get("pid")
+            if pid:
+                try:
+                    p_name = psutil.Process(pid).name().lower()
+                    if q in p_name or p_name.startswith(q) or (q == "telegram" and "telegram" in p_name) or (q == "whatsapp" and "whatsapp" in p_name):
+                        return win
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    # 2. Exact match on title or app keyword
     for win in windows:
         if q == win["title"].lower():
             return win
 
-    # 2. Substring match
+    # 3. Substring match
     for win in windows:
         if q in win["title"].lower():
             return win
 
-    # 3. Word boundary or partial match
+    # 4. Word boundary or partial match
     for win in windows:
         words = win["title"].lower().split()
         if any(q in word for word in words):
