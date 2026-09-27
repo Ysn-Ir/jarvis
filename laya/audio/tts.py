@@ -87,7 +87,8 @@ class TTSEngine:
             pass
 
     def _speak_neural(self, text: str) -> bool:
-        """Synthesize and play audio using Edge Neural TTS."""
+        """Synthesize and play audio using Edge Neural TTS (startup voice: en-US-ChristopherNeural)."""
+        import uuid
         try:
             import edge_tts
             # Clean text of markdown formatting for speech
@@ -98,30 +99,58 @@ class TTSEngine:
             if not speech_text:
                 return True
 
-            cache_file = CACHE_DIR / f"speech_{int(time.time()*1000) % 10000}.mp3"
+            # Use unique filename to avoid Windows file-locking collisions
+            unique_id = uuid.uuid4().hex[:12]
+            cache_file = CACHE_DIR / f"speech_{unique_id}.mp3"
 
             async def _synthesize():
                 comm = edge_tts.Communicate(speech_text, self.voice)
-                await asyncio.wait_for(comm.save(str(cache_file)), timeout=3.0)
+                # Generous 9.0s timeout to allow multi-sentence synthesis without dropping speech
+                await asyncio.wait_for(comm.save(str(cache_file)), timeout=9.0)
 
-            asyncio.run(_synthesize())
+            # Attempt synthesis with 1 retry on connection glitch
+            for attempt in range(2):
+                try:
+                    asyncio.run(_synthesize())
+                    if cache_file.exists() and cache_file.stat().st_size > 100:
+                        break
+                except Exception as ex:
+                    if attempt == 1:
+                        print(f"[TTS Neural Error] {ex}", file=sys.stderr)
+                    time.sleep(0.15)
 
-            if cache_file.exists():
-                pygame.mixer.music.load(str(cache_file))
-                pygame.mixer.music.play()
-                while pygame.mixer.music.get_busy() and not self._stop_event.is_set():
-                    time.sleep(0.05)
-                return True
+            if cache_file.exists() and cache_file.stat().st_size > 100:
+                try:
+                    if not pygame.mixer.get_init():
+                        pygame.mixer.init()
+                    pygame.mixer.music.load(str(cache_file))
+                    pygame.mixer.music.play()
+                    while pygame.mixer.music.get_busy() and not self._stop_event.is_set():
+                        time.sleep(0.04)
+                    return True
+                finally:
+                    try:
+                        pygame.mixer.music.unload()
+                        # Clean up cache file safely
+                        if cache_file.exists():
+                            cache_file.unlink(missing_ok=True)
+                    except Exception:
+                        pass
 
         except Exception as e:
-            # Fall back to SAPI5
+            print(f"[TTS Engine Notice] Neural voice failed: {e}", file=sys.stderr)
             return False
 
         return False
 
     def _speak_sapi5(self, text: str):
-        """Fallback to Windows SAPI5 voice."""
+        """Emergency offline fallback (only if network is completely down)."""
         if self._sapi_engine:
+            try:
+                import pythoncom
+                pythoncom.CoInitialize()
+            except Exception:
+                pass
             try:
                 clean_text = re.sub(r"[*_#`~\[\]]", "", text).strip()
                 self._sapi_engine.say(clean_text)
@@ -143,10 +172,12 @@ class TTSEngine:
 
             if text:
                 success = False
-                if self.engine_mode == "edge-tts" and not self._stop_event.is_set():
+                # User preference: exclusively use the startup voice (Edge-TTS ChristopherNeural)
+                if not self._stop_event.is_set():
                     success = self._speak_neural(text)
 
                 if not success and not self._stop_event.is_set():
+                    # Only attempt SAPI5 if edge-tts completely failed
                     self._speak_sapi5(text)
 
             self._queue.task_done()

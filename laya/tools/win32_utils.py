@@ -111,6 +111,8 @@ def find_window_by_query(query: str) -> Optional[Dict[str, Any]]:
         return None
     q = query.lower().strip()
     windows = get_open_windows(min_size=(50, 50))
+    # Prioritize active, non-minimized interactive windows over background/tray handles
+    windows = sorted(windows, key=lambda w: (bool(w.get("minimized")), w.get("width", 0) < 200))
 
     # 1. Process name match (e.g. 'telegram' matches Telegram.exe regardless of chat window title)
     try:

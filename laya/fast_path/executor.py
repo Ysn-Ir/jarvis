@@ -1126,7 +1126,31 @@ class FastPathExecutor:
         import win32gui
 
         ensure_desktop_access()
-        win = find_window_by_query("whatsapp")
+
+        hud_lowered = False
+        try:
+            from laya.ui.hud import LayaHUD
+            if hasattr(LayaHUD, "_active_instance") and LayaHUD._active_instance:
+                LayaHUD._active_instance.attributes("-topmost", False)
+                hud_lowered = True
+        except Exception:
+            pass
+
+        try:
+            return self._dispatch_whatsapp(win_query=find_window_by_query("whatsapp"), is_latest=is_latest, target_name=target_name, msg_body=msg_body)
+        finally:
+            if hud_lowered:
+                try:
+                    LayaHUD._active_instance.attributes("-topmost", True)
+                except Exception:
+                    pass
+
+    def _dispatch_whatsapp(self, win_query, is_latest: bool, target_name: str, msg_body: str) -> str:
+        from laya.tools.win32_utils import robust_bring_to_front, find_window_by_query
+        from laya.tools.contacts_store import get_contacts_store
+        import win32gui
+
+        win = win_query
         if not win or not win.get("hwnd"):
             try:
                 os.startfile("whatsapp://")
@@ -1147,14 +1171,19 @@ class FastPathExecutor:
                 except Exception:
                     rect = None
                 if rect:
-                    input_x = rect[0] + int((rect[2] - rect[0]) * 0.6)
+                    # In WhatsApp, click first chat in list if needed to ensure conversation is open
+                    first_chat_x = rect[0] + 220
+                    first_chat_y = rect[1] + 240
+                    pyautogui.click(first_chat_x, first_chat_y)
+                    time.sleep(0.3)
+                    input_x = rect[0] + int((rect[2] - rect[0]) * 0.65)
                     input_y = rect[3] - 45
                     pyautogui.click(input_x, input_y)
                     time.sleep(0.1)
                 if msg_body:
                     pyperclip.copy(msg_body)
                     pyautogui.hotkey("ctrl", "v")
-                    time.sleep(0.15)
+                    time.sleep(0.2)
                     pyautogui.press("enter")
                     return f"Dispatched WhatsApp message to active conversation: '{msg_body}'"
                 return "Focused active WhatsApp conversation."
@@ -1188,26 +1217,28 @@ class FastPathExecutor:
             time.sleep(0.3)
             pyautogui.hotkey("ctrl", "f")
             time.sleep(0.2)
+            pyautogui.hotkey("ctrl", "a")
+            time.sleep(0.05)
             pyperclip.copy(target_name)
             pyautogui.hotkey("ctrl", "v")
-            time.sleep(0.5)
+            time.sleep(0.6)
             pyautogui.press("down")
             time.sleep(0.15)
             pyautogui.press("enter")
-            time.sleep(0.3)
+            time.sleep(0.4)
             try:
                 rect = win32gui.GetWindowRect(hwnd)
             except Exception:
                 rect = None
             if rect:
-                input_x = rect[0] + int((rect[2] - rect[0]) * 0.6)
+                input_x = rect[0] + int((rect[2] - rect[0]) * 0.65)
                 input_y = rect[3] - 45
                 pyautogui.click(input_x, input_y)
                 time.sleep(0.1)
             if msg_body:
                 pyperclip.copy(msg_body)
                 pyautogui.hotkey("ctrl", "v")
-                time.sleep(0.15)
+                time.sleep(0.2)
                 pyautogui.press("enter")
                 return f"Sent WhatsApp message to {target_name}: '{msg_body}'"
             return f"Opened WhatsApp chat with {target_name}."
@@ -1251,7 +1282,7 @@ class FastPathExecutor:
                 LayaHUD._active_instance.msg_queue.put(("extreme_mode", "chud_destruct"))
         except Exception:
             pass
-        return "💥 CHUD TAKE DETECTED: Oh, something happened! Initiating self destruction mode in 3, 2, 1... Closing application."
+        return "💥 CHUD TAKE DETECTED: Oh, something happened! Chud take detected! Initiating self destruction sequence in 10, 9, 8, 7, 6, 5, 4, 3, 2, 1... Core meltdown complete. Goodbye."
 
     def extreme_lockdown_mode(self) -> str:
         """Trigger extreme lockdown mode with cyber strobe and alert."""

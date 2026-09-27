@@ -135,7 +135,7 @@ class TelegramManager:
         target = (target or "").strip()
         if target:
             clean = target.lstrip("@").strip()
-            if re.match(r"^[a-zA-Z0-9_]{3,32}$", clean):
+            if target.startswith("@") and re.match(r"^[a-zA-Z0-9_]{3,32}$", clean):
                 try:
                     os.startfile(f"tg://resolve?domain={urllib.parse.quote(clean)}")
                     time.sleep(0.5)
@@ -198,6 +198,28 @@ class TelegramManager:
         ]
 
         from laya.tools.win32_utils import ensure_desktop_access, robust_bring_to_front
+        ensure_desktop_access()
+
+        hud_lowered = False
+        try:
+            from laya.ui.hud import LayaHUD
+            if hasattr(LayaHUD, "_active_instance") and LayaHUD._active_instance:
+                LayaHUD._active_instance.attributes("-topmost", False)
+                hud_lowered = True
+        except Exception:
+            pass
+
+        try:
+            return self._send_message_impl(recipient=recipient, message=message, is_latest=is_latest)
+        finally:
+            if hud_lowered:
+                try:
+                    LayaHUD._active_instance.attributes("-topmost", True)
+                except Exception:
+                    pass
+
+    def _send_message_impl(self, recipient: str, message: str, is_latest: bool) -> str:
+        from laya.tools.win32_utils import robust_bring_to_front
         win = self._ensure_telegram_window()
         if not win or not win.get("hwnd"):
             # Launch Telegram Desktop
@@ -252,68 +274,12 @@ class TelegramManager:
             except Exception as e:
                 print(f"[TelegramManager] Headless send fallback: {e}")
 
-        # --- Telegram Desktop UI Automation ---
-        clean_target = target.lstrip("@").strip()
-
-        # Step 1: Navigate to chat via tg:// protocol (reliable for usernames/phones)
-        resolved = False
-        if re.match(r"^[a-zA-Z0-9_]{3,32}$", clean_target):
-            try:
-                os.startfile(f"tg://resolve?domain={urllib.parse.quote(clean_target)}")
-                time.sleep(0.8)
-                resolved = True
-            except Exception:
-                pass
-        elif re.match(r"^\+?\d{8,15}$", clean_target):
-            try:
-                os.startfile(f"tg://resolve?phone={urllib.parse.quote(clean_target)}")
-                time.sleep(0.8)
-                resolved = True
-            except Exception:
-                pass
-
-        # Step 2: Re-fetch window handle and bring to front
-        win = win or self._ensure_telegram_window()
-        if win and win.get("hwnd"):
-            hwnd = win["hwnd"]
-            robust_bring_to_front(hwnd)
-            time.sleep(0.2)
-
-            # Step 3: If protocol didn't resolve (display name only), use Ctrl+F search
-            if not resolved:
-                pyautogui.hotkey("ctrl", "f")
-                time.sleep(0.15)
-                pyautogui.hotkey("ctrl", "a")
-                time.sleep(0.05)
-                pyperclip.copy(target)
-                pyautogui.hotkey("ctrl", "v")
-                time.sleep(0.6)
-                pyautogui.press("enter")
-                time.sleep(0.4)
-
-            # Step 4: Click bottom input area and paste message
-            rect = win32gui_get_rect(hwnd)
-            if rect:
-                input_x = rect[0] + int((rect[2] - rect[0]) * 0.6)
-                input_y = rect[3] - 40
-                pyautogui.click(input_x, input_y)
-                time.sleep(0.1)
-
-            if message:
-                pyperclip.copy(message)
-                pyautogui.hotkey("ctrl", "v")
-                time.sleep(0.2)
-                pyautogui.press("enter")
-                return f"Dispatched Telegram message to {display_name}: '{message}'"
-            return f"Opened Telegram chat with {display_name}."
-
-        # Browser / Web Fallback
-        web_url = f"https://t.me/{urllib.parse.quote(clean_target)}" if clean_target else "https://web.telegram.org"
-        try:
-            os.startfile(web_url)
-            return f"Opened Telegram chat for {display_name} in browser."
-        except Exception as e:
-            return f"Failed to dispatch Telegram message: {e}"
+        # If Telethon API is not authenticated, abandon desktop GUI automation per user instructions
+        return (
+            f"Telegram API session is not authenticated. To send Telegram messages via API, "
+            f"please authenticate by running 'python -m laya.tools.telegram_login' "
+            f"using your configured API ID ({self.api_id or 'not set'})."
+        )
 
 
     def call(self, recipient: str, call_type: str = "voice") -> str:

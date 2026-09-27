@@ -941,15 +941,71 @@ class LayaHUD(ctk.CTk):
                 self.meme_image_label.configure(image=chud_img)
                 self.meme_image_label.pack(pady=(6, 4))
                 self.result_box.pack(fill="both", expand=True, padx=8, pady=(0, 6))
-            self._flash_border(["#ff4400", "#551100", "#ff4400", "#551100", "#ff4400", "#22222a"], interval_ms=200)
-            self._render_result("💥 CHUD TAKE DETECTED:\nOh, something happened! Initiating self destruction mode in 3, 2, 1...\n[Self-Destruct Sequence Active — Closing App]", 0)
-            # Physical self-destruction: close the application completely after 3.6s
-            self.after(3600, self._on_close)
+            # Start full 10-second screen blinking countdown (allows phrase to complete in full)
+            self._start_chud_countdown(seconds_left=10)
 
         elif mode_name == "lockdown":
             self.state_badge.configure(text="⚡ LOCKDOWN MODE", fg_color="#0284c7", text_color="#ffffff")
             self._flash_border(["#00f0ff", "#a855f7", "#00f0ff", "#a855f7", "#00f0ff", "#22222a"], interval_ms=160)
             self._render_result("⚡ EXTREME LOCKDOWN ACTIVATED:\nCortisol levels critical. Locking in.", 0)
+
+    def _start_chud_countdown(self, seconds_left: int = 10):
+        """Blink the entire screen with emergency amber/red strobe while counting down from 10."""
+        # Create full-screen translucent emergency strobe overlay if not already present
+        if not hasattr(self, "_strobe_overlay") or not self._strobe_overlay:
+            try:
+                ov = ctk.CTkToplevel(self)
+                ov.overrideredirect(True)
+                ov.attributes("-fullscreen", True)
+                ov.attributes("-topmost", True)
+                ov.attributes("-alpha", 0.22)
+                ov.configure(fg_color="#ff1a00")
+                self._strobe_overlay = ov
+            except Exception:
+                self._strobe_overlay = None
+
+        # Schedule 4 screen strobe blinks within this 1-second interval
+        for sub_step, is_on in enumerate([True, False, True, False]):
+            self.after(sub_step * 250, lambda on=is_on: self._blink_strobe(on))
+
+        if seconds_left > 0:
+            count_bar = "█" * seconds_left + "░" * (10 - seconds_left)
+            self._render_result(
+                f"💥 CHUD TAKE DETECTED:\n"
+                f"Oh, something happened! Initiating self destruction sequence:\n\n"
+                f"   [ T-MINUS {seconds_left} SECONDS ]   \n"
+                f"   {count_bar}\n"
+                f"Emergency alert strobe active. Core purging...", 0
+            )
+            # Repeat next second
+            self.after(1000, lambda: self._start_chud_countdown(seconds_left - 1))
+        else:
+            self._render_result(
+                "💥 DETONATION COMPLETE:\n"
+                "Chud take eliminated. System self destruction executed.\n"
+                "Closing application now. Goodbye.", 0
+            )
+            # Clean up strobe overlay and terminate application cleanly
+            self.after(1400, self._cleanup_and_destroy)
+
+    def _blink_strobe(self, is_on: bool):
+        try:
+            if hasattr(self, "_strobe_overlay") and self._strobe_overlay and self._strobe_overlay.winfo_exists():
+                self._strobe_overlay.attributes("-alpha", 0.25 if is_on else 0.0)
+            # Flash HUD borders simultaneously
+            border_c = "#ff2200" if is_on else self.CLR_BORDER
+            self.island_frame.configure(border_color=border_c)
+            self.result_container.configure(border_color=border_c)
+        except Exception:
+            pass
+
+    def _cleanup_and_destroy(self):
+        try:
+            if hasattr(self, "_strobe_overlay") and self._strobe_overlay and self._strobe_overlay.winfo_exists():
+                self._strobe_overlay.destroy()
+        except Exception:
+            pass
+        self._on_close()
 
     def _flash_border(self, color_seq: list, interval_ms: int = 180, idx: int = 0):
         if idx < len(color_seq):
