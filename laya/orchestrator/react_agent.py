@@ -237,8 +237,8 @@ class ReActAgent:
             except Exception as e:
                 print(f"[ReActAgent] Local Ollama failed: {e}")
 
-        # If network is offline and Ollama is offline, attempt deterministic local tool execution if possible
-        return "I completed the local operations.", "Local"
+        # If network is offline and Ollama is offline, provide a clear and truthful message
+        return "I apologize, my reasoning engine is currently unavailable. All deterministic system controls (apps, volume, windows, files, Telegram, Gmail) are operational.", "System"
 
 
     def _run_groq_loop(
@@ -248,11 +248,20 @@ class ReActAgent:
         max_steps: int,
         step_callback: Optional[Callable[[str], None]] = None,
     ) -> Tuple[str, str]:
-        provider = f"Groq ({GROQ_MODEL})"
         step_count = 0
         executed_observations = []
 
-        active_model = GROQ_MODEL
+        candidate_models = list(dict.fromkeys([
+            GROQ_MODEL,
+            GROQ_FALLBACK_MODEL,
+            "qwen/qwen3.8-27b",
+            "openai/gpt-oss-120b",
+        ]))
+
+        active_idx = 0
+        active_model = candidate_models[active_idx]
+        provider = f"Groq ({active_model})"
+
         while step_count < max_steps:
             if is_interrupt_requested():
                 return "Operation was interrupted by user.", "Interrupted"
@@ -260,31 +269,13 @@ class ReActAgent:
             if step_callback:
                 step_callback(f"Thinking with {active_model} (step {step_count})...")
 
-            try:
-                response = self.groq_client.chat.completions.create(
-                    model=active_model,
-                    messages=messages,
-                    tools=CORE_TOOLS_SCHEMA,
-                    tool_choice="auto",
-                    temperature=0.1,
-                    timeout=GROQ_TIMEOUT_SEC,
-                )
-            except Exception as e:
-                err_str = str(e)
-                # Handle Groq TPM (Tokens Per Minute) 429 Rate Limits
-                if "429" in err_str or "rate_limit" in err_str:
-                    import re
-                    m = re.search(r"try again in ([0-9\.]+)s", err_str, re.IGNORECASE)
-                    if m:
-                        wait_t = float(m.group(1))
-                        if wait_t <= 5.0:
-                            print(f"[ReActAgent] Groq 429 TPM burst: waiting {wait_t + 0.5:.1f}s...")
-                            time.sleep(wait_t + 0.5)
-                            continue
+            response = None
+            last_err = None
 
-                if active_model != GROQ_FALLBACK_MODEL:
-                    print(f"[ReActAgent] Model {active_model} returned {e}, falling back to {GROQ_FALLBACK_MODEL}...")
-                    active_model = GROQ_FALLBACK_MODEL
+            # Try candidate models in order until one succeeds
+            while active_idx < len(candidate_models):
+                active_model = candidate_models[active_idx]
+                try:
                     response = self.groq_client.chat.completions.create(
                         model=active_model,
                         messages=messages,
@@ -293,8 +284,15 @@ class ReActAgent:
                         temperature=0.1,
                         timeout=GROQ_TIMEOUT_SEC,
                     )
-                else:
-                    raise e
+                    break
+                except Exception as e:
+                    last_err = e
+                    err_str = str(e)
+                    print(f"[ReActAgent] Model {active_model} failed ({err_str[:80]}), trying next fallback...")
+                    active_idx += 1
+
+            if response is None:
+                raise last_err or RuntimeError("All Groq candidate models failed.")
 
             provider = f"Groq ({active_model})"
             msg = response.choices[0].message

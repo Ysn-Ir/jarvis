@@ -183,19 +183,21 @@ class IntentRouter:
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="mute")
 
         # 2. Volume Controls (<0.0ms)
-        rel_up = re.match(r"^(?:can\s+you\s+)?(?:raise|increase|turn\s+up)\s+(?:the\s+)?(?:volume|sound)(?:\s+by)?(?:\s*(\d+))?(?:\s*percent|%)?$", text)
-        if rel_up or text in ["volume up", "raise volume", "raise the volume", "turn up volume", "turn up the volume", "louder", "make it louder"]:
-            steps = int(rel_up.group(1)) // 2 if (rel_up and rel_up.group(1)) else 5
-            return RouteDecision(path=ExecutionPath.FAST_PATH, action="volume_up", params={"steps": max(1, steps)})
+        vol_set_match = re.search(r"\b(?:set\s+(?:the\s+)?(?:volume|sound|audio)\s+to|volume\s+to|sound\s+to|audio\s+to)\s+(\d{1,3})\b", text)
+        if vol_set_match:
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="set_volume", params={"level": int(vol_set_match.group(1))})
 
-        rel_down = re.match(r"^(?:can\s+you\s+)?(?:lower|decrease|turn\s+down)\s+(?:the\s+)?(?:volume|sound)(?:\s+by)?(?:\s*(\d+))?(?:\s*percent|%)?$", text)
-        if rel_down or text in ["volume down", "lower volume", "lower the volume", "turn down volume", "turn down the volume", "quieter", "make it quieter"]:
-            steps = int(rel_down.group(1)) // 2 if (rel_down and rel_down.group(1)) else 5
-            return RouteDecision(path=ExecutionPath.FAST_PATH, action="volume_down", params={"steps": max(1, steps)})
+        rel_up = re.search(r"\b(?:raise|increase|turn\s+up|boost|higher|put\s+up)\s+(?:the\s+)?(?:volume|sound|audio)\b", text)
+        if rel_up or text in ["volume up", "sound up", "raise volume", "raise sound", "raise the volume", "raise the sound", "turn up volume", "turn up sound", "turn up the volume", "turn up the sound", "louder", "make it louder", "higher sound", "boost sound"]:
+            num_m = re.search(r"\b(?:by\s+)?(\d{1,2})\s*(?:percent|%|steps?)?\b", text)
+            steps = (int(num_m.group(1)) // 2) if num_m else 8
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="volume_up", params={"steps": max(2, steps)})
 
-        vol_match = re.match(r"^(?:set\s+volume\s+to|volume\s+to|volume|sound\s+to)\s+(\d{1,3})$", text)
-        if vol_match:
-            return RouteDecision(path=ExecutionPath.FAST_PATH, action="set_volume", params={"level": int(vol_match.group(1))})
+        rel_down = re.search(r"\b(?:lower|decrease|turn\s+down|reduce|softer|quieter|put\s+down)\s+(?:the\s+)?(?:volume|sound|audio)\b", text)
+        if rel_down or text in ["volume down", "sound down", "lower volume", "lower sound", "lower the volume", "lower the sound", "turn down volume", "turn down sound", "turn down the volume", "turn down the sound", "quieter", "make it quieter", "softer"]:
+            num_m = re.search(r"\b(?:by\s+)?(\d{1,2})\s*(?:percent|%|steps?)?\b", text)
+            steps = (int(num_m.group(1)) // 2) if num_m else 8
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="volume_down", params={"steps": max(2, steps)})
 
         # 3. Media & Song Controls (<0.0ms)
         if text in ["play music", "pause music", "resume music", "toggle media", "pause", "play", "stop music"]:
@@ -321,6 +323,32 @@ class IntentRouter:
         if create_folder_match:
             fol_name = create_folder_match.group(1).strip()
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="create_folder", params={"folder_name": fol_name})
+
+        # Open Folders & Directories (<0.0ms)
+        open_desktop_folder = re.search(
+            r"^(?:can\s+you\s+)?(?:open|launch|show|view|explore)\s+(?:the\s+|a\s+)?(?:folder\s+(?:on|in)\s+(?:the\s+)?desktop|desktop\s+folder|folder\s+in\s+desktop|folder\s+on\s+desktop)$",
+            text
+        )
+        if open_desktop_folder or text in ["open desktop", "open the desktop", "show desktop folder", "desktop folder"]:
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="open_folder", params={"folder_name": "desktop"})
+
+        open_folder_named = re.search(
+            r"^(?:can\s+you\s+)?(?:open|launch|show|view|explore)\s+(?:the\s+|a\s+)?folder\s+([a-zA-Z0-9_\-\.\s]+?)(?:\s+(?:on|in)\s+(?:the\s+)?desktop)?$",
+            text
+        )
+        if open_folder_named:
+            f_name = open_folder_named.group(1).strip()
+            if f_name not in ["this", "it", "that", "an app", "app"]:
+                return RouteDecision(path=ExecutionPath.FAST_PATH, action="open_folder", params={"folder_name": f_name})
+
+        open_folder_suffix = re.search(
+            r"^(?:can\s+you\s+)?(?:open|launch|show|view|explore)\s+(?:the\s+|a\s+)?([a-zA-Z0-9_\-\.\s]+?)\s+folder$",
+            text
+        )
+        if open_folder_suffix:
+            f_name = open_folder_suffix.group(1).strip()
+            if f_name not in ["this", "it", "that", "an app", "app"]:
+                return RouteDecision(path=ExecutionPath.FAST_PATH, action="open_folder", params={"folder_name": f_name})
 
         open_file_match = re.search(r"\b(?:open|read|view|show)\s+(?:the\s+)?file\s+(.+)$", text)
         if open_file_match:
@@ -612,8 +640,21 @@ class IntentRouter:
                     return RouteDecision(path=ExecutionPath.FAST_PATH, action="draw_shape", params={"shape": s, "title_keyword": "Paint"})
 
         # 13. Window Close & Window Management (<0.0ms)
+        if (
+            re.search(r"^(?:can\s+you\s+)?(?:close|quit|exit|shut\s+down|kill)\s+(?:all\s+the\s+|all\s+)?(?:applications?|apps?|windows?|programs?)$", text)
+            or text in ["close all", "close all apps", "close all windows", "close all applications", "quit all apps", "exit all", "close everything", "close all programs", "close the apps", "close all the application"]
+        ):
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="close_all_apps")
+
         if text in ["close this", "close this window", "close active window", "close window"]:
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="close_active_window")
+
+        # History & Past Queries (<0.0ms)
+        if (
+            re.search(r"\b(?:check|show|view|display|what\s+is)\s+(?:the\s+)?(?:conversation\s+)?history\b", text)
+            or text in ["check history", "check the history", "show history", "show the history", "history", "what did i ask", "what did i say", "what was my last command", "repeat my last command"]
+        ):
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="get_conversation_history")
 
         # 14. Telemetry & Diagnostics (<0.0ms)
         if "battery" in text and not any(w in text for w in ["buy", "order", "replace"]):

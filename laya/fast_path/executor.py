@@ -51,14 +51,14 @@ class FastPathExecutor:
     # -------------------------------------------------------------
     # Audio & Hardware Controls
     # -------------------------------------------------------------
-    def volume_up(self, steps: int = 5) -> str:
+    def volume_up(self, steps: int = 8) -> str:
         for _ in range(steps):
             win32api.keybd_event(win32con.VK_VOLUME_UP, 0, 0, 0)
             win32api.keybd_event(win32con.VK_VOLUME_UP, 0, win32con.KEYEVENTF_KEYUP, 0)
             time.sleep(0.01)
         return "Volume increased."
 
-    def volume_down(self, steps: int = 5) -> str:
+    def volume_down(self, steps: int = 8) -> str:
         for _ in range(steps):
             win32api.keybd_event(win32con.VK_VOLUME_DOWN, 0, 0, 0)
             win32api.keybd_event(win32con.VK_VOLUME_DOWN, 0, win32con.KEYEVENTF_KEYUP, 0)
@@ -356,21 +356,96 @@ class FastPathExecutor:
         success, msg = get_app_locator().launch(key)
         return msg
 
-    def open_folder(self, folder_name: str) -> str:
-        key = folder_name.lower().strip()
-        path = FOLDER_ALIASES.get(key)
-        if not path:
-            for k, v in FOLDER_ALIASES.items():
-                if key in k or k in key:
-                    path = v
-                    break
-        if not path:
-            path = folder_name
+    def open_folder(self, folder_name: str = "desktop") -> str:
+        raw = (folder_name or "desktop").lower().strip()
+        # Clean filler prefixes
+        clean = re.sub(r"^(?:the\s+|a\s+)?folder\s+(?:on|in)\s+(?:the\s+)?", "", raw).strip()
+        clean = re.sub(r"^(?:the\s+|a\s+)?", "", clean).strip()
+        clean = re.sub(r"\s+folder$", "", clean).strip()
+        clean = re.sub(r"^(?:in|on)\s+(?:the\s+)?desktop$", "desktop", clean).strip()
 
-        if os.path.exists(path):
-            os.startfile(path)
-            return f"Opened {key} folder."
+        desktop_path = Path.home() / "Desktop"
+
+        if not clean or clean in ["desktop", "the desktop", "my desktop"]:
+            if desktop_path.exists():
+                os.startfile(str(desktop_path))
+                return "Opened Desktop folder."
+
+        # Check standard FOLDER_ALIASES
+        if clean in FOLDER_ALIASES:
+            target = FOLDER_ALIASES[clean]
+            if os.path.exists(target):
+                os.startfile(target)
+                return f"Opened {clean.title()} folder."
+
+        # Check if it is a subfolder on Desktop
+        desktop_sub = desktop_path / clean
+        if desktop_sub.exists() and desktop_sub.is_dir():
+            os.startfile(str(desktop_sub))
+            return f"Opened '{clean}' folder on Desktop."
+
+        # Check if it is a subfolder in Documents or Downloads
+        for parent in [Path.home() / "Documents", Path.home() / "Downloads"]:
+            sub = parent / clean
+            if sub.exists() and sub.is_dir():
+                os.startfile(str(sub))
+                return f"Opened '{clean}' folder in {parent.name}."
+
+        # Search Desktop for partial match
+        try:
+            for item in desktop_path.iterdir():
+                if item.is_dir() and clean in item.name.lower():
+                    os.startfile(str(item))
+                    return f"Opened '{item.name}' folder on Desktop."
+        except Exception:
+            pass
+
+        # Check direct path
+        if os.path.exists(folder_name):
+            os.startfile(folder_name)
+            return f"Opened {folder_name}."
+
+        # Fallback to Desktop
+        if desktop_path.exists():
+            os.startfile(str(desktop_path))
+            return f"Could not find a specific folder named '{clean}'. Opened Desktop for you."
         return f"Folder {folder_name} not found."
+
+    def close_all_apps(self) -> str:
+        """Close all visible user application windows while keeping the HUD and desktop intact."""
+        closed_count = 0
+        hud_hwnd = None
+        try:
+            from laya.ui.hud import LayaHUD
+            if LayaHUD._active_instance:
+                hud_hwnd = LayaHUD._active_instance.winfo_id()
+        except Exception:
+            pass
+
+        def enum_win(hwnd, _):
+            nonlocal closed_count
+            if not win32gui.IsWindowVisible(hwnd):
+                return True
+            title = win32gui.GetWindowText(hwnd).strip()
+            if not title:
+                return True
+            # Ignore desktop, taskbar, system windows, and the assistant HUD itself
+            if title in ["Program Manager", "Settings", "Windows Input Experience"]:
+                return True
+            if hud_hwnd and (hwnd == hud_hwnd or win32gui.GetParent(hwnd) == hud_hwnd):
+                return True
+            class_name = win32gui.GetClassName(hwnd)
+            if class_name in ["Shell_TrayWnd", "DV2ControlHost", "Button", "SideBar"]:
+                return True
+            try:
+                win32gui.PostMessage(hwnd, win32con.WM_CLOSE, 0, 0)
+                closed_count += 1
+            except Exception:
+                pass
+            return True
+
+        win32gui.EnumWindows(enum_win, None)
+        return f"Closed {closed_count} open application window{'s' if closed_count != 1 else ''}."
 
     def close_active_window(self) -> str:
         hwnd = win32gui.GetForegroundWindow()
@@ -1062,6 +1137,28 @@ class FastPathExecutor:
     def open_gmail(self) -> str:
         """Launch Gmail in default browser."""
         return self.open_webmail()
+
+    def get_conversation_history(self, limit: int = 5) -> str:
+        """Retrieve recent conversation history from the active session or memory store."""
+        try:
+            from laya.ui.hud import LayaHUD
+            if LayaHUD._active_instance and LayaHUD._active_instance.assistant:
+                hist = LayaHUD._active_instance.assistant.conversation_history
+                if hist:
+                    lines = []
+                    user_turns = [h["content"] for h in hist if h.get("role") == "user"]
+                    for idx, msg in enumerate(user_turns[-limit:], 1):
+                        lines.append(f"{idx}. '{msg}'")
+                    return "Your recent requests were:\n" + "\n".join(lines)
+        except Exception:
+            pass
+
+        try:
+            from laya.orchestrator.memory import get_memory_store
+            facts = get_memory_store().get_all_summary()
+            return f"No active chat history found in this session yet. Memory store status: {facts}"
+        except Exception as e:
+            return f"History unavailable: {e}"
 
 
 def get_fast_path_executor() -> FastPathExecutor:
