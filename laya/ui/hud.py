@@ -162,12 +162,12 @@ class LayaHUD(ctk.CTk):
 
         # Unique Windows App ID for distinct Taskbar grouping
         try:
-            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("jarvis.laya.desktop.assistant.1.0")
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("executive.desktop.assistant.1.0")
         except Exception:
             pass
 
         # Window Appearance & Geometry (Minimal Smooth Floating Capsule)
-        self.title("Laya Assistant")
+        self.title("Executive Assistant")
         self.hud_width = 450
         self.hud_height = 540
         self.pill_height = 64
@@ -242,7 +242,7 @@ class LayaHUD(ctk.CTk):
         # Minimalist Brand Icon & Label
         self.brand_label = ctk.CTkLabel(
             self.island_frame,
-            text="✦ LAYA",
+            text="✦ ASSISTANT",
             font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
             text_color=self.CLR_WHITE,
         )
@@ -462,7 +462,7 @@ class LayaHUD(ctk.CTk):
         make_chip("Screenshot", "📸", lambda: self._trigger_fast("take_screenshot")).pack(side="left", padx=(0, 4))
         make_chip("Zoom", "🔍", lambda: self._trigger_fast("zoom_window_region", {"region": "center", "zoom_factor": 2.5})).pack(side="left", padx=(0, 4))
         make_chip("Paint", "🎨", lambda: self._trigger_fast("draw_shape", {"shape": "heart", "title_keyword": "Paint"})).pack(side="left", padx=(0, 4))
-        make_chip("Telegram", "✈️", lambda: self._trigger_fast("telegram_launch_login")).pack(side="left", padx=(0, 4))
+        make_chip("Telegram", "✈️", lambda: self._trigger_fast("telegram_launch")).pack(side="left", padx=(0, 4))
         make_chip("Lofi", "🎵", lambda: self._trigger_fast("play_youtube", {"query": "synthwave lofi chillhop mix"})).pack(side="left", padx=(0, 4))
 
         # F. Input Bar (Pill Entry, Mic Button, Pure White Send Button)

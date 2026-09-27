@@ -34,7 +34,7 @@ from laya.config import (
 )
 from laya.tools.interrupt_manager import request_interrupt, is_interrupt_requested
 
-INTERRUPT_KEYWORDS_REGEX = r"\b(?:stop|stopping|stopped|shut\s*up|quiet|silence|be\s*quiet|cancel|cancelling|halt|pause|abort|wait|freeze|hold\s*on|don't\s*do\s*that|enough|nevermind|never\s*mind)\b"
+INTERRUPT_KEYWORDS_REGEX = r"\b(?:stop|shut\s*up|quiet|cancel|silence|halt|pause|abort|wait|freeze|hold\s*on)\b"
 
 
 def compile_wake_patterns() -> Tuple[re.Pattern, Set[str]]:
@@ -46,7 +46,7 @@ def compile_wake_patterns() -> Tuple[re.Pattern, Set[str]]:
         if p_clean and p_clean not in all_phrases:
             all_phrases.append(p_clean)
 
-    for p in ["clanker", "call", "assistant", "computer", "jarvis", "system", "hey", "yo", "listen"]:
+    for p in ["clanker","call", "assistant", "computer", "jarvis", "system", "hey", "yo"]:
         if p not in all_phrases:
             all_phrases.append(p)
 
@@ -54,7 +54,7 @@ def compile_wake_patterns() -> Tuple[re.Pattern, Set[str]]:
     combined = "|".join(escaped)
 
     pattern = re.compile(rf"\b(?:hey|hi|hello|ok|okay)?[\s,]*(?:{combined})\b", re.IGNORECASE)
-    non_cmd = set(all_phrases) | {"hey", "hi", "hello", "ok", "okay", "please", "call", "clanker"}
+    non_cmd = set(all_phrases) | {"hey", "hi", "hello", "ok", "okay", "please", "call"}
     return pattern, non_cmd
 
 
@@ -76,15 +76,11 @@ class WakeWordDetector:
 
         self.wake_pattern, self.non_command_words = compile_wake_patterns()
 
-        # Ultra-fast, low-hallucination streaming Whisper model on CUDA (~25ms on RTX 4050)
-        model_name = os.getenv("WAKE_WHISPER_MODEL", "base.en")
+        # Lightweight, lightning-fast streaming Whisper model on CUDA (tiny.en: ~15ms)
         try:
-            self._fast_stt = WhisperModel(model_name, device=WHISPER_DEVICE, compute_type=WHISPER_COMPUTE_TYPE)
+            self._fast_stt = WhisperModel("tiny.en", device=WHISPER_DEVICE, compute_type=WHISPER_COMPUTE_TYPE)
         except Exception:
-            try:
-                self._fast_stt = WhisperModel("tiny.en", device=WHISPER_DEVICE, compute_type=WHISPER_COMPUTE_TYPE)
-            except Exception:
-                self._fast_stt = WhisperModel("tiny.en", device="cpu", compute_type="int8")
+            self._fast_stt = WhisperModel("tiny.en", device="cpu", compute_type="int8")
 
     @classmethod
     def get_instance(
@@ -197,42 +193,18 @@ class WakeWordDetector:
             return
 
         full_clip = np.concatenate(chunks)
-        # Require at least 0.45s of audio to reject noise spikes and mouth clicks
-        if len(full_clip) < int(AUDIO_SAMPLE_RATE * 0.45):
-            return
-
-        # Check RMS energy — reject near silence / background hum
-        rms = float(np.sqrt(np.mean(full_clip**2)))
-        if rms < 0.005:
+        if len(full_clip) < int(AUDIO_SAMPLE_RATE * 0.35):
             return
 
         try:
-            segments, _ = self._fast_stt.transcribe(
-                full_clip,
-                beam_size=2,
-                temperature=0.0,
-                language="en",
-                condition_on_previous_text=False,
-                vad_filter=True,
-                no_speech_threshold=0.5,
-            )
-            good_parts = []
-            for s in segments:
-                if hasattr(s, "no_speech_prob") and s.no_speech_prob > 0.55:
-                    continue
-                if hasattr(s, "avg_logprob") and s.avg_logprob < -1.1:
-                    continue
-                t = s.text.strip()
-                if t:
-                    good_parts.append(t)
-
-            text = " ".join(good_parts).strip()
-            if not text or len(text.strip(".,!? ")) < 2:
+            segments, _ = self._fast_stt.transcribe(full_clip, beam_size=1)
+            text = " ".join([s.text for s in segments]).strip()
+            if not text:
                 return
 
             text_lower = text.lower().strip()
 
-            # 1. Instant Vocal Barge-In: "Stop", "Quiet", "Shut up", "Cancel", "Halt"
+            # 1. Instant Vocal Barge-In: "Stop", "Quiet", "Shut up", "Cancel"
             if re.search(INTERRUPT_KEYWORDS_REGEX, text_lower):
                 print(f"[WakeWord] Interruption heard: '{text}'")
                 request_interrupt(f"Voice: '{text}'")
@@ -240,10 +212,14 @@ class WakeWordDetector:
                     self.on_interrupt()
                 return
 
-            # 2. Wake Word Detection (Matches 'call', 'clanker', 'assistant', 'computer', 'jarvis', etc.)
+            # 2. Wake Word Detection (Matches 'call', 'assistant', 'computer', 'jarvis', etc.)
             match = self.wake_pattern.search(text_lower)
             if match:
                 print(f"[WakeWord] Trigger heard: '{text}'")
+                request_interrupt("New wake trigger")
+                if self.on_interrupt:
+                    self.on_interrupt()
+
                 # Extract subsequent command from the same utterance
                 raw_cmd = text[match.end():].strip().lstrip(",.!? ").strip()
                 clean_cmd = self._clean_command(raw_cmd)
@@ -270,34 +246,12 @@ class WakeWordDetector:
             return
 
         full_clip = np.concatenate(chunks)
-        if len(full_clip) < int(AUDIO_SAMPLE_RATE * 0.30):
-            return
-
-        rms = float(np.sqrt(np.mean(full_clip**2)))
-        if rms < 0.005:
+        if len(full_clip) < int(AUDIO_SAMPLE_RATE * 0.25):
             return
 
         try:
-            segments, _ = self._fast_stt.transcribe(
-                full_clip,
-                beam_size=2,
-                temperature=0.0,
-                language="en",
-                condition_on_previous_text=False,
-                vad_filter=True,
-                no_speech_threshold=0.5,
-            )
-            good_parts = []
-            for s in segments:
-                if hasattr(s, "no_speech_prob") and s.no_speech_prob > 0.55:
-                    continue
-                if hasattr(s, "avg_logprob") and s.avg_logprob < -1.1:
-                    continue
-                t = s.text.strip()
-                if t:
-                    good_parts.append(t)
-
-            text = " ".join(good_parts).strip()
+            segments, _ = self._fast_stt.transcribe(full_clip, beam_size=1)
+            text = " ".join([s.text for s in segments]).strip()
             if not text:
                 return
 

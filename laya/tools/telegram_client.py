@@ -128,6 +128,61 @@ class TelegramManager:
         return None
 
     # -------------------------------------------------------------
+    # 0. Launch & Desktop Activation
+    # -------------------------------------------------------------
+    def open_telegram(self, target: str = "") -> str:
+        """Launch or bring Telegram Desktop to front, optionally focusing a chat or contact."""
+        target = (target or "").strip()
+        if target:
+            clean = target.lstrip("@").strip()
+            if re.match(r"^[a-zA-Z0-9_]{3,32}$", clean):
+                try:
+                    os.startfile(f"tg://resolve?domain={urllib.parse.quote(clean)}")
+                    time.sleep(0.5)
+                    self._ensure_telegram_window()
+                    return f"Opened Telegram chat with @{clean}."
+                except Exception:
+                    pass
+            elif re.match(r"^\+?\d{8,15}$", clean):
+                try:
+                    os.startfile(f"tg://resolve?phone={urllib.parse.quote(clean)}")
+                    time.sleep(0.5)
+                    self._ensure_telegram_window()
+                    return f"Opened Telegram chat for {clean}."
+                except Exception:
+                    pass
+
+        # General launch or bring to front
+        win = self._ensure_telegram_window()
+        if win:
+            return "Telegram Desktop opened."
+
+        # Fallback to protocol
+        try:
+            os.startfile("tg://")
+            return "Launching Telegram."
+        except Exception:
+            pass
+
+        # Fallback to web
+        try:
+            import webbrowser
+            webbrowser.open("https://web.telegram.org")
+            return "Opening Telegram Web in browser."
+        except Exception as e:
+            return f"Failed to launch Telegram: {e}"
+
+    def launch_login_gui(self) -> str:
+        """Launch the Telegram login authentication window."""
+        import subprocess
+        try:
+            cmd = [sys.executable, "-m", "laya.tools.telegram_login"]
+            subprocess.Popen(cmd)
+            return "Telegram setup window opened."
+        except Exception as e:
+            return f"Could not launch Telegram login GUI: {e}"
+
+    # -------------------------------------------------------------
     # 1. Send Message
     # -------------------------------------------------------------
     def send_message(self, recipient: str, message: str) -> str:

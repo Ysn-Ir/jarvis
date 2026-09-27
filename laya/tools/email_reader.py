@@ -94,12 +94,13 @@ class EmailManager:
         Returns a dict with status, emails list, and executive summary.
         """
         if not self.is_configured():
+            self.open_webmail()
             return {
                 "status": "not_configured",
                 "count": 0,
                 "emails": [],
-                "summary": "Email account is not configured yet. Add EMAIL_USER and EMAIL_PASSWORD (App Password) into .env to enable live email synchronization.",
-                "spoken": "Your email credentials are not configured yet, sir. You can add your email and app password in the configuration file."
+                "summary": "Opening Gmail in your browser. (To enable hands-free voice email briefings in the HUD, set a Google App Password in your .env file).",
+                "spoken": "Opening your Gmail in your browser, sir. For direct voice readout, set a Google App Password in your configuration."
             }
 
         server_host = self.imap_server or "imap.gmail.com"
@@ -200,12 +201,13 @@ class EmailManager:
             }
 
         except imaplib.IMAP4.error as e:
+            self.open_webmail()
             return {
                 "status": "auth_error",
                 "count": 0,
                 "emails": [],
-                "summary": f"IMAP Authentication failed: {e}. If using Gmail, make sure to generate an App Password.",
-                "spoken": "Authentication failed for your email account. Please verify your app password."
+                "summary": f"Opening Gmail in browser. (IMAP Authentication failed: {e}. Note: Google requires a 16-character App Password generated at myaccount.google.com/apppasswords).",
+                "spoken": "Opening your Gmail in your browser, sir. Note that Google requires an App Password rather than your account password for voice inbox access."
             }
         except socket.timeout:
             return {

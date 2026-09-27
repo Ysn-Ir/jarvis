@@ -241,12 +241,34 @@ class IntentRouter:
             q = re.sub(r"^(?:like|for\s+like|some|uh|um)\s+", "", q, flags=re.IGNORECASE).strip()
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="browser_search", params={"query": q, "engine": "youtube"})
 
-        # 4b. Email Checking & Reporting (<0.0ms)
-        if re.search(r"\b(?:check|read|get|fetch|report|show|summarize|any\s+new)\s+(?:my\s+)?(?:emails?|inbox|messages|mail)\b", text) or text in ["check email", "check emails", "check my email", "check my emails", "read email", "read emails", "read my emails", "email report", "report emails", "any emails"]:
+        # 4b. Email & Gmail Checking & Opening (<0.0ms)
+        if (
+            re.search(r"\b(?:check|read|get|fetch|report|show|summarize|any\s+new)\s+(?:my\s+)?(?:emails?|inbox|gmail|mail)\b", text)
+            or text in [
+                "check email", "check emails", "check my email", "check my emails",
+                "read email", "read emails", "read my emails", "email report",
+                "report emails", "any emails", "emails", "my emails", "check gmail", "read gmail"
+            ]
+        ):
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="check_emails")
 
-        if re.search(r"\b(?:open|launch)\s+(?:my\s+)?(?:webmail|gmail|outlook\s+mail|inbox)\b", text):
+        if (
+            re.search(r"^(?:can\s+you\s+)?(?:open|launch|show|go\s+to|visit)\s+(?:my\s+)?(?:webmail|gmail|google\s+mail|inbox|emails?)$", text)
+            or text in ["gmail", "webmail", "open gmail", "launch gmail", "show gmail"]
+        ):
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="open_webmail")
+
+        # 4c. Telegram Launch & Messages (<0.0ms)
+        if (
+            re.search(r"^(?:can\s+you\s+)?(?:open|launch|start|show|bring\s+up|focus|switch\s+to)\s+(?:the\s+)?(?:my\s+)?telegram(?:\s+desktop|\s+messages|\s+app)?$", text)
+            or re.search(r"^(?:open|launch|start|show|view|see)\s+(?:my\s+)?telegram(?:\s+messages|\s+app|\s+desktop)?$", text)
+            or text in [
+                "telegram", "telegram messages", "telegram app", "telegram desktop",
+                "launch telegram", "open telegram", "show telegram", "start telegram",
+                "launch telegram messages", "open telegram messages"
+            ]
+        ):
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="telegram_launch")
 
         # 5. Direct Popular Websites (<0.0ms)
         website_match = re.search(r"^(?:open|go\s+to|visit|launch)\s+(youtube|google|reddit|github|twitter|x|netflix|amazon|twitch|wikipedia|chatgpt|spotify|gmail)(?:\.com|\.org|\.tv)?$", text)

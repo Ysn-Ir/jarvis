@@ -842,6 +842,17 @@ class FastPathExecutor:
         from laya.tools.telegram_client import get_telegram_manager
         return get_telegram_manager().list_telegram_contacts()
 
+    def telegram_launch(self, target: str = "") -> str:
+        """Launch or bring Telegram Desktop to front with zero LLM delay."""
+        from laya.tools.telegram_client import get_telegram_manager
+        return get_telegram_manager().open_telegram(target=target)
+
+    def open_telegram(self, target: str = "") -> str:
+        return self.telegram_launch(target=target)
+
+    def telegram_messages(self) -> str:
+        return self.telegram_launch()
+
     def telegram_launch_login(self) -> str:
         """Launch the Telegram login and setup GUI."""
         from laya.tools.telegram_client import get_telegram_manager
@@ -1047,6 +1058,10 @@ class FastPathExecutor:
             return get_email_manager().open_webmail()
         except Exception as e:
             return f"Failed to open webmail: {e}"
+
+    def open_gmail(self) -> str:
+        """Launch Gmail in default browser."""
+        return self.open_webmail()
 
 
 def get_fast_path_executor() -> FastPathExecutor:
