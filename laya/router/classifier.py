@@ -115,6 +115,16 @@ class IntentRouter:
         if single_decision:
             return single_decision
 
+        # 4.5 Official Laya ModernBERT Neural Decision Engine (<40ms Local)
+        # Evaluates natural colloquial speech without brittle regexes
+        try:
+            from laya.router.laya_engine import get_laya_engine
+            laya_decision = get_laya_engine().predict_intent(text, utterance)
+            if laya_decision:
+                return laya_decision
+        except Exception as e:
+            pass
+
         # 5. Ultra-Fast LLM Intent Classifier Layer (<250ms on Groq)
         llm_decision = self._classify_with_fast_llm(utterance)
         if llm_decision:
@@ -862,7 +872,7 @@ class IntentRouter:
             client = Groq(api_key=GROQ_API_KEY, timeout=2.5)
 
             system_prompt = (
-                "You are Laya's ultra-fast desktop intent classifier. Output ONLY a single compact JSON object.\n"
+                "You are the ultra-fast desktop intent classifier. Output ONLY a single compact JSON object.\n"
                 "Allowed actions:\n"
                 "- {\"action\": \"open_app\", \"app\": \"<name>\"}\n"
                 "- {\"action\": \"close_app\", \"app\": \"<name>\"}\n"
