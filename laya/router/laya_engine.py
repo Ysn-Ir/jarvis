@@ -27,12 +27,12 @@ class LayaDecisionEngine:
                 "criteria": {
                     "volume_up": "increase, boost, or raise sound volume, turn up audio, louder",
                     "volume_down": "decrease, lower, or turn down sound volume, turn down audio, softer",
-                    "open_folder": "open or explore folder on desktop or browse files",
+                    "open_folder": "open, view, or explore an existing folder or browse files on desktop (do not create)",
                     "close_all_apps": "close or quit all applications, windows, or programs",
                     "open_gmail": "check or open email, gmail, or webmail inbox",
-                    "telegram_launch": "open or launch telegram messages or telegram app",
+                    "telegram_launch": "only open or launch the telegram desktop app without sending any message",
                     "take_screenshot": "capture or take a screenshot of screen",
-                    "other": "everything else, general questions, knowledge, or chat"
+                    "other": "everything else, general questions, creating folders, sending messages, knowledge, or chat"
                 }
             },
             "is_destructive": {
@@ -166,8 +166,10 @@ class LayaDecisionEngine:
                     reasoning=f"Laya neural router classified volume_down ({dt:.1f}ms, p={prob:.2f})."
                 )
 
-            # 3. Open Folder
+            # 3. Open Folder (Guard: never intercept folder creation or compound commands)
             if choice == "open_folder":
+                if any(w in clean for w in ["create", "make", "new", "generate", "build", "and open", "and explore"]):
+                    return None
                 if not any(w in clean for w in ["folder", "desktop", "directory", "files", "explore", "browse"]):
                     return None
                 # Check for target folder name
@@ -175,7 +177,7 @@ class LayaDecisionEngine:
                 folder_m = re.search(r"\b(?:open|explore|view)\s+(?:the\s+|a\s+)?folder\s+([a-zA-Z0-9_\-\.\s]+)", clean)
                 if folder_m:
                     f_cand = folder_m.group(1).strip()
-                    if f_cand not in ["this", "it", "that", "an app", "in desktop", "on desktop"]:
+                    if f_cand not in ["this", "it", "that", "them", "an app", "in desktop", "on desktop"]:
                         folder = f_cand
                 elif "downloads" in clean:
                     folder = "downloads"
@@ -226,8 +228,13 @@ class LayaDecisionEngine:
                     reasoning=f"Laya neural router classified open_webmail ({dt:.1f}ms, p={prob:.2f})."
                 )
 
-            # 6. Telegram Launch
+            # 6. Telegram Launch (Guard: never intercept messaging or calling commands)
             if choice == "telegram_launch":
+                if any(w in clean for w in ["send", "message", "saying", "text", "tell", "write", "call", "voice", "video", ":"]):
+                    return None
+                after_tg = re.sub(r"\b(?:open|launch|start|run|bring\s+up|show)?\s*telegram(?:\s+desktop|\s+app)?\b", "", clean).strip()
+                if after_tg:
+                    return None
                 if "telegram" not in clean:
                     return None
                 return RouteDecision(

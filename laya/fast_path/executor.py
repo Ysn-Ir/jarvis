@@ -28,6 +28,9 @@ from laya.config import APP_REGISTRY, FOLDER_ALIASES, DOCS_DIR
 class FastPathExecutor:
     _instance: Optional["FastPathExecutor"] = None
 
+    def __init__(self):
+        self.last_created_folder: Optional[str] = None
+
     @classmethod
     def get_instance(cls) -> "FastPathExecutor":
         if cls._instance is None:
@@ -47,6 +50,74 @@ class FastPathExecutor:
         except Exception:
             pass
         return "Stopped."
+
+    def open_folder(self, folder_name: str = "desktop") -> str:
+        raw = (folder_name or "desktop").lower().strip()
+        # Clean filler prefixes
+        clean = re.sub(r"^(?:the\s+|a\s+)?folder\s+(?:on|in)\s+(?:the\s+)?", "", raw).strip()
+        clean = re.sub(r"^(?:the\s+|a\s+)?", "", clean).strip()
+        clean = re.sub(r"\s+folder$", "", clean).strip()
+        clean = re.sub(r"^(?:in|on)\s+(?:the\s+)?desktop$", "desktop", clean).strip()
+
+        desktop_path = Path.home() / "Desktop"
+
+        # Check pronoun / recent folder resolution: "open it", "open them", "open that folder"
+        if clean in ["it", "them", "that", "this", "the folder", "that folder", "this folder", "recent", "created", "the created folder", "recent folder"]:
+            candidate = self.last_created_folder
+            if not candidate:
+                try:
+                    from laya.tools.tier2_os_mcp import get_tier2_tools
+                    candidate = get_tier2_tools().last_created_dir
+                except Exception:
+                    pass
+            if candidate and Path(candidate).exists():
+                os.startfile(str(candidate))
+                return f"Opened folder '{Path(candidate).name}'."
+
+        if not clean or clean in ["desktop", "the desktop", "my desktop"]:
+            if desktop_path.exists():
+                os.startfile(str(desktop_path))
+                return "Opened Desktop folder."
+
+        # Check standard FOLDER_ALIASES
+        if clean in FOLDER_ALIASES:
+            target = FOLDER_ALIASES[clean]
+            if os.path.exists(target):
+                os.startfile(target)
+                return f"Opened {clean.title()} folder."
+
+        # Check if it is a subfolder on Desktop
+        desktop_sub = desktop_path / clean
+        if desktop_sub.exists() and desktop_sub.is_dir():
+            os.startfile(str(desktop_sub))
+            return f"Opened '{clean}' folder on Desktop."
+
+        # Check if it is a subfolder in Documents or Downloads
+        for parent in [Path.home() / "Documents", Path.home() / "Downloads"]:
+            sub = parent / clean
+            if sub.exists() and sub.is_dir():
+                os.startfile(str(sub))
+                return f"Opened '{clean}' folder in {parent.name}."
+
+        # Search Desktop for partial match
+        try:
+            for item in desktop_path.iterdir():
+                if item.is_dir() and clean in item.name.lower():
+                    os.startfile(str(item))
+                    return f"Opened '{item.name}' folder on Desktop."
+        except Exception:
+            pass
+
+        # Check direct path
+        if os.path.exists(folder_name):
+            os.startfile(folder_name)
+            return f"Opened {folder_name}."
+
+        # Fallback to Desktop
+        if desktop_path.exists():
+            os.startfile(str(desktop_path))
+            return f"Could not find a specific folder named '{clean}'. Opened Desktop for you."
+        return f"Folder {folder_name} not found."
 
     # -------------------------------------------------------------
     # Audio & Hardware Controls
@@ -356,61 +427,6 @@ class FastPathExecutor:
         success, msg = get_app_locator().launch(key)
         return msg
 
-    def open_folder(self, folder_name: str = "desktop") -> str:
-        raw = (folder_name or "desktop").lower().strip()
-        # Clean filler prefixes
-        clean = re.sub(r"^(?:the\s+|a\s+)?folder\s+(?:on|in)\s+(?:the\s+)?", "", raw).strip()
-        clean = re.sub(r"^(?:the\s+|a\s+)?", "", clean).strip()
-        clean = re.sub(r"\s+folder$", "", clean).strip()
-        clean = re.sub(r"^(?:in|on)\s+(?:the\s+)?desktop$", "desktop", clean).strip()
-
-        desktop_path = Path.home() / "Desktop"
-
-        if not clean or clean in ["desktop", "the desktop", "my desktop"]:
-            if desktop_path.exists():
-                os.startfile(str(desktop_path))
-                return "Opened Desktop folder."
-
-        # Check standard FOLDER_ALIASES
-        if clean in FOLDER_ALIASES:
-            target = FOLDER_ALIASES[clean]
-            if os.path.exists(target):
-                os.startfile(target)
-                return f"Opened {clean.title()} folder."
-
-        # Check if it is a subfolder on Desktop
-        desktop_sub = desktop_path / clean
-        if desktop_sub.exists() and desktop_sub.is_dir():
-            os.startfile(str(desktop_sub))
-            return f"Opened '{clean}' folder on Desktop."
-
-        # Check if it is a subfolder in Documents or Downloads
-        for parent in [Path.home() / "Documents", Path.home() / "Downloads"]:
-            sub = parent / clean
-            if sub.exists() and sub.is_dir():
-                os.startfile(str(sub))
-                return f"Opened '{clean}' folder in {parent.name}."
-
-        # Search Desktop for partial match
-        try:
-            for item in desktop_path.iterdir():
-                if item.is_dir() and clean in item.name.lower():
-                    os.startfile(str(item))
-                    return f"Opened '{item.name}' folder on Desktop."
-        except Exception:
-            pass
-
-        # Check direct path
-        if os.path.exists(folder_name):
-            os.startfile(folder_name)
-            return f"Opened {folder_name}."
-
-        # Fallback to Desktop
-        if desktop_path.exists():
-            os.startfile(str(desktop_path))
-            return f"Could not find a specific folder named '{clean}'. Opened Desktop for you."
-        return f"Folder {folder_name} not found."
-
     def close_all_apps(self) -> str:
         """Close all visible user application windows while keeping the HUD and desktop intact."""
         closed_count = 0
@@ -560,16 +576,26 @@ class FastPathExecutor:
         """Execute a list of fast-path actions sequentially and instantly."""
         from laya.tools.interrupt_manager import is_interrupt_requested
         results = []
+        last_target_folder = None
         for act in actions:
             if is_interrupt_requested():
                 return "Stopped."
             action_name = act.get("action")
-            params = act.get("params", {})
+            params = dict(act.get("params", {}))
+
+            # Propagate target folder from create_folder to subsequent open_folder
+            if action_name == "open_folder":
+                fol = params.get("folder_name", "")
+                if fol in ["it", "them", "that", "the folder", ""] and last_target_folder:
+                    params["folder_name"] = last_target_folder
+
             handler = getattr(self, action_name, None)
             if handler:
                 try:
                     res = handler(**params)
                     results.append(str(res))
+                    if action_name in ["create_folder", "create_and_open_folder"]:
+                        last_target_folder = params.get("folder_name")
                 except Exception as e:
                     results.append(f"Error in {action_name}: {e}")
             else:
@@ -584,10 +610,51 @@ class FastPathExecutor:
         from laya.tools.tier2_os_mcp import get_tier2_tools
         return get_tier2_tools().create_file(filename=filename, content=content, location=location)
 
+    def create_and_open_folder(self, folder_name: str = "New Folder", location: str = "desktop") -> str:
+        """Create a new folder instantly on Desktop or in specified directory and reveal it in Windows Explorer."""
+        raw_name = (folder_name or "New Folder").strip()
+        clean_name = re.sub(r"\s+(?:and\s+)?open\s+(?:it|them|that|the\s+folder).*", "", raw_name, flags=re.I).strip()
+        if not clean_name or clean_name.lower() in ["folder", "a folder", "new"]:
+            clean_name = "New Folder"
+
+        self.create_folder(folder_name=clean_name, location=location)
+        if self.last_created_folder and Path(self.last_created_folder).exists():
+            os.startfile(self.last_created_folder)
+            return f"Created folder '{Path(self.last_created_folder).name}' on {location.title()} and opened it in File Explorer."
+        return f"Created folder '{clean_name}' on {location.title()}."
+
     def create_folder(self, folder_name: str, location: str = "desktop") -> str:
         """Create a new folder instantly on Desktop or in specified folder."""
-        from laya.tools.tier2_os_mcp import get_tier2_tools
-        return get_tier2_tools().create_folder(folder_name=folder_name, location=location)
+        raw_name = (folder_name or "New Folder").strip()
+        should_open = bool(re.search(r"\s+(?:and\s+)?open\s+(?:it|them|that|the\s+folder)", raw_name, re.I))
+        clean_name = re.sub(r"\s+(?:and\s+)?open\s+(?:it|them|that|the\s+folder).*", "", raw_name, flags=re.I).strip()
+        if not clean_name or clean_name.lower() in ["folder", "a folder", "new"]:
+            clean_name = "New Folder"
+
+        base = Path.home() / "Desktop"
+        if location and location.lower() not in ["desktop", ""]:
+            if location.lower() == "documents":
+                base = Path.home() / "Documents"
+            elif location.lower() == "downloads":
+                base = Path.home() / "Downloads"
+            elif Path(location).exists():
+                base = Path(location)
+
+        target = base / clean_name
+        target.mkdir(parents=True, exist_ok=True)
+        self.last_created_folder = str(target.resolve())
+
+        try:
+            from laya.tools.tier2_os_mcp import get_tier2_tools
+            get_tier2_tools().last_created_dir = str(target.resolve())
+        except Exception:
+            pass
+
+        if should_open:
+            os.startfile(str(target.resolve()))
+            return f"Created folder '{clean_name}' on {base.name} and opened it in File Explorer."
+
+        return f"Created folder '{clean_name}' at '{target.resolve()}'."
 
     def open_file(self, filename_or_path: str) -> str:
         """Open any file in its default Windows application instantly."""

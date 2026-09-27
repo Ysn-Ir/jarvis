@@ -159,7 +159,20 @@ class IntentRouter:
             return None
 
         decisions: List[RouteDecision] = []
-        for part in parts:
+        for i, part in enumerate(parts):
+            # Pronoun resolution for compound actions: "create folder X and open it / open them"
+            if i > 0 and re.match(r"^(?:open\s+(?:it|them|that|the\s+folder|that\s+folder)|open\s+it|open)$", part, re.I):
+                if decisions and decisions[-1].action in ["create_folder", "create_file"]:
+                    target_fol = decisions[-1].params.get("folder_name") or decisions[-1].params.get("filename") or "desktop"
+                    decisions.append(RouteDecision(
+                        path=ExecutionPath.FAST_PATH,
+                        action="open_folder",
+                        params={"folder_name": target_fol},
+                        safety_tier="GREEN",
+                        confidence=1.0,
+                    ))
+                    continue
+
             d = self._route_single_deterministic(part, part)
             if not d or d.path != ExecutionPath.FAST_PATH:
                 return None
@@ -330,12 +343,29 @@ class IntentRouter:
             fcontent = (create_file_direct.group(2) or "").strip()
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="create_file", params={"filename": fname, "content": fcontent})
 
+        # Create Folder and Open It (Direct Reflex)
+        create_and_open = re.search(
+            r"\b(?:create|make)\s+(?:a\s+)?(?:new\s+)?(?:folder\s+(?:called\s+|named\s+)?([a-zA-Z0-9_\-\.\s]+?)|folders?)\s+(?:and\s+)?(?:open\s+(?:it|them|that|the\s+folder)|open\s+it)\b",
+            text,
+            re.I
+        )
+        if create_and_open:
+            fol_name = (create_and_open.group(1) or "New Folder").strip()
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="create_and_open_folder", params={"folder_name": fol_name})
+
         create_folder_match = re.search(r"\b(?:create|make|new)\s+(?:a\s+)?(?:new\s+)?folder\s+(?:called\s+|named\s+)?([a-zA-Z0-9_\-\.\s]+)$", text)
         if create_folder_match:
             fol_name = create_folder_match.group(1).strip()
+            if re.search(r"\s+(?:and\s+)?open\s+(?:it|them|that|the\s+folder)", fol_name, re.I):
+                clean_name = re.sub(r"\s+(?:and\s+)?open\s+(?:it|them|that|the\s+folder).*", "", fol_name, flags=re.I).strip()
+                return RouteDecision(path=ExecutionPath.FAST_PATH, action="create_and_open_folder", params={"folder_name": clean_name or "New Folder"})
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="create_folder", params={"folder_name": fol_name})
 
         # Open Folders & Directories (<0.0ms)
+        # Pronoun & Recent Folder Resolution: "open it", "open them", "open that folder", "open the created folder"
+        if re.search(r"^(?:can\s+you\s+)?(?:open|launch|show|view|explore)\s+(?:it|them|that|the\s+folder|that\s+folder|the\s+created\s+folder|recent\s+folder|this\s+folder)$", text, re.I):
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="open_folder", params={"folder_name": "it"})
+
         open_desktop_folder = re.search(
             r"^(?:can\s+you\s+)?(?:open|launch|show|view|explore)\s+(?:the\s+|a\s+)?(?:folder\s+(?:on|in)\s+(?:the\s+)?desktop|desktop\s+folder|folder\s+in\s+desktop|folder\s+on\s+desktop)$",
             text
@@ -349,7 +379,7 @@ class IntentRouter:
         )
         if open_folder_named:
             f_name = open_folder_named.group(1).strip()
-            if f_name not in ["this", "it", "that", "an app", "app"]:
+            if f_name not in ["this", "it", "that", "them", "an app", "app"]:
                 return RouteDecision(path=ExecutionPath.FAST_PATH, action="open_folder", params={"folder_name": f_name})
 
         open_folder_suffix = re.search(
@@ -358,7 +388,7 @@ class IntentRouter:
         )
         if open_folder_suffix:
             f_name = open_folder_suffix.group(1).strip()
-            if f_name not in ["this", "it", "that", "an app", "app"]:
+            if f_name not in ["this", "it", "that", "them", "an app", "app"]:
                 return RouteDecision(path=ExecutionPath.FAST_PATH, action="open_folder", params={"folder_name": f_name})
 
         open_file_match = re.search(r"\b(?:open|read|view|show)\s+(?:the\s+)?file\s+(.+)$", text)
@@ -460,30 +490,29 @@ class IntentRouter:
         if re.search(r"\b(?:telegram\s+contacts|contacts\s+(?:in|on)\s+telegram|who\s+are\s+my\s+telegram\s+contacts|all\s+telegram\s+contacts|(?:list|show|view|get|display)\s+(?:all\s+)?telegram\s+contacts)\b", text, re.I):
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="telegram_list_contacts")
 
-        # WhatsApp Messaging
+        # WhatsApp Messaging (<0.0ms)
         wa_msg_match = (
-            re.search(r"\b(?:send\s+(?:a\s+)?(?:message|text)\s+(?:on|via|through|in)\s+whatsapp\s+to\s+)(.+?)(?:\s*(?:saying|that|with|:)\s*(.*))?$", text, re.I)
-            or re.search(r"\b(?:send\s+(?:a\s+)?(?:message|text)\s+to\s+)(.+?)\s+(?:on|via|through|in)\s+whatsapp(?:\s*(?:saying|that|with|:)\s*(.*))?$", text, re.I)
-            or re.search(r"\b(?:message|text|tell)\s+(.+?)\s+(?:on|via|through|in)\s+whatsapp(?:\s*(?:saying|that|with|:)\s*(.*))?$", text, re.I)
+            re.search(r"\b(?:send\s+(?:a\s+)?whatsapp(?:\s+message|\s+text)?\s+to\s+)([a-zA-Z0-9_@\+\s]+?)(?:\s*(?:saying|that|with|:)\s*|\s*:\s*|\s+)(.+)$", text, re.I)
+            or re.search(r"\b(?:send\s+(?:a\s+)?(?:message|text)\s+(?:on|via|in|through)\s+whatsapp\s+to\s+)([a-zA-Z0-9_@\+\s]+?)(?:\s*(?:saying|that|with|:)\s*|\s*:\s*|\s+)(.+)$", text, re.I)
+            or re.search(r"\b(?:send\s+(?:a\s+)?(?:message|text)\s+to\s+)([a-zA-Z0-9_@\+\s]+?)\s+(?:on|via|in|through)\s+whatsapp(?:\s*(?:saying|that|with|:)\s*|\s*:\s*|\s+)(.+)$", text, re.I)
+            or re.search(r"\b(?:message|text|tell)\s+([a-zA-Z0-9_@\+\s]+?)\s+(?:on|via|in|through)\s+whatsapp(?:\s*(?:saying|that|with|:)\s*|\s*:\s*|\s+)(.+)$", text, re.I)
+            or re.search(r"\b(?:send\s+(?:a\s+)?whatsapp(?:\s+message|\s+text)?\s+to\s+)([a-zA-Z0-9_@\+\s]+)$", text, re.I)
+            or re.search(r"\bwhatsapp\s+(?!call|video|voice|web)([a-zA-Z0-9_@\+\s]+?)(?:\s*(?:saying|that|with|:)\s*|\s*:\s*|\s+)(.+)$", text, re.I)
         )
         if wa_msg_match:
             target_c = wa_msg_match.group(1).strip()
-            target_m = (wa_msg_match.group(2) or "").strip().strip(":'\" ") or "Hello from Laya"
-            return RouteDecision(path=ExecutionPath.FAST_PATH, action="whatsapp_message", params={"contact": target_c, "message": target_m})
+            target_m = (wa_msg_match.group(2) or "").strip().strip(":'\" ") if (wa_msg_match.lastindex and wa_msg_match.lastindex >= 2) else ""
+            if target_c.lower() not in ["message", "a message", "text", "a text", "call", "voice call", "video call"]:
+                return RouteDecision(path=ExecutionPath.FAST_PATH, action="whatsapp_message", params={"contact": target_c, "message": target_m or "Hello!"})
 
-        wa_quick_match = re.search(r"\b(?:send\s+whatsapp\s+to|whatsapp)\s+([a-zA-Z0-9_\-\.]+)\s+(?:saying\s+|that\s+|with\s+|:\s*)?(.*)", text, re.I)
-        if wa_quick_match:
-            target_c = wa_quick_match.group(1).strip()
-            target_m = wa_quick_match.group(2).strip() or "Hello from Assistant"
-            return RouteDecision(path=ExecutionPath.FAST_PATH, action="whatsapp_message", params={"contact": target_c, "message": target_m})
-
-        # Telegram Messaging
+        # Telegram Messaging (<0.0ms)
         tg_msg_match = (
-            re.search(r"\b(?:send\s+(?:a\s+)?(?:telegram\s+message|telegram\s+text|telegram|message\s+(?:on|in|via)\s+telegram|text\s+(?:on|in|via)\s+telegram)\s+to\s+)(.+?)(?:\s*(?:saying|that|with|:)\s*(.+))$", text, re.I)
-            or re.search(r"\b(?:send\s+(?:a\s+)?(?:message|text)\s+to\s+)(.+?)\s+(?:on|via|through|in)\s+telegram(?:\s*(?:saying|that|with|:)\s*(.+))?$", text, re.I)
-            or re.search(r"\b(?:message|text|tell)\s+(.+?)\s+(?:on|via|through|in)\s+telegram(?:\s*(?:saying|that|with|:)\s*(.+))?$", text, re.I)
-            or re.search(r"\b(?:send\s+(?:a\s+)?telegram\s+to|telegram)\s+(?!for\b|messages?\b|search\b|contacts?\b)([a-zA-Z0-9_\-\.]+)(?:\s+(?:saying|that|with|:)\s*|\s*:\s*|\s+)(.+)$", text, re.I)
-            or re.search(r"\b(?:send\s+(?:a\s+)?(?:telegram\s+message|telegram\s+text|telegram|message\s+(?:on|in|via)\s+telegram)\s+to\s+)(.+)$", text, re.I)
+            re.search(r"\b(?:send\s+(?:a\s+)?telegram(?:\s+message|\s+text)?\s+to\s+)([a-zA-Z0-9_@\+\s]+?)(?:\s*(?:saying|that|with|:)\s*|\s*:\s*|\s+)(.+)$", text, re.I)
+            or re.search(r"\b(?:send\s+(?:a\s+)?(?:message|text)\s+(?:on|via|in|through)\s+telegram\s+to\s+)([a-zA-Z0-9_@\+\s]+?)(?:\s*(?:saying|that|with|:)\s*|\s*:\s*|\s+)(.+)$", text, re.I)
+            or re.search(r"\b(?:send\s+(?:a\s+)?(?:message|text)\s+to\s+)([a-zA-Z0-9_@\+\s]+?)\s+(?:on|via|in|through)\s+telegram(?:\s*(?:saying|that|with|:)\s*|\s*:\s*|\s+)(.+)$", text, re.I)
+            or re.search(r"\b(?:message|text|tell)\s+([a-zA-Z0-9_@\+\s]+?)\s+(?:on|via|in|through)\s+telegram(?:\s*(?:saying|that|with|:)\s*|\s*:\s*|\s+)(.+)$", text, re.I)
+            or re.search(r"\b(?:send\s+(?:a\s+)?telegram(?:\s+message|\s+text)?\s+to\s+)([a-zA-Z0-9_@\+\s]+)$", text, re.I)
+            or re.search(r"\btelegram\s+(?!call|video|voice|for|messages?|contacts?|search)([a-zA-Z0-9_@\+\s]+?)(?:\s*(?:saying|that|with|:)\s*|\s*:\s*|\s+)(.+)$", text, re.I)
         )
         if tg_msg_match:
             target_c = tg_msg_match.group(1).strip()
@@ -498,7 +527,8 @@ class IntentRouter:
                         reasoning="Clarification for missing broadcast message content."
                     )
                 return RouteDecision(path=ExecutionPath.FAST_PATH, action="telegram_broadcast", params={"message": target_m})
-            return RouteDecision(path=ExecutionPath.FAST_PATH, action="telegram_send_message", params={"recipient": target_c, "message": target_m})
+            if target_c.lower() not in ["message", "a message", "text", "a text", "call", "voice call", "video call"]:
+                return RouteDecision(path=ExecutionPath.FAST_PATH, action="telegram_send_message", params={"recipient": target_c, "message": target_m or "Hello!"})
 
         # Underspecified Messaging Prompts (<0.0ms Clarification, NEVER list contacts)
         if text in [
@@ -517,7 +547,7 @@ class IntentRouter:
 
         # Universal Cross-Platform Messaging (Telegram / WhatsApp) (<0.0ms)
         gen_msg_match = re.search(
-            r"\b(?:send\s+(?:a\s+)?(?:message|text|something)\s+to|message|text|tell)\s+([a-zA-Z0-9_\-\.]+)(?:\s*(?:saying|that|with|:)\s*(.*))?$",
+            r"\b(?:send\s+(?:a\s+)?(?:message|text|something)\s+to|message|text|tell)\s+([a-zA-Z0-9_\-\.]+)(?:\s*(?:saying|that|with|:)\s*|\s*:\s*|\s+)(.*)$",
             text,
             re.I
         )

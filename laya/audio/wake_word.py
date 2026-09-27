@@ -126,60 +126,68 @@ class WakeWordDetector:
         self.is_listening_active = False
 
     def _listen_loop(self):
-        """Continuous audio stream loop monitoring for speech, keywords, and interruptions."""
+        """Continuous audio stream loop monitoring for speech, keywords, and interruptions with auto-reconnect."""
         block_duration = 0.25  # 250ms chunks
         block_size = int(AUDIO_SAMPLE_RATE * block_duration)
 
-        speech_buffer: List[np.ndarray] = []
-        is_in_speech = False
-        silence_count = 0
+        while self.is_running:
+            speech_buffer: List[np.ndarray] = []
+            is_in_speech = False
+            silence_count = 0
 
-        try:
-            with sd.InputStream(
-                samplerate=AUDIO_SAMPLE_RATE,
-                channels=AUDIO_CHANNELS,
-                dtype="float32",
-                blocksize=block_size,
-            ) as stream:
-                while self.is_running:
-                    data, _ = stream.read(block_size)
-                    audio_chunk = data.flatten()
-                    energy = float(np.sqrt(np.mean(audio_chunk**2)))
+            try:
+                with sd.InputStream(
+                    samplerate=AUDIO_SAMPLE_RATE,
+                    channels=AUDIO_CHANNELS,
+                    dtype="float32",
+                    blocksize=block_size,
+                ) as stream:
+                    while self.is_running:
+                        try:
+                            data, overflowed = stream.read(block_size)
+                        except Exception as read_err:
+                            time.sleep(0.05)
+                            continue
 
-                    if energy > VAD_ENERGY_THRESHOLD:
-                        is_in_speech = True
-                        silence_count = 0
-                        speech_buffer.append(audio_chunk)
+                        audio_chunk = data.flatten()
+                        energy = float(np.sqrt(np.mean(audio_chunk**2)))
 
-                        # Max continuous buffer limit: 12 seconds in normal mode, 4 seconds in interrupt mode
-                        max_chunks = 16 if self.is_listening_active else 48
-                        if len(speech_buffer) >= max_chunks:
-                            if self.is_listening_active:
-                                self._process_interruption(speech_buffer)
-                            else:
-                                self._process_speech(speech_buffer)
-                            speech_buffer = []
-                            is_in_speech = False
-                    else:
-                        if is_in_speech:
-                            silence_count += 1
+                        if energy > VAD_ENERGY_THRESHOLD:
+                            is_in_speech = True
+                            silence_count = 0
                             speech_buffer.append(audio_chunk)
-                            # ~0.5s silence during active execution to be snappier, ~1.0s during idle
-                            limit_silence = 2 if self.is_listening_active else 4
-                            if silence_count >= limit_silence:
+
+                            # Max continuous buffer limit: 12 seconds in normal mode, 4 seconds in interrupt mode
+                            max_chunks = 16 if self.is_listening_active else 48
+                            if len(speech_buffer) >= max_chunks:
                                 if self.is_listening_active:
                                     self._process_interruption(speech_buffer)
                                 else:
                                     self._process_speech(speech_buffer)
                                 speech_buffer = []
                                 is_in_speech = False
-                                silence_count = 0
                         else:
-                            # Rolling pre-roll buffer (~500ms)
-                            speech_buffer = speech_buffer[-1:] + [audio_chunk] if speech_buffer else [audio_chunk]
+                            if is_in_speech:
+                                silence_count += 1
+                                speech_buffer.append(audio_chunk)
+                                # ~0.5s silence during active execution to be snappier, ~1.0s during idle
+                                limit_silence = 2 if self.is_listening_active else 4
+                                if silence_count >= limit_silence:
+                                    if self.is_listening_active:
+                                        self._process_interruption(speech_buffer)
+                                    else:
+                                        self._process_speech(speech_buffer)
+                                    speech_buffer = []
+                                    is_in_speech = False
+                                    silence_count = 0
+                            else:
+                                # Rolling pre-roll buffer (~500ms)
+                                speech_buffer = speech_buffer[-1:] + [audio_chunk] if speech_buffer else [audio_chunk]
 
-        except Exception as e:
-            print(f"[WakeWord Error] Stream stopped: {e}", file=sys.stderr)
+            except Exception as e:
+                if self.is_running:
+                    print(f"[WakeWord Stream Reconnecting] {e}", file=sys.stderr)
+                    time.sleep(1.0)
 
     def _clean_command(self, raw_text: str) -> str:
         """Strip leading wake prefixes, leaving only the clean user command."""

@@ -211,6 +211,7 @@ class LayaHUD(ctk.CTk):
 
         # Keyboard shortcuts
         self.bind_all("<Escape>", lambda e: self._on_escape_pressed())
+        self.report_callback_exception = self._on_tk_exception
 
         # Initialize Continuous Wake Word & Barge-In Engine in Background Thread
         self.wake_detector = None
@@ -219,6 +220,11 @@ class LayaHUD(ctk.CTk):
         # Periodic Event & Waveform Animation Loops
         self.after(35, self._drain_queue)
         self.after(35, self._animation_loop)
+
+    def _on_tk_exception(self, exc, val, tb):
+        import traceback
+        err_msg = "".join(traceback.format_exception(exc, val, tb))
+        print(f"[HUD Uncaught UI Exception]\n{err_msg}", file=sys.stderr)
 
     # -------------------------------------------------------------
     # 1. Floating Dynamic Island Capsule (Top Header)
@@ -873,16 +879,25 @@ class LayaHUD(ctk.CTk):
 
         except queue.Empty:
             pass
+        except Exception as e:
+            print(f"[HUD Event Drain Note] {e}", file=sys.stderr)
 
         # Auto-reset badge and visualizer to READY once speech finishes
-        if self.current_state == "SPEAKING" and not self.tts.is_speaking():
-            self.current_state = "IDLE"
-            self.query_text.configure(
-                text="Listening for voice... (Say 'Clanker', 'Jarvis', or 'Call')",
-                text_color=self.CLR_TEXT_DIM,
-            )
+        try:
+            if self.current_state == "SPEAKING" and not self.tts.is_speaking():
+                self.current_state = "IDLE"
+                self.query_text.configure(
+                    text="Listening for voice... (Say 'Clanker', 'Jarvis', or 'Call')",
+                    text_color=self.CLR_TEXT_DIM,
+                )
+        except Exception:
+            pass
 
-        self.after(35, self._drain_queue)
+        finally:
+            try:
+                self.after(35, self._drain_queue)
+            except Exception:
+                pass
 
     def _append_step(self, step_text: str):
         self.step_box.configure(state="normal")
@@ -915,8 +930,22 @@ class LayaHUD(ctk.CTk):
 
 
 def launch_hud(assistant_instance=None):
-    app = LayaHUD(assistant_instance=assistant_instance)
-    app.mainloop()
+    """Launch HUD desktop interface with automatic crash recovery."""
+    while True:
+        try:
+            app = LayaHUD(assistant_instance=assistant_instance)
+            app.mainloop()
+            break  # Clean user exit
+        except SystemExit:
+            break
+        except Exception as e:
+            import traceback
+            log_dir = Path.home() / ".laya"
+            log_dir.mkdir(parents=True, exist_ok=True)
+            with open(log_dir / "laya_crash.log", "a", encoding="utf-8") as f:
+                f.write(f"\n[{time.ctime()}] Crash: {e}\n{traceback.format_exc()}\n")
+            print(f"[HUD Protected Crash Recovery] {e}", file=sys.stderr)
+            time.sleep(1.0)
 
 
 if __name__ == "__main__":
