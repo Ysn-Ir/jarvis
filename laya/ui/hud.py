@@ -1,11 +1,11 @@
 """
 Laya Monochromatic Luxury Glass HUD
-State-of-the-art minimal transparent glass interface (Obsidian Black, Charcoal Gray, and Pure White).
+State-of-the-art minimal transparent interface (Obsidian Black, Charcoal Gray, and Pure White).
 Features:
-- Floating dynamic island capsule with smooth glass transparency (-alpha 0.94) and native Windows Acrylic blur
-- Fluid holographic multi-harmonic sine wave visualizer with Gaussian amplitude envelope
+- True translucent smoky glass window (-alpha 0.88, #07070a deep obsidian black, zero white artifacts)
+- Prominent fluid holographic multi-harmonic sine wave visualizer (410x74px) with Gaussian amplitude envelope
+- Real-time animated pulsing status beacon and pulsing mic aura
 - Eased height transition animation between Full HUD (450x540) & Compact Floating Island (450x64)
-- Pulsing mic glow animation during voice recording
 - Single-pass continuous wake word ("Clanker", "Call", "Jarvis"), dynamic VAD, and instant barge-in vocal interrupt
 - Native Email Checking & Executive Reporting integration (voice & one-click chip)
 - Minimalist frosted action chips, live step streaming, and multi-turn response readout
@@ -32,11 +32,9 @@ for stream in (sys.stdout, sys.stderr):
 
 import customtkinter as ctk
 
-try:
-    import pywinstyles
-    HAS_PYWINSTYLES = True
-except ImportError:
-    HAS_PYWINSTYLES = False
+# Ensure CTk appearance mode is strictly Dark BEFORE creating any widgets
+ctk.set_appearance_mode("Dark")
+ctk.set_default_color_theme("blue")
 
 from laya.audio.tts import get_tts_engine
 from laya.audio.capture import AudioCapture
@@ -53,11 +51,11 @@ from laya.config import UI_VISIBILITY_MODE, WAKE_PHRASES
 
 
 # -------------------------------------------------------------
-# 1. Fluid Holographic Multi-Harmonic Waveform Canvas
+# 1. Prominent Fluid Holographic Multi-Harmonic Waveform Canvas
 # -------------------------------------------------------------
-class FluidGlassWaveform(ctk.CTkCanvas):
-    def __init__(self, parent, width=130, height=28, **kwargs):
-        super().__init__(parent, width=width, height=height, bg="#0f0f13", highlightthickness=0, **kwargs)
+class ProminentFluidWaveform(ctk.CTkCanvas):
+    def __init__(self, parent, width=410, height=72, **kwargs):
+        super().__init__(parent, width=width, height=height, bg="#0d0d12", highlightthickness=0, **kwargs)
         self.w = width
         self.h = height
         self.phase = 0.0
@@ -68,52 +66,64 @@ class FluidGlassWaveform(ctk.CTkCanvas):
         w = self.w
 
         if state == "LISTENING":
-            speed = 0.16
-            amp_main = 10.0
-            amp_sub = 6.0
+            speed = 0.18
+            amp1 = 20.0
+            amp2 = 13.0
+            amp3 = 8.0
         elif state == "PROCESSING":
             speed = 0.22
-            amp_main = 7.0
-            amp_sub = 5.0
+            amp1 = 14.0
+            amp2 = 9.0
+            amp3 = 6.0
         elif state == "SPEAKING":
-            speed = 0.18
-            amp_main = 11.0
-            amp_sub = 7.0
+            speed = 0.16
+            amp1 = 22.0
+            amp2 = 14.0
+            amp3 = 9.0
         elif state == "STOPPED":
             speed = 0.02
-            amp_main = 2.0
-            amp_sub = 1.0
+            amp1 = 3.0
+            amp2 = 2.0
+            amp3 = 1.0
         else:  # IDLE
-            speed = 0.06
-            amp_main = 4.0
-            amp_sub = 2.5
+            speed = 0.05
+            amp1 = 8.0
+            amp2 = 5.0
+            amp3 = 3.0
 
         self.phase += speed
 
+        # 4 Layered Harmonic Sine Waves with Gaussian Bell-Curve Envelope
         pts1 = []
         pts2 = []
         pts3 = []
+        pts4 = []
 
-        step = 3
+        step = 4
         for x in range(0, w + step, step):
             nx = (2.0 * x / w) - 1.0
-            env = math.exp(-2.8 * (nx ** 2))
+            env = math.exp(-2.5 * (nx ** 2))
 
-            y1 = mid_y + math.sin(x * 0.12 + self.phase) * amp_main * env
-            y2 = mid_y + math.cos(x * 0.09 - self.phase * 0.8) * amp_sub * env
-            y3 = mid_y + math.sin(x * 0.15 + self.phase * 1.3) * (amp_sub * 0.6) * env
+            y1 = mid_y + math.sin(x * 0.045 + self.phase) * amp1 * env
+            y2 = mid_y + math.cos(x * 0.035 - self.phase * 0.85) * amp2 * env
+            y3 = mid_y + math.sin(x * 0.060 + self.phase * 1.3) * amp3 * env
+            y4 = mid_y + math.cos(x * 0.080 - self.phase * 1.1) * (amp3 * 0.7) * env
 
             pts1.extend([x, y1])
             pts2.extend([x, y2])
             pts3.extend([x, y3])
+            pts4.extend([x, y4])
 
-        # Background subtle wave
+        # Deep ambient wave
+        if len(pts4) >= 4:
+            self.create_line(pts4, fill="#202028", width=1, smooth=True)
+        # Mid slate wave
         if len(pts3) >= 4:
-            self.create_line(pts3, fill="#383842", width=1, smooth=True)
-        # Secondary platinum wave
+            self.create_line(pts3, fill="#363642", width=1, smooth=True)
+        # Platinum secondary wave
         if len(pts2) >= 4:
-            self.create_line(pts2, fill="#a1a1aa", width=1, smooth=True)
-        # Primary brilliant white wave
+            self.create_line(pts2, fill="#a1a1aa", width=1.5, smooth=True)
+        # Pure white primary wave
         if len(pts1) >= 4:
             col = "#ffffff" if state in ["LISTENING", "SPEAKING"] else "#e4e4e7"
             if state == "STOPPED":
@@ -168,24 +178,19 @@ class LayaHUD(ctk.CTk):
         pos_y = 35
         self.geometry(f"{self.hud_width}x{self.hud_height}+{pos_x}+{pos_y}")
 
-        # Frameless, Always on Top, Glass Transparency
+        # Frameless, Always on Top, True Translucent Glass (Alpha 0.88, Never White)
         self.overrideredirect(True)
         self.attributes("-topmost", self.is_pinned_top)
-        self.attributes("-alpha", 0.94)
+        self.attributes("-alpha", 0.88)
 
-        # Apply Windows 11 Native Acrylic Blur if available
-        self._apply_acrylic_blur()
         self._setup_taskbar_icon()
 
-        ctk.set_appearance_mode("Dark")
-        ctk.set_default_color_theme("blue")
-
-        # Refined Monochromatic Luxury Color Palette (Black, Gray, Pure White)
-        self.CLR_BG = "#060608"              # Deep Void Black
-        self.CLR_CAPSULE = "#0f0f13"         # Frosted Obsidian Charcoal
-        self.CLR_CARD = "#131317"            # Dark Zinc Glass Card
+        # Refined Monochromatic Luxury Color Palette (Pure Black, Zinc Gray, White)
+        self.CLR_BG = "#07070a"              # Deep Void Obsidian Glass
+        self.CLR_CAPSULE = "#0e0e13"         # Frosted Charcoal Header
+        self.CLR_CARD = "#121217"            # Dark Zinc Glass Card
         self.CLR_CARD_INNER = "#0a0a0d"      # Subtle Inner Well
-        self.CLR_BORDER = "#24242c"          # Subtle Slate Border
+        self.CLR_BORDER = "#22222a"          # Subtle Slate Border
         self.CLR_BORDER_GLOW = "#383844"     # Luminous Glass Rim
         self.CLR_WHITE = "#ffffff"           # Pure Brilliant White
         self.CLR_SILVER = "#e4e4e7"          # Crisp Platinum
@@ -215,18 +220,6 @@ class LayaHUD(ctk.CTk):
         self.after(35, self._drain_queue)
         self.after(35, self._animation_loop)
 
-    def _apply_acrylic_blur(self):
-        """Apply Windows native Acrylic blur for true background diffusion."""
-        if HAS_PYWINSTYLES:
-            try:
-                pywinstyles.apply_style(self, "acrylic")
-                pywinstyles.change_header_color(self, "#060608")
-            except Exception:
-                try:
-                    pywinstyles.apply_style(self, "mica")
-                except Exception:
-                    pass
-
     # -------------------------------------------------------------
     # 1. Floating Dynamic Island Capsule (Top Header)
     # -------------------------------------------------------------
@@ -237,7 +230,7 @@ class LayaHUD(ctk.CTk):
             corner_radius=20,
             border_width=1,
             border_color=self.CLR_BORDER,
-            height=54,
+            height=52,
         )
         self.island_frame.pack(fill="x", padx=10, pady=(10, 4))
         self.island_frame.pack_propagate(False)
@@ -257,23 +250,13 @@ class LayaHUD(ctk.CTk):
         self.brand_label.bind("<Button-1>", self._start_drag)
         self.brand_label.bind("<B1-Motion>", self._on_drag)
 
-        # Fluid Holographic Audio Waveform Visualizer
-        self.waveform = FluidGlassWaveform(
-            self.island_frame,
-            width=125,
-            height=28,
-        )
-        self.waveform.pack(side="left", padx=(4, 6), pady=13)
-        self.waveform.bind("<Button-1>", self._start_drag)
-        self.waveform.bind("<B1-Motion>", self._on_drag)
-
-        # Minimalist State Badge (Monochrome Glass Pill)
+        # Animated Glowing State Beacon Pill
         self.state_badge = ctk.CTkLabel(
             self.island_frame,
             text="● INITIALIZING",
             font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
             text_color=self.CLR_SILVER,
-            fg_color="#18181c",
+            fg_color="#181820",
             corner_radius=12,
             padx=10,
             pady=3,
@@ -286,7 +269,7 @@ class LayaHUD(ctk.CTk):
             text="✕",
             width=26,
             height=26,
-            fg_color="#18181c",
+            fg_color="#16161c",
             hover_color="#e11d48",
             text_color=self.CLR_TEXT_DIM,
             font=ctk.CTkFont(size=10, weight="bold"),
@@ -301,8 +284,8 @@ class LayaHUD(ctk.CTk):
             text="—",
             width=26,
             height=26,
-            fg_color="#18181c",
-            hover_color="#2b2b32",
+            fg_color="#16161c",
+            hover_color="#2b2b34",
             text_color=self.CLR_TEXT_DIM,
             font=ctk.CTkFont(size=10, weight="bold"),
             corner_radius=13,
@@ -316,7 +299,7 @@ class LayaHUD(ctk.CTk):
             text="■ STOP",
             width=56,
             height=26,
-            fg_color="#18181c",
+            fg_color="#16161c",
             hover_color="#33141e",
             text_color=self.CLR_ROSE,
             font=ctk.CTkFont(size=9, weight="bold"),
@@ -332,11 +315,30 @@ class LayaHUD(ctk.CTk):
         self.body_container = ctk.CTkFrame(self, fg_color="transparent")
         self.body_container.pack(fill="both", expand=True, padx=10, pady=(2, 10))
 
-        # A. User Utterance Glass Card
+        # A. Prominent Fluid Holographic Waveform Card
+        self.wave_card = ctk.CTkFrame(
+            self.body_container,
+            fg_color="#0d0d12",
+            corner_radius=14,
+            border_width=1,
+            border_color="#202028",
+            height=80,
+        )
+        self.wave_card.pack(fill="x", pady=(0, 6))
+        self.wave_card.pack_propagate(False)
+
+        self.waveform = ProminentFluidWaveform(
+            self.wave_card,
+            width=410,
+            height=70,
+        )
+        self.waveform.pack(pady=5)
+
+        # B. User Utterance Glass Card
         self.bubble_frame = ctk.CTkFrame(
             self.body_container,
             fg_color=self.CLR_CARD,
-            corner_radius=14,
+            corner_radius=12,
             border_width=1,
             border_color=self.CLR_BORDER,
         )
@@ -350,11 +352,11 @@ class LayaHUD(ctk.CTk):
             wraplength=400,
             justify="left",
             padx=14,
-            pady=10,
+            pady=8,
         )
         self.query_text.pack(fill="x", anchor="w")
 
-        # B. Real-Time Action Ticker (Live Step Stream)
+        # C. Real-Time Action Ticker (Live Step Stream)
         self.step_container = ctk.CTkFrame(
             self.body_container,
             fg_color=self.CLR_CARD_INNER,
@@ -370,21 +372,21 @@ class LayaHUD(ctk.CTk):
             font=ctk.CTkFont(family="Segoe UI", size=9, weight="bold"),
             text_color=self.CLR_SILVER,
         )
-        self.step_header.pack(anchor="w", padx=12, pady=(6, 2))
+        self.step_header.pack(anchor="w", padx=12, pady=(5, 2))
 
         self.step_box = ctk.CTkTextbox(
             self.step_container,
             fg_color="transparent",
             text_color=self.CLR_SILVER,
             font=ctk.CTkFont(family="Consolas", size=10),
-            height=66,
+            height=58,
             wrap="word",
         )
-        self.step_box.pack(fill="x", padx=6, pady=(0, 6))
+        self.step_box.pack(fill="x", padx=6, pady=(0, 5))
         self.step_box.insert("end", "[System] Autonomous desktop agent online. Voice & email ready.\n")
         self.step_box.configure(state="disabled")
 
-        # C. Assistant Response Card
+        # D. Assistant Response Card
         self.result_container = ctk.CTkFrame(
             self.body_container,
             fg_color=self.CLR_CARD,
@@ -410,8 +412,8 @@ class LayaHUD(ctk.CTk):
             text="🔊 Replay",
             width=58,
             height=20,
-            fg_color="#18181c",
-            hover_color="#2b2b32",
+            fg_color="#181820",
+            hover_color="#2b2b34",
             text_color=self.CLR_SILVER,
             font=ctk.CTkFont(size=9, weight="bold"),
             corner_radius=10,
@@ -426,7 +428,7 @@ class LayaHUD(ctk.CTk):
             font=ctk.CTkFont(family="Segoe UI", size=12),
             wrap="word",
         )
-        self.result_box.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+        self.result_box.pack(fill="both", expand=True, padx=8, pady=(0, 6))
         self.result_box.insert(
             "end",
             "Standing by. Try saying:\n"
@@ -437,7 +439,7 @@ class LayaHUD(ctk.CTk):
         )
         self.result_box.configure(state="disabled")
 
-        # D. Minimalist Quick Action Chips Row
+        # E. Minimalist Quick Action Chips Row
         self.chips_frame = ctk.CTkFrame(self.body_container, fg_color="transparent")
         self.chips_frame.pack(fill="x", pady=(0, 6))
 
@@ -448,8 +450,8 @@ class LayaHUD(ctk.CTk):
                 font=ctk.CTkFont(family="Segoe UI", size=10),
                 height=26,
                 corner_radius=13,
-                fg_color="#121216",
-                hover_color="#1c1c22",
+                fg_color="#121217",
+                hover_color="#1d1d24",
                 border_width=1,
                 border_color=self.CLR_BORDER,
                 text_color=self.CLR_SILVER,
@@ -463,7 +465,7 @@ class LayaHUD(ctk.CTk):
         make_chip("Telegram", "✈️", lambda: self._trigger_fast("telegram_launch_login")).pack(side="left", padx=(0, 4))
         make_chip("Lofi", "🎵", lambda: self._trigger_fast("play_youtube", {"query": "synthwave lofi chillhop mix"})).pack(side="left", padx=(0, 4))
 
-        # E. Input Bar (Pill Entry, Mic Button, Pure White Send Button)
+        # F. Input Bar (Pill Entry, Mic Button, Pure White Send Button)
         self.input_pill = ctk.CTkFrame(
             self.body_container,
             fg_color=self.CLR_CAPSULE,
@@ -481,10 +483,10 @@ class LayaHUD(ctk.CTk):
             text="🎙️",
             width=32,
             height=32,
-            fg_color="#18181c",
-            hover_color="#2b2b32",
+            fg_color="#181820",
+            hover_color="#2b2b34",
             border_width=1,
-            border_color="#2a2a32",
+            border_color="#282834",
             font=ctk.CTkFont(size=13),
             corner_radius=16,
             command=self._on_mic_click,
@@ -519,20 +521,35 @@ class LayaHUD(ctk.CTk):
         self.send_btn.pack(side="right", padx=(4, 6), pady=7)
 
     # -------------------------------------------------------------
-    # 3. Dynamic Waveform & Mic Glow Animation Loop
+    # 3. Dynamic Waveform, Glowing Beacon & Mic Glow Animation Loop
     # -------------------------------------------------------------
     def _animation_loop(self):
         try:
             self.waveform.draw_wave(self.current_state)
 
+            # Pulsing state beacon
+            pulse = (math.sin(time.time() * 4.5) + 1) / 2
+            if self.current_state == "LISTENING":
+                glow_val = int(140 + pulse * 115)
+                self.state_badge.configure(text="● LISTENING", text_color=f"#{glow_val:02x}{glow_val:02x}{glow_val:02x}")
+            elif self.current_state == "PROCESSING":
+                self.state_badge.configure(text="● PROCESSING", text_color=self.CLR_SILVER)
+            elif self.current_state == "SPEAKING":
+                glow_val = int(180 + pulse * 75)
+                self.state_badge.configure(text="● SPEAKING", text_color=f"#{glow_val:02x}{glow_val:02x}{glow_val:02x}")
+            elif self.current_state == "STOPPED":
+                self.state_badge.configure(text="● STOPPED", text_color=self.CLR_ROSE)
+            else:  # IDLE / READY
+                if self.is_core_ready:
+                    self.state_badge.configure(text="● READY", text_color=self.CLR_SILVER)
+
             # Mic button pulsing glow when recording
             if self.current_state == "LISTENING":
-                pulse = (math.sin(time.time() * 6) + 1) / 2
-                glow_val = int(80 + pulse * 175)
-                hex_col = f"#{glow_val:02x}{glow_val:02x}{glow_val:02x}"
-                self.mic_btn.configure(border_color=hex_col, border_width=2)
+                mic_pulse = (math.sin(time.time() * 6) + 1) / 2
+                g = int(90 + mic_pulse * 165)
+                self.mic_btn.configure(border_color=f"#{g:02x}{g:02x}{g:02x}", border_width=2)
             else:
-                self.mic_btn.configure(border_color="#2a2a32", border_width=1)
+                self.mic_btn.configure(border_color="#282834", border_width=1)
 
         except Exception:
             pass
@@ -715,7 +732,6 @@ class LayaHUD(ctk.CTk):
         self._expand_if_collapsed()
         self.is_recording = True
         self.current_state = "LISTENING"
-        self._set_state_badge("● LISTENING", self.CLR_WHITE, "#27272a")
         self.query_text.configure(text="Listening...", text_color=self.CLR_WHITE)
         threading.Thread(target=self._record_and_transcribe_worker, daemon=True).start()
 
@@ -752,7 +768,6 @@ class LayaHUD(ctk.CTk):
             self.wake_detector.pause()
 
         self.current_state = "PROCESSING"
-        self._set_state_badge("● PROCESSING", self.CLR_SILVER, "#1c1c1f")
         self.query_text.configure(text=f"\"{query}\"", text_color=self.CLR_WHITE)
 
         threading.Thread(target=lambda: self._execute_task_worker(query), daemon=True).start()
@@ -809,7 +824,6 @@ class LayaHUD(ctk.CTk):
 
                 elif kind == "core_ready":
                     self.current_state = "IDLE"
-                    self._set_state_badge("● READY", self.CLR_SILVER, "#18181c")
                     self.query_text.configure(
                         text="Listening for voice... (Say 'Clanker', 'Jarvis', or 'Call')",
                         text_color=self.CLR_TEXT_DIM,
@@ -825,8 +839,6 @@ class LayaHUD(ctk.CTk):
                 elif kind == "state":
                     st = args[0]
                     self.current_state = st
-                    if st == "PROCESSING":
-                        self._set_state_badge("● PROCESSING", self.CLR_SILVER, "#1c1c1f")
 
                 elif kind == "step":
                     if not is_interrupt_requested():
@@ -839,7 +851,6 @@ class LayaHUD(ctk.CTk):
 
                 elif kind == "barge_in_stop":
                     self.current_state = "STOPPED"
-                    self._set_state_badge("● STOPPED", self.CLR_ROSE, "#1c1917")
                     self.query_text.configure(text="Stopped. Listening...", text_color=self.CLR_WHITE)
                     if self.wake_detector:
                         self.wake_detector.resume()
@@ -847,7 +858,6 @@ class LayaHUD(ctk.CTk):
                 elif kind == "reset_idle":
                     if self.current_state != "STOPPED":
                         self.current_state = "IDLE"
-                        self._set_state_badge("● READY", self.CLR_SILVER, "#18181c")
                         self.query_text.configure(
                             text="Listening for voice... (Say 'Clanker', 'Jarvis', or 'Call')",
                             text_color=self.CLR_TEXT_DIM,
@@ -858,7 +868,6 @@ class LayaHUD(ctk.CTk):
                 elif kind == "post_execution":
                     if self.current_state != "STOPPED" and not is_interrupt_requested():
                         self.current_state = "SPEAKING"
-                        self._set_state_badge("● COMPLETE", self.CLR_WHITE, "#27272a")
                     if self.wake_detector:
                         self.wake_detector.resume()
 
@@ -868,16 +877,12 @@ class LayaHUD(ctk.CTk):
         # Auto-reset badge and visualizer to READY once speech finishes
         if self.current_state == "SPEAKING" and not self.tts.is_speaking():
             self.current_state = "IDLE"
-            self._set_state_badge("● READY", self.CLR_SILVER, "#18181c")
             self.query_text.configure(
                 text="Listening for voice... (Say 'Clanker', 'Jarvis', or 'Call')",
                 text_color=self.CLR_TEXT_DIM,
             )
 
         self.after(35, self._drain_queue)
-
-    def _set_state_badge(self, text: str, fg: str, bg: str):
-        self.state_badge.configure(text=text, text_color=fg, fg_color=bg)
 
     def _append_step(self, step_text: str):
         self.step_box.configure(state="normal")
