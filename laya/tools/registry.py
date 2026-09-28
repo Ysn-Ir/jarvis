@@ -152,6 +152,40 @@ class ToolRegistry:
             parameters={"shape_type": "string", "radius": "optional integer", "center_x": "optional integer", "center_y": "optional integer"},
         )
 
+        from laya.orchestrator.memory import get_memory_store
+        mem = get_memory_store()
+        self.register(
+            name="set_reminder",
+            description="Schedule a timed reminder that alerts the user via TTS and Windows desktop toast notification. Use when user says 'remind me to X in Y minutes/hours'.",
+            tier=1,
+            handler=mem.add_reminder,
+            parameters={"message": "string", "minutes": "optional float", "hours": "optional float", "seconds": "optional float"},
+        )
+        self.register(
+            name="list_reminders",
+            description="List all scheduled pending reminders that have not yet fired.",
+            tier=1,
+            handler=mem.list_reminders,
+            parameters={},
+        )
+
+        from laya.fast_path.executor import get_fast_path_executor
+        fp = get_fast_path_executor()
+        self.register(
+            name="record_screen",
+            description="Start, stop, or toggle screen video recording to Videos/Captures (.mp4 format).",
+            tier=1,
+            handler=fp.record_screen,
+            parameters={"duration": "optional int"},
+        )
+        self.register(
+            name="stop_screen_recording",
+            description="Stop any active screen recording and save the video.",
+            tier=1,
+            handler=fp.stop_screen_recording,
+            parameters={},
+        )
+
     def search_tools(self, query: str) -> List[Dict[str, Any]]:
         """Dynamic tool discovery to avoid over-tooling prompt degradation."""
         q = query.lower()

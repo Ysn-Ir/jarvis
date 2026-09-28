@@ -462,6 +462,30 @@ TOOLS_SCHEMA: List[Dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "record_screen",
+            "description": "Start, stop, or toggle screen video recording to Videos/Captures (.mp4 format).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "duration": {"type": "integer", "description": "Optional recording duration in seconds (0 for indefinite until stopped)"}
+                }
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "stop_screen_recording",
+            "description": "Stop any active screen recording and save the video file.",
+            "parameters": {
+                "type": "object",
+                "properties": {}
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "check_system",
             "description": "Query live system telemetry: battery percentage, RAM utilization, CPU load, or local IP address.",
             "parameters": {

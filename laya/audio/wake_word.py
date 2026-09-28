@@ -46,7 +46,7 @@ def compile_wake_patterns() -> Tuple[re.Pattern, Set[str]]:
         if p_clean and p_clean not in all_phrases:
             all_phrases.append(p_clean)
 
-    for p in ["clanker","call", "assistant", "computer", "jarvis", "system", "hey", "yo"]:
+    for p in ["metalhead","scrapbox","clanka","clanker","call", "assistant", "computer", "jarvis", "system", "hey", "yo"]:
         if p not in all_phrases:
             all_phrases.append(p)
 

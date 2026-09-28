@@ -64,7 +64,7 @@ class MemeReactionEngine:
         foid_signals = [
             "foid", "foid nearby", "foid detected", "foid alert",
             "woman nearby", "girl nearby", "female detected", "females detected",
-            "woman alert", "strike my cortisol"
+            "woman alert", "strike my cortisol", "spike my cortisol"
         ]
         if any(w in text for w in foid_signals):
             return "foid_alert"

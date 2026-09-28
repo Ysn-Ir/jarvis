@@ -11,6 +11,7 @@ import socket
 import datetime
 import subprocess
 import ctypes
+import threading
 from pathlib import Path
 from typing import Dict, Any, Optional
 
@@ -30,12 +31,30 @@ class FastPathExecutor:
 
     def __init__(self):
         self.last_created_folder: Optional[str] = None
+        self._screen_recorder_thread: Optional[threading.Thread] = None
+        self._screen_recorder_stop = threading.Event()
+        self._screen_recorder_file: Optional[Path] = None
 
     @classmethod
     def get_instance(cls) -> "FastPathExecutor":
         if cls._instance is None:
             cls._instance = cls()
         return cls._instance
+
+    def set_reminder(self, message: str, minutes: float = 0, hours: float = 0, seconds: float = 0) -> str:
+        """Schedule a timed reminder instantly via MemoryStore."""
+        from laya.orchestrator.memory import get_memory_store
+        return get_memory_store().add_reminder(
+            message=message,
+            minutes=float(minutes),
+            hours=float(hours),
+            seconds=float(seconds)
+        )
+
+    def list_reminders(self) -> str:
+        """List all pending reminders instantly."""
+        from laya.orchestrator.memory import get_memory_store
+        return get_memory_store().list_reminders()
 
     # -------------------------------------------------------------
     # Emergency Abort & Stop Control (<0.0ms)
@@ -44,6 +63,11 @@ class FastPathExecutor:
         """Immediately abort all ongoing operations, speech synthesis, and automation."""
         from laya.tools.interrupt_manager import request_interrupt
         request_interrupt("User requested stop")
+        if self._screen_recorder_thread and self._screen_recorder_thread.is_alive():
+            try:
+                self.stop_screen_recording()
+            except Exception:
+                pass
         try:
             from laya.audio.tts import get_tts_engine
             get_tts_engine().stop()
@@ -334,14 +358,83 @@ class FastPathExecutor:
             except Exception:
                 return f"Failed to capture photo: {e}"
 
-    def record_screen(self) -> str:
-        """Toggle screen recording via native Windows Game Bar shortcut (Win + Alt + R)."""
-        try:
-            pyautogui.hotkey('win', 'alt', 'r')
-            time.sleep(0.1)
-            return "Screen recording toggled (Win + Alt + R). Videos save to Videos/Captures."
-        except Exception as e:
-            return f"Failed to trigger screen recording: {e}"
+    def record_screen(self, duration: int = 0) -> str:
+        """Toggle or record screen. If duration > 0, records for that many seconds. If currently recording, stops it."""
+        if self._screen_recorder_thread and self._screen_recorder_thread.is_alive():
+            return self.stop_screen_recording()
+        return self.start_screen_recording(duration=duration)
+
+    def start_screen_recording(self, duration: int = 0) -> str:
+        """Start capturing screen video to Videos/Captures using native mss + OpenCV."""
+        if self._screen_recorder_thread and self._screen_recorder_thread.is_alive():
+            return "Screen recording is already in progress. Say 'stop recording' to finish."
+
+        out_dir = Path.home() / "Videos" / "Captures"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        filename = f"screen_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
+        filepath = out_dir / filename
+        self._screen_recorder_file = filepath
+        self._screen_recorder_stop.clear()
+
+        def _record_worker():
+            try:
+                import mss
+                import cv2
+                import numpy as np
+                with mss.mss() as sct:
+                    monitor = sct.monitors[1]
+                    width = monitor["width"]
+                    height = monitor["height"]
+                    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                    fps = 15.0
+                    out = cv2.VideoWriter(str(filepath), fourcc, fps, (width, height))
+                    start_time = time.time()
+                    frame_delay = 1.0 / fps
+
+                    while not self._screen_recorder_stop.is_set():
+                        t0 = time.time()
+                        img = np.array(sct.grab(monitor))
+                        frame = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+                        out.write(frame)
+
+                        if duration > 0 and (time.time() - start_time) >= duration:
+                            break
+
+                        elapsed = time.time() - t0
+                        if elapsed < frame_delay:
+                            time.sleep(frame_delay - elapsed)
+
+                    out.release()
+            except Exception as e:
+                # Fallback to Xbox Game Bar hotkey
+                try:
+                    pyautogui.hotkey('win', 'alt', 'r')
+                except Exception:
+                    pass
+
+        self._screen_recorder_thread = threading.Thread(target=_record_worker, daemon=True, name="ScreenRecorderThread")
+        self._screen_recorder_thread.start()
+
+        if duration > 0:
+            return f"Recording screen for {duration} seconds to Videos/Captures/{filename}."
+        return f"Screen recording started. Video is saving to Videos/Captures/{filename}. Say 'stop recording' when done."
+
+    def stop_screen_recording(self) -> str:
+        """Stop active screen recording."""
+        if not (self._screen_recorder_thread and self._screen_recorder_thread.is_alive()):
+            # Also send win+alt+r in case Xbox Game Bar was running
+            try:
+                pyautogui.hotkey('win', 'alt', 'r')
+            except Exception:
+                pass
+            return "No active screen recording was running (or toggled Windows Game Bar)."
+
+        self._screen_recorder_stop.set()
+        self._screen_recorder_thread.join(timeout=3.0)
+        saved_file = self._screen_recorder_file
+        if saved_file and saved_file.exists():
+            return f"Screen recording stopped. Saved to {saved_file.name} in Videos/Captures."
+        return "Screen recording stopped."
 
     def record_camera_video(self, duration: int = 5) -> str:
         """Record a short video clip from the webcam and save to Videos/Captures."""

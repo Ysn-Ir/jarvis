@@ -59,7 +59,7 @@ class IntentRouter:
         text = re.sub(r"\s+(?:now|please|for me|quickly|right now|a bit|a little bit)$", "", text, flags=re.IGNORECASE).strip()
 
         # Extreme Mode 1: Foid Alert Mode (<0.0ms)
-        if re.search(r"\b(?:foid(?:\s+(?:nearby|detected|alert|warning))?|woman\s+nearby|girl\s+nearby|female\s+detected|females\s+detected|foid\s+foid\s+go\s+away|strike\s+my\s+cortisol)\b", text, re.I):
+        if re.search(r"\b(?:foid(?:\s+(?:nearby|detected|alert|warning))?|woman\s+nearby|girl\s+nearby|female\s+detected|females\s+detected|foid\s+foid\s+go\s+away|strike\s+my\s+cortisol|spike\s+my\s+cortisol)\b", text, re.I):
             return RouteDecision(
                 path=ExecutionPath.FAST_PATH,
                 action="foid_alert_mode",
@@ -623,6 +623,35 @@ class IntentRouter:
                 reasoning="Instant clarification for underspecified messaging request."
             )
 
+        # Timed Reminders (<0.0ms Fast Path)
+        remind_match = re.search(
+            r"^(?:can\s+you\s+|please\s+)?(?:remind\s+(?:me\s+)?(?:to\s+|about\s+)?|set\s+(?:a\s+)?reminder\s+(?:to\s+|for\s+)?)(.+?)\s+(?:in|after)\s+(\d+(?:\.\d+)?)\s*(seconds?|secs?|minutes?|mins?|hours?|hrs?)$",
+            text,
+            re.I
+        )
+        if remind_match:
+            rem_msg = remind_match.group(1).strip()
+            num_val = float(remind_match.group(2))
+            unit = remind_match.group(3).lower()
+            secs = num_val if "sec" in unit else 0
+            mins = num_val if "min" in unit else 0
+            hrs = num_val if "hour" in unit or "hr" in unit else 0
+            return RouteDecision(
+                path=ExecutionPath.FAST_PATH,
+                action="set_reminder",
+                params={"message": rem_msg, "seconds": secs, "minutes": mins, "hours": hrs},
+                confidence=1.0,
+                reasoning="Instant timed reminder scheduling."
+            )
+
+        if re.search(r"^(?:list|show|view|get|check)(?:\s+(?:all|my|pending))?\s+reminders$", text, re.I) or text in ["reminders", "my reminders", "what are my reminders"]:
+            return RouteDecision(
+                path=ExecutionPath.FAST_PATH,
+                action="list_reminders",
+                confidence=1.0,
+                reasoning="Instant reminder listing."
+            )
+
         # Universal Cross-Platform Messaging (Telegram / WhatsApp) (<0.0ms)
         gen_msg_match = re.search(
             r"\b(?:send\s+(?:a\s+)?(?:message|text|something)\s+to|message|text|tell)\s+([a-zA-Z0-9_\-\.]+)(?:\s*(?:saying|that|with|:)\s*|\s*:\s*|\s+)(.*)$",
@@ -802,8 +831,18 @@ class IntentRouter:
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="open_camera")
         if any(w in text for w in ["record video", "take video", "take a video", "record camera", "record a video", "take video record", "video record"]):
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="record_camera_video", params={"duration": 5})
-        if any(w in text for w in ["record screen", "start screen recording", "record the screen", "screen record", "stop screen recording", "toggle screen recording"]):
-            return RouteDecision(path=ExecutionPath.FAST_PATH, action="record_screen")
+
+        if any(w in text for w in ["stop screen recording", "stop recording screen", "stop recording", "stop video recording"]):
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="stop_screen_recording")
+
+        screen_rec_match = re.search(
+            r"\b(?:record\s+(?:the\s+)?screen|screen\s+record|start\s+(?:a\s+)?screen\s+recording|toggle\s+screen\s+recording)\b(?:\s+(?:for\s+)?(\d+)\s*(?:seconds?|secs?))?",
+            text,
+            re.I
+        )
+        if screen_rec_match:
+            rec_dur = int(screen_rec_match.group(1)) if screen_rec_match.group(1) else 0
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="record_screen", params={"duration": rec_dur})
 
         # Telegram Messaging & Calls (<0.0ms)
         tg_send = re.search(

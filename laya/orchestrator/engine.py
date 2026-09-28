@@ -242,6 +242,18 @@ class OrchestratorEngine:
             elif tool == "list_reminders":
                 return self.memory.list_reminders()
 
+            # Screen Recording & Media Capture
+            elif tool in ["record_screen", "start_screen_recording", "screen_record"]:
+                return self.fast_path.record_screen(duration=int(args.get("duration", 0)))
+            elif tool in ["stop_screen_recording", "stop_recording"]:
+                return self.fast_path.stop_screen_recording()
+            elif tool in ["take_screenshot", "screenshot"]:
+                return self.fast_path.take_screenshot()
+            elif tool in ["take_photo", "capture_photo"]:
+                return self.fast_path.take_photo()
+            elif tool in ["record_camera_video", "record_video"]:
+                return self.fast_path.record_camera_video(duration=int(args.get("duration", 5)))
+
             # Telemetry & Diagnostics
             elif tool in ["check_system", "check_battery", "battery"]:
                 metric = str(args.get("metric", "battery")).lower()
