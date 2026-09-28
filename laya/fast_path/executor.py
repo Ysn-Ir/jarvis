@@ -840,72 +840,6 @@ class FastPathExecutor:
         else:
             return f"Could not locate or launch WhatsApp to call '{contact}'."
 
-    def whatsapp_message(self, contact: str, message: str) -> str:
-        """Send a message to a specific contact on WhatsApp instantly with zero LLM delay."""
-        contact = contact.strip()
-        message = message.strip()
-
-        # 1. Check local contact store for phone number
-        from laya.tools.contacts_store import get_contacts_store
-        c_record = get_contacts_store().get_contact(contact)
-        target_phone = c_record.get("whatsapp") or c_record.get("phone") if c_record else None
-
-        # 2. Check if contact itself is a direct phone number
-        digits = re.sub(r"[^\d]", "", contact)
-        if not target_phone and len(digits) >= 7 and (contact.startswith("+") or len(digits) == len(contact.replace(" ", "").replace("-", ""))):
-            target_phone = digits
-
-        if target_phone:
-            url = f"whatsapp://send?phone={re.sub(r'[^\\d]', '', target_phone)}&text={urllib.parse.quote(message)}"
-            try:
-                os.startfile(url)
-                time.sleep(1.0)
-                pyautogui.press("enter")
-                display_name = c_record["name"] if c_record else contact
-                return f"Dispatched WhatsApp message to {display_name}: '{message}'"
-            except Exception:
-                pass
-
-        # 3. Named contact lookup via WhatsApp desktop
-        from laya.tools.win32_utils import ensure_desktop_access, robust_bring_to_front, find_window_by_query
-        ensure_desktop_access()
-
-        win = find_window_by_query("whatsapp")
-        if not win or not win.get("hwnd"):
-            try:
-                os.startfile("whatsapp:")
-            except Exception:
-                subprocess.Popen('start "" "whatsapp:"', shell=True)
-            time.sleep(1.2)
-            win = find_window_by_query("whatsapp")
-
-        if win and win.get("hwnd"):
-            hwnd = win["hwnd"]
-            robust_bring_to_front(hwnd)
-            time.sleep(0.25)
-            pyautogui.press("escape")
-            time.sleep(0.1)
-            pyautogui.hotkey("ctrl", "f")
-            time.sleep(0.2)
-            pyperclip.copy(contact)
-            pyautogui.hotkey("ctrl", "v")
-            time.sleep(0.6)
-            pyautogui.press("enter")
-            time.sleep(0.4)
-
-            if message:
-                pyperclip.copy(message)
-                pyautogui.hotkey("ctrl", "v")
-                time.sleep(0.15)
-                pyautogui.press("enter")
-                return f"Dispatched WhatsApp message to '{contact}': {message}"
-            else:
-                return f"Opened WhatsApp chat with '{contact}'."
-        else:
-            url = f"https://web.whatsapp.com/send?text={urllib.parse.quote(message)}"
-            os.startfile(url)
-            return f"Opened WhatsApp to send message to '{contact}'."
-
     # -------------------------------------------------------------
     # Universal Messaging & Telegram (Send, Read, Search, Call)
     # -------------------------------------------------------------
@@ -937,87 +871,18 @@ class FastPathExecutor:
         # 3. Default to Telegram
         return self.telegram_send_message(recipient=recipient, message=message)
 
-    def telegram_message(self, contact: str, message: str) -> str:
-        """Send a message to a specific contact on Telegram with zero LLM delay."""
-        from laya.tools.telegram_client import get_telegram_manager
-        return get_telegram_manager().send_message(recipient=contact, message=message)
-
-    def telegram_send_message(self, recipient: str, message: str) -> str:
-        return self.telegram_message(contact=recipient, message=message)
-
-    def telegram_voice_call(self, recipient: str, call_type: str = "voice") -> str:
-        """Initiate a voice or video call on Telegram via TelegramManager."""
-        from laya.tools.telegram_client import get_telegram_manager
-        return get_telegram_manager().call(recipient=recipient, call_type=call_type)
-
-    def telegram_read(self, contact: str, limit: int = 5) -> str:
-        """Read recent messages from a contact on Telegram."""
-        from laya.tools.telegram_client import get_telegram_manager
-        return get_telegram_manager().read_messages(recipient=contact, limit=limit)
-
-    def telegram_read_messages(self, chat: str = "me", limit: int = 5) -> str:
-        return self.telegram_read(contact=chat, limit=limit)
-
-    def telegram_search(self, query: str, limit: int = 5) -> str:
-        """Search messages across Telegram."""
-        from laya.tools.telegram_client import get_telegram_manager
-        return get_telegram_manager().search_messages(query=query, limit=limit)
-
-    def telegram_search_messages(self, query: str, limit: int = 5) -> str:
-        return self.telegram_search(query=query, limit=limit)
-
-    def telegram_broadcast(self, message: str, limit: int = 30) -> str:
-        """Broadcast a message to contacts and active chats on Telegram."""
-        from laya.tools.telegram_client import get_telegram_manager
-        return get_telegram_manager().broadcast_message(message=message, limit=limit)
-
-    def broadcast_message(self, message: str, limit: int = 30) -> str:
-        """Universal broadcast message to contacts across platforms."""
-        return self.telegram_broadcast(message=message, limit=limit)
-
-    def telegram_sync_contacts(self) -> str:
-        """Sync Telegram contacts into local Laya address book."""
-        from laya.tools.telegram_client import get_telegram_manager
-        return get_telegram_manager().sync_telegram_contacts()
-
-    def telegram_list_contacts(self) -> str:
-        """List contacts from Telegram."""
-        from laya.tools.telegram_client import get_telegram_manager
-        return get_telegram_manager().list_telegram_contacts()
-
-    def telegram_launch(self, target: str = "") -> str:
-        """Launch or bring Telegram Desktop to front with zero LLM delay."""
-        from laya.tools.telegram_client import get_telegram_manager
-        return get_telegram_manager().open_telegram(target=target)
-
-    def open_telegram(self, target: str = "") -> str:
-        return self.telegram_launch(target=target)
-
-    def telegram_messages(self) -> str:
-        return self.telegram_launch()
-
-    def telegram_launch_login(self) -> str:
-        """Launch the Telegram login and setup GUI."""
-        from laya.tools.telegram_client import get_telegram_manager
-        return get_telegram_manager().launch_login_gui()
-
-    def telegram_save_credentials(self, api_id: str, api_hash: str) -> str:
-        """Save Telegram API credentials."""
-        from laya.tools.telegram_client import get_telegram_manager
-        return get_telegram_manager().save_credentials(api_id, api_hash)
-
-    def telegram_call(self, contact: str, call_type: str = "voice") -> str:
+    def telegram_call(self, contact: str = "", recipient: str = "", call_type: str = "voice") -> str:
         """Call a contact on Telegram instantly with zero LLM delay."""
-        contact = contact.strip()
+        target_name = (contact or recipient or "").strip()
         from laya.tools.contacts_store import get_contacts_store
-        c_record = get_contacts_store().get_contact(contact)
-        target = (c_record.get("telegram") if c_record else None) or contact.lstrip("@")
+        c_record = get_contacts_store().get_contact(target_name)
+        target = (c_record.get("telegram") if c_record else None) or target_name.lstrip("@")
         clean_user = target.lstrip("@")
 
         from laya.tools.win32_utils import ensure_desktop_access, robust_bring_to_front, find_window_by_query
         ensure_desktop_access()
 
-        # First, open the chat via tg:// protocol — most reliable
+        # Open the chat via tg:// deep-link — most reliable way to reach a specific user
         try:
             import urllib.parse as _up
             os.startfile(f"tg://resolve?domain={_up.quote(clean_user)}")
@@ -1030,11 +895,16 @@ class FastPathExecutor:
             hwnd = win["hwnd"]
             robust_bring_to_front(hwnd)
             time.sleep(0.2)
-            # Ctrl+U triggers voice call in Telegram Desktop
-            pyautogui.hotkey("ctrl", "u")
-            return f"Initiated Telegram voice call to '{contact}'."
+            pyautogui.hotkey("ctrl", "u")  # Ctrl+U triggers voice call in Telegram Desktop
+            return f"Initiated Telegram voice call to '{target_name}'."
 
-        return f"Opened Telegram chat for '{contact}'. Use Ctrl+U to start a call."
+        # Fallback: let TelegramManager try
+        try:
+            from laya.tools.telegram_client import TelegramManager
+            return TelegramManager.get_instance().start_call(recipient=target, call_type=call_type)
+        except Exception:
+            pass
+        return f"Opened Telegram for '{target_name}'. Use Ctrl+U to start a call."
 
     # -------------------------------------------------------------
     # Contact Book CRUD Operations (Zero LLM, Instant)
@@ -1104,10 +974,6 @@ class FastPathExecutor:
     def send_telegram(self, recipient: str = "", contact: str = "", message: str = "") -> str:
         return self.telegram_message(recipient=recipient, contact=contact, message=message)
 
-    def telegram_call(self, recipient: str = "", contact: str = "", call_type: str = "voice") -> str:
-        from laya.tools.telegram_client import TelegramManager
-        target = recipient or contact or ""
-        return TelegramManager.get_instance().start_call(recipient=target, call_type=call_type)
 
     def whatsapp_message(self, contact: str = "", recipient: str = "", message: str = "") -> str:
         """Send a message to a contact, phone number, or the active/latest conversation on WhatsApp."""
@@ -1248,15 +1114,6 @@ class FastPathExecutor:
     def send_whatsapp(self, contact: str = "", recipient: str = "", message: str = "") -> str:
         return self.whatsapp_message(contact=contact, recipient=recipient, message=message)
 
-    def whatsapp_call(self, contact: str = "", recipient: str = "", call_type: str = "voice") -> str:
-        from laya.tools.win32_utils import find_window_by_query, robust_bring_to_front
-        target = contact or recipient or ""
-        win = find_window_by_query("whatsapp")
-        if win and win.get("hwnd"):
-            robust_bring_to_front(win["hwnd"])
-            return f"Initiated WhatsApp {call_type} call to {target}."
-        return f"WhatsApp is not running to call {target}."
-
     # -------------------------------------------------------------
     # 3 Extreme Meme Modes (Foid Alert, Chud Destruct, Lockdown)
     # -------------------------------------------------------------
@@ -1365,12 +1222,6 @@ class FastPathExecutor:
 
     # NOTE: browser_search, browser_open_url, play_youtube are defined above (lines ~569-534)
     # Keeping them as single canonical definitions to avoid Python override shadowing.
-
-    def stop_action(self) -> str:
-        """Trigger universal interruption across all running operations."""
-        from laya.tools.interrupt_manager import request_interrupt
-        request_interrupt("User voice request to stop")
-        return "Operation stopped."
 
     def hide_hud(self) -> str:
         """Hide the HUD interface from screen."""

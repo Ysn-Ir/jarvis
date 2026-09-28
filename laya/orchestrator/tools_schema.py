@@ -433,6 +433,35 @@ TOOLS_SCHEMA: List[Dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "set_reminder",
+            "description": "Set a timed reminder. When the time comes, Laya will speak the reminder aloud and show a Windows notification. Use when the user says things like 'remind me to X in Y minutes', 'remind me to call someone at 3pm', 'set a timer for X', or 'remember to X in Y hours'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "message": {"type": "string", "description": "What to remind the user about (e.g. 'call mom', 'take your medicine', 'check the oven')"},
+                    "minutes": {"type": "number", "description": "Minutes from now to fire the reminder (can be fractional, e.g. 1.5 for 90 seconds). Use 0 if specifying hours or seconds only."},
+                    "hours": {"type": "number", "description": "Hours from now. Use 0 if specifying minutes only."},
+                    "seconds": {"type": "number", "description": "Additional seconds. Usually 0 unless precision matters."}
+                },
+                "required": ["message"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_reminders",
+            "description": "List all pending (not yet fired) reminders that have been scheduled.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "check_system",
             "description": "Query live system telemetry: battery percentage, RAM utilization, CPU load, or local IP address.",
             "parameters": {

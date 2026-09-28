@@ -54,6 +54,8 @@ Available Tools:
 - send_email(recipient: str, subject: str = "", body: str = ""): Draft and open email.
 - add_memory(fact: str): Store a fact or preference in durable memory when user says 'remember X'.
 - query_memory(query: str): Retrieve stored facts or memories when user asks 'what did I ask you to remember?'.
+- set_reminder(message: str, minutes: float = 0, hours: float = 0, seconds: float = 0): Schedule a timed reminder spoken via TTS + Windows notification. Use for 'remind me to X in Y minutes/hours', 'set a timer for X', 'remember to call X in Y minutes'.
+- list_reminders(): List all pending upcoming reminders.
 - create_word_document(topic: str, content: str = ""): Create rich styled Word document (.docx).
 - create_excel_sheet(topic: str): Create styled Excel spreadsheet (.xlsx).
 - create_note(content: str): Open Notepad and write note content (.txt).
@@ -70,8 +72,9 @@ CRITICAL RULES FOR MULTI-STEP TASKS:
 2. When creating a file inside a new folder, specify the location as the created folder or 'desktop/<folder_name>'.
 3. When asked where a file or folder is located, use get_file_info.
 4. When told 'remember X', call add_memory(fact='X').
-5. When asked 'what did I ask you to remember?', call query_memory(query='all').
-6. ALWAYS output a valid JSON object:
+5. When told 'remind me to X in Y minutes/hours', call set_reminder(message='X', minutes=Y) or set_reminder(message='X', hours=Y).
+6. When asked 'what did I ask you to remember?', call query_memory(query='all').
+7. ALWAYS output a valid JSON object:
 {{
   "actions": [
     {{"tool": "tool_name", "args": {{"param": "val"}}}}

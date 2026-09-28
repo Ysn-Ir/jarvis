@@ -232,6 +232,15 @@ class OrchestratorEngine:
                 return self.memory.add_fact(args.get("fact", ""))
             elif tool == "query_memory":
                 return self.memory.search_facts(args.get("query", ""))
+            elif tool == "set_reminder":
+                return self.memory.add_reminder(
+                    message=args.get("message", ""),
+                    minutes=float(args.get("minutes", 0)),
+                    hours=float(args.get("hours", 0)),
+                    seconds=float(args.get("seconds", 0)),
+                )
+            elif tool == "list_reminders":
+                return self.memory.list_reminders()
 
             # Telemetry & Diagnostics
             elif tool in ["check_system", "check_battery", "battery"]:

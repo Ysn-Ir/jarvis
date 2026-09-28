@@ -69,12 +69,27 @@ class MemeReactionEngine:
         if any(w in text for w in foid_signals):
             return "foid_alert"
 
-        # 2. Chud Take & Insult Mode (Self-Destruction Sequence + Chud Image)
+        # 2. Chud Take & Insult Mode (chud image + alert)
         chud_signals = [
-            "you suck", "you're stupid", "you are stupid", "shut up idiot", "retarded",
-            "trash bot", "useless bot", "you're dumb", "you are dumb", "fuck you",
+            # Direct insults
+            "you suck", "you're stupid", "you are stupid", "you're dumb", "you are dumb",
+            "you're useless", "you are useless", "you're garbage", "you are garbage",
+            "you're trash", "you are trash", "you're pathetic", "you're terrible",
+            "you're the worst", "you are the worst", "you're awful", "you're horrible",
+            "you're an idiot", "you're a joke", "you're broken", "you're annoying",
+            "shut up", "shut up idiot", "shut up moron", "shut up bot",
+            "fuck you", "fuck off", "go fuck yourself",
+            "you piece of shit", "piece of shit",
+            # Standalone insults
+            "dumbass", "dipshit", "jackass", "asshole", "bastard",
+            "idiot", "moron", "imbecile", "halfwit", "dimwit", "nitwit", "braindead",
+            "dumbfuck", "numbnuts",
+            # Bot-specific
+            "trash bot", "useless bot", "garbage bot", "terrible bot",
+            "worst bot", "worst ai", "i hate you", "i hate this bot",
+            # Meme/chud triggers
             "chud take", "chud mode", "chudjak", "nothing ever happens", "billions must",
-            "chud take detected", "self destruction", "self-destruction"
+            "chud take detected",
         ]
         if any(w in text for w in chud_signals):
             return "chud_destruct"

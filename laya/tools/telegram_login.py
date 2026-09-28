@@ -129,7 +129,36 @@ def launch_gui_authenticator(default_api_id="", default_api_hash=""):
     status_lbl = tk.Label(root, text="Fill credentials and click 'Send Code'", font=("Segoe UI", 9), fg="#a1a1aa", bg="#121214")
     status_lbl.pack(pady=(16, 8))
 
-    client_holder = {}
+    import threading
+    import concurrent.futures
+
+    # --------------------------------------------------------------------------
+    # One persistent background event loop — created once, never closed.
+    # The TelegramClient is bound to this loop from connect() through disconnect().
+    # Both "Send Code" and "Verify" run on the SAME loop so the connection stays valid.
+    # --------------------------------------------------------------------------
+    _bg_loop = asyncio.new_event_loop()
+    _bg_thread = threading.Thread(
+        target=_bg_loop.run_forever,
+        daemon=True,
+        name="LayaTelegramLoginLoop",
+    )
+    _bg_thread.start()
+
+    client_holder = {}  # shares the live client between Send Code → Verify steps
+
+    def _submit(coro, done_cb):
+        """Submit a coroutine to the persistent loop; call done_cb(result, err) on main thread."""
+        future = asyncio.run_coroutine_threadsafe(coro, _bg_loop)
+
+        def _wait():
+            try:
+                result = future.result(timeout=30)
+                root.after(0, lambda: done_cb(result, None))
+            except Exception as e:
+                root.after(0, lambda err=e: done_cb(None, err))
+
+        threading.Thread(target=_wait, daemon=True).start()
 
     def on_request_code():
         api_id_val = id_entry.get().strip()
@@ -144,42 +173,89 @@ def launch_gui_authenticator(default_api_id="", default_api_hash=""):
         btn_request.configure(state="disabled")
 
         async def _req():
-            try:
-                from telethon import TelegramClient
-                SESSION_PATH.parent.mkdir(parents=True, exist_ok=True)
-                client = TelegramClient(str(SESSION_PATH), int(api_id_val), api_hash_val)
-                await client.connect()
-                if await client.is_user_authorized():
-                    me = await client.get_me()
-                    save_env_credentials(api_id_val, api_hash_val)
-                    await client.disconnect()
-                    status_lbl.configure(text=f"Already logged in as {me.first_name}!", fg="#4ade80")
-                    messagebox.showinfo("Success", f"Already logged in as {me.first_name} (@{me.username or 'No username'})")
-                    root.destroy()
-                    return
+            from telethon import TelegramClient
+            SESSION_PATH.parent.mkdir(parents=True, exist_ok=True)
+            client = TelegramClient(str(SESSION_PATH), int(api_id_val), api_hash_val,
+                                    loop=_bg_loop)
+            await client.connect()
+            if await client.is_user_authorized():
+                me = await client.get_me()
+                save_env_credentials(api_id_val, api_hash_val)
+                await client.disconnect()
+                return ("already", me)
+            await client.send_code_request(phone_val)
+            # Keep client alive — do NOT disconnect here
+            client_holder["client"] = client
+            client_holder["phone"] = phone_val
+            client_holder["api_id"] = api_id_val
+            client_holder["api_hash"] = api_hash_val
+            return ("code_sent", None)
 
-                res = await client.send_code_request(phone_val)
-                client_holder["client"] = client
-                client_holder["phone_hash"] = getattr(res, "phone_code_hash", "")
+        def _on_done(result, err):
+            if err:
+                status_lbl.configure(text=f"Error: {err}", fg="#f87171")
+                btn_request.configure(state="normal")
+                return
+            kind, me = result
+            if kind == "already":
+                status_lbl.configure(text=f"Already logged in as {me.first_name}!", fg="#4ade80")
+                messagebox.showinfo("Success", f"Already logged in as {me.first_name} (@{me.username or 'No username'})")
+                root.destroy()
+            else:
                 code_entry.configure(state="normal")
                 code_entry.focus()
                 btn_verify.configure(state="normal")
-                status_lbl.configure(text="Verification code sent! Enter code below and click Verify.", fg="#4ade80")
-            except Exception as ex:
-                status_lbl.configure(text=f"Error: {ex}", fg="#f87171")
-                btn_request.configure(state="normal")
+                status_lbl.configure(text="Code sent! Enter it below and click Verify.", fg="#4ade80")
 
-        asyncio.run(_req())
+        _submit(_req(), _on_done)
 
     def on_verify():
         code_val = code_entry.get().strip()
         pwd_val = pwd_entry.get().strip()
         client = client_holder.get("client")
-        phone_val = phone_entry.get().strip()
-        api_id_val = id_entry.get().strip()
-        api_hash_val = hash_entry.get().strip()
+        phone_val = client_holder.get("phone", phone_entry.get().strip())
+        api_id_val = client_holder.get("api_id", id_entry.get().strip())
+        api_hash_val = client_holder.get("api_hash", hash_entry.get().strip())
+        needs_2fa = client_holder.get("needs_2fa", False)
 
-        if not code_val or not client:
+        if not client:
+            messagebox.showerror("Error", "Please send the code first.")
+            return
+
+        # ── State 2: user already got SessionPasswordNeededError, now submitting password ──
+        if needs_2fa:
+            if not pwd_val:
+                status_lbl.configure(
+                    text="Enter your Telegram cloud password in the field above, then click Verify again.",
+                    fg="#f87171"
+                )
+                pwd_entry.configure(bg="#3a1212")
+                pwd_entry.focus()
+                return
+
+            status_lbl.configure(text="Verifying 2FA password...", fg="#38bdf8")
+
+            async def _do_2fa():
+                await client.sign_in(password=pwd_val)
+                me = await client.get_me()
+                save_env_credentials(api_id_val, api_hash_val)
+                await client.disconnect()
+                return me
+
+            def _on_2fa(me, err):
+                if err:
+                    status_lbl.configure(text=f"Wrong password: {err}", fg="#f87171")
+                    pwd_entry.configure(bg="#3a1212")
+                    return
+                status_lbl.configure(text=f"Logged in as {me.first_name}!", fg="#4ade80")
+                messagebox.showinfo("Success", f"Logged in as {me.first_name} (@{me.username or 'No username'})!\nTelegram API is ready.")
+                root.destroy()
+
+            _submit(_do_2fa(), _on_2fa)
+            return
+
+        # ── State 1: First verify with code ──
+        if not code_val:
             messagebox.showerror("Error", "Please enter the code received on Telegram.")
             return
 
@@ -187,31 +263,40 @@ def launch_gui_authenticator(default_api_id="", default_api_hash=""):
 
         async def _sign_in():
             try:
-                try:
-                    await client.sign_in(phone=phone_val, code=code_val)
-                except Exception as e:
-                    if "Two-steps verification" in str(e) or "SessionPasswordNeededError" in type(e).__name__:
-                        if pwd_val:
-                            await client.sign_in(password=pwd_val)
-                        else:
-                            status_lbl.configure(text="Two-Step Verification password required.", fg="#f87171")
-                            messagebox.showerror("2FA Required", "Your account has 2FA enabled. Enter your password above.")
-                            return
-                    else:
-                        raise e
+                await client.sign_in(phone=phone_val, code=code_val)
+            except Exception as e:
+                if "Two-steps verification" in str(e) or "SessionPasswordNeededError" in type(e).__name__:
+                    raise RuntimeError("2FA_NEEDED")
+                raise
+            me = await client.get_me()
+            save_env_credentials(api_id_val, api_hash_val)
+            await client.disconnect()
+            return me
 
-                me = await client.get_me()
-                save_env_credentials(api_id_val, api_hash_val)
-                await client.disconnect()
-                status_lbl.configure(text=f"Success! Logged in as {me.first_name}.", fg="#4ade80")
-                messagebox.showinfo("Success", f"Logged in as {me.first_name} (@{me.username or 'No username'})!\nTelegram headless mode is ready.")
-                root.destroy()
-            except Exception as ex:
-                status_lbl.configure(text=f"Verification failed: {ex}", fg="#f87171")
+        def _on_verify_done(me, err):
+            if err:
+                if "2FA_NEEDED" in str(err):
+                    client_holder["needs_2fa"] = True
+                    pwd_entry.configure(state="normal", bg="#1c2e1c")
+                    pwd_entry.delete(0, "end")
+                    pwd_entry.focus()
+                    status_lbl.configure(
+                        text="Telegram requires your cloud password. Enter it above and click Verify.",
+                        fg="#fbbf24"
+                    )
+                else:
+                    status_lbl.configure(text=f"Verification failed: {err}", fg="#f87171")
+                return
+            status_lbl.configure(text=f"Logged in as {me.first_name}!", fg="#4ade80")
+            messagebox.showinfo("Success", f"Logged in as {me.first_name} (@{me.username or 'No username'})!\nTelegram API messaging is now active.")
+            root.destroy()
 
-        asyncio.run(_sign_in())
+        _submit(_sign_in(), _on_verify_done)
+
 
     btn_frame = tk.Frame(root, bg="#121214")
+
+
     btn_frame.pack(pady=12)
 
     btn_request = tk.Button(

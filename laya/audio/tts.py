@@ -120,23 +120,37 @@ class TTSEngine:
                     time.sleep(0.15)
 
             if cache_file.exists() and cache_file.stat().st_size > 100:
-                try:
-                    if not pygame.mixer.get_init():
-                        pygame.mixer.init()
-                    pygame.mixer.music.load(str(cache_file))
-                    pygame.mixer.music.play()
-                    while pygame.mixer.music.get_busy() and not self._stop_event.is_set():
-                        time.sleep(0.04)
-                    return True
-                finally:
+                for play_attempt in range(2):
                     try:
-                        pygame.mixer.music.unload()
-                        # Clean up cache file safely
-                        if cache_file.exists():
-                            cache_file.unlink(missing_ok=True)
-                    except Exception:
-                        pass
-
+                        if not pygame.mixer.get_init():
+                            pygame.mixer.init()
+                        pygame.mixer.music.load(str(cache_file))
+                        pygame.mixer.music.play()
+                        while pygame.mixer.music.get_busy() and not self._stop_event.is_set():
+                            time.sleep(0.04)
+                        return True
+                    except Exception as play_err:
+                        if play_attempt == 0:
+                            # Audio device may have changed — try full reinit
+                            try:
+                                pygame.mixer.quit()
+                                time.sleep(0.1)
+                                pygame.mixer.init()
+                            except Exception:
+                                pass
+                        else:
+                            print(f"[TTS Playback] Falling back to SAPI5: {play_err}", file=sys.stderr)
+                    finally:
+                        try:
+                            pygame.mixer.music.unload()
+                        except Exception:
+                            pass
+                try:
+                    if cache_file.exists():
+                        cache_file.unlink(missing_ok=True)
+                except Exception:
+                    pass
+                return True
         except Exception as e:
             print(f"[TTS Engine Notice] Neural voice failed: {e}", file=sys.stderr)
             return False

@@ -6,6 +6,8 @@ Stores user preferences, facts, and state across sessions.
 
 import sqlite3
 import datetime
+import threading
+import time
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 
@@ -49,8 +51,19 @@ class MemoryStore:
                 started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS reminders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                message TEXT NOT NULL,
+                fire_at TIMESTAMP NOT NULL,
+                fired INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
         conn.commit()
         conn.close()
+        # Start background reminder polling thread (daemon so it dies with app)
+        self._start_reminder_daemon()
 
     def add_fact(self, fact: str, category: str = "general") -> str:
         """Store an extracted durable fact or preference."""
@@ -70,6 +83,117 @@ class MemoryStore:
             return f"Remembered: '{clean_fact}'"
         except Exception as e:
             return f"Failed to store memory: {e}"
+
+    def add_reminder(self, message: str, minutes: float = 0, hours: float = 0, seconds: float = 0) -> str:
+        """Schedule a reminder that fires via TTS + Windows toast after the specified delay."""
+        total_seconds = seconds + minutes * 60 + hours * 3600
+        if total_seconds <= 0:
+            return "Reminder time must be in the future."
+
+        fire_at = datetime.datetime.now() + datetime.timedelta(seconds=total_seconds)
+        try:
+            conn = sqlite3.connect(str(self.db_path))
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT INTO reminders (message, fire_at) VALUES (?, ?)",
+                (message.strip(), fire_at.strftime("%Y-%m-%d %H:%M:%S")),
+            )
+            conn.commit()
+            conn.close()
+            human_time = self._format_delta(total_seconds)
+            return f"Reminder set: I'll remind you to '{message}' in {human_time}."
+        except Exception as e:
+            return f"Failed to set reminder: {e}"
+
+    @staticmethod
+    def _format_delta(seconds: float) -> str:
+        """Human-readable time delta string."""
+        seconds = int(seconds)
+        if seconds < 60:
+            return f"{seconds} second{'s' if seconds != 1 else ''}"
+        if seconds < 3600:
+            m = seconds // 60
+            s = seconds % 60
+            return f"{m} minute{'s' if m != 1 else ''}{f' {s}s' if s else ''}"
+        h = seconds // 3600
+        m = (seconds % 3600) // 60
+        return f"{h} hour{'s' if h != 1 else ''}{f' {m}m' if m else ''}"
+
+    def _start_reminder_daemon(self):
+        """Background thread that checks reminders every 10 seconds and fires them."""
+        def _poll():
+            while True:
+                try:
+                    self._fire_due_reminders()
+                except Exception:
+                    pass
+                time.sleep(10)
+
+        t = threading.Thread(target=_poll, daemon=True, name="LayaReminderDaemon")
+        t.start()
+
+    def _fire_due_reminders(self):
+        """Fire any reminders that are due and mark them as fired."""
+        now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        try:
+            conn = sqlite3.connect(str(self.db_path))
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT id, message FROM reminders WHERE fired=0 AND fire_at <= ?",
+                (now_str,)
+            )
+            due = cursor.fetchall()
+            for r_id, message in due:
+                cursor.execute("UPDATE reminders SET fired=1 WHERE id=?", (r_id,))
+                self._dispatch_reminder(message)
+            conn.commit()
+            conn.close()
+        except Exception:
+            pass
+
+    def _dispatch_reminder(self, message: str):
+        """Fire reminder via TTS and Windows toast notification."""
+        # Windows toast via PowerShell (no extra dependencies)
+        try:
+            import subprocess
+            safe_msg = message.replace("'", "").replace('"', "")
+            ps_cmd = (
+                '[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null;'
+                '$template = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02);'
+                + f'$template.GetElementsByTagName("text")[0].InnerText = "Laya Reminder";'
+                + f'$template.GetElementsByTagName("text")[1].InnerText = "{safe_msg}";'
+                + '[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("Laya").Show([Windows.UI.Notifications.ToastNotification]::new($template))'
+            )
+            subprocess.Popen(
+                ["powershell", "-WindowStyle", "Hidden", "-Command", ps_cmd],
+                creationflags=0x08000000  # CREATE_NO_WINDOW
+            )
+        except Exception:
+            pass
+        # Also speak it via TTS
+        try:
+            from laya.audio.tts import get_tts_engine
+            get_tts_engine().speak(f"Reminder: {message}")
+        except Exception:
+            pass
+
+    def list_reminders(self) -> str:
+        """Return all pending (unfired) reminders."""
+        try:
+            conn = sqlite3.connect(str(self.db_path))
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT message, fire_at FROM reminders WHERE fired=0 ORDER BY fire_at"
+            )
+            rows = cursor.fetchall()
+            conn.close()
+            if not rows:
+                return "No pending reminders."
+            lines = [f"• {msg} — at {ft}" for msg, ft in rows]
+            return "Pending reminders:\n" + "\n".join(lines)
+        except Exception as e:
+            return f"Error listing reminders: {e}"
+
 
     def search_facts(self, query: str) -> str:
         """Search memory for relevant facts using keyword matching."""

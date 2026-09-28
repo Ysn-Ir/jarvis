@@ -76,7 +76,7 @@ class STTEngine:
 
         # Reject near-silence — Whisper hallucinates on quiet audio
         rms = float(np.sqrt(np.mean(audio_data.astype(np.float32)**2)))
-        if rms < 0.003:
+        if rms < 0.006:
             return ""
 
         try:

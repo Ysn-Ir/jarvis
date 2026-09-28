@@ -67,8 +67,22 @@ class IntentRouter:
                 reasoning="Foid detected: activating emergency siren and red alert mode."
             )
 
-        # Extreme Mode 2: Chud Take / Insult Self-Destruct Mode (<0.0ms)
-        if re.search(r"\b(?:you\s+suck|you're\s+stupid|you\s+are\s+stupid|shut\s+up\s+idiot|retarded|trash\s+bot|useless\s+bot|you're\s+dumb|you\s+are\s+dumb|fuck\s+you|chud\s+take(?:\s+detected)?|chud\s+mode|activate\s+chud)\b", text, re.I):
+        # Extreme Mode 2: Chud Take / Insult Mode (<0.0ms)
+        # Broad pattern: catches most common insults and dismissals directed at the assistant
+        if re.search(
+            r"\b(?:"
+            r"you\s+suck|you'?re?\s+(?:stupid|dumb|trash|useless|garbage|pathetic|terrible|awful|horrible|a\s+joke|an?\s+idiot|annoying|broken|bad)|you\s+(?:are|were)\s+(?:stupid|dumb|useless|garbage|terrible|bad)|shut\s+up(?:\s+(?:idiot|stupid|bot|dumbass|moron))?|"
+            r"fuck\s+(?:you|off|this|that)|go\s+fuck\s+yourself|you\s+piece\s+of\s+(?:shit|garbage|trash|crap)|piece\s+of\s+(?:shit|garbage)|"
+            r"dumbass|dipshit|jackass|asshole|bastard|motherfucker|dumb(?:ass|fuck)|braindead|brain\s+dead|"
+            r"idiot|moron|imbecile|cretin|halfwit|dimwit|nitwit|twit|numbnuts|"
+            r"trash\s+(?:bot|ai|assistant)|useless\s+(?:bot|ai|assistant|piece|garbage|shit)|garbage\s+(?:bot|ai|assistant)|"
+            r"chud\s+take(?:\s+detected)?|chud\s+mode|activate\s+chud|chudjak|"
+            r"nothing\s+ever\s+happens|billions\s+must|terrible\s+(?:bot|ai|assistant)|"
+            r"i\s+hate\s+(?:you|this(?:\s+bot)?)|worst\s+(?:bot|ai|assistant)|"
+            r"you'?re?\s+(?:the\s+)?worst|absolute\s+(?:garbage|trash|moron|idiot)|total\s+(?:garbage|trash)"
+            r")\b",
+            text, re.I
+        ):
             return RouteDecision(
                 path=ExecutionPath.FAST_PATH,
                 action="chud_self_destruct",

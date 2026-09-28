@@ -926,14 +926,55 @@ class LayaHUD(ctk.CTk):
         if dt_ms > 0:
             self.step_header.configure(text=f"✦ LIVE ACTIONS ({dt_ms:.0f}ms)")
 
+    def _flash_border(self, colors: list, interval_ms: int = 200):
+        """Cycle the HUD window border through a color list until _stop_flash_border() is called."""
+        self._flash_active = True
+        self._flash_colors = colors
+        self._flash_interval = interval_ms
+        self._flash_index = 0
+        self._do_flash_step()
+
+    def _do_flash_step(self):
+        if not getattr(self, "_flash_active", False):
+            return
+        colors = getattr(self, "_flash_colors", ["#22222a"])
+        idx = getattr(self, "_flash_index", 0)
+        color = colors[idx % len(colors)]
+        try:
+            self.configure(border_color=color, border_width=3)
+        except Exception:
+            pass
+        self._flash_index = (idx + 1) % len(colors)
+        self._flash_after_id = self.after(self._flash_interval, self._do_flash_step)
+
+    def _stop_flash_border(self):
+        """Stop any running border flash animation and restore default border."""
+        self._flash_active = False
+        after_id = getattr(self, "_flash_after_id", None)
+        if after_id:
+            try:
+                self.after_cancel(after_id)
+            except Exception:
+                pass
+            self._flash_after_id = None
+        try:
+            self.configure(border_color="#2a2a35", border_width=1)
+        except Exception:
+            pass
+
     def _handle_extreme_mode(self, mode_name: str):
         self._expand_if_collapsed()
+        self._stop_flash_border()  # Kill any running flash loop before starting new mode
+
         if mode_name == "foid_alert":
             self.state_badge.configure(text="🚨 FOID DETECTED", fg_color="#b91c1c", text_color="#ffffff")
             self._flash_border(["#ff1133", "#3a0008", "#ff1133", "#3a0008", "#ff1133", "#3a0008", "#ff1133", "#22222a"], interval_ms=180)
-            self._render_result("🚨 FOID ALERT DETECTED:\nFoid, foid, go away, strike my cortisol another day!", 0)
+            self._render_result("🚨 FOID ALERT DETECTED:\nFoid, foid, go away, spike my cortisol another day!", 0)
 
         elif mode_name == "chud_destruct":
+            if getattr(self, "_chud_active", False):
+                return  # Already running — don't stack countdowns
+            self._chud_active = True
             self.state_badge.configure(text="⚠️ CHUD TAKE DETECTED", fg_color="#ea580c", text_color="#ffffff")
             chud_img = self.meme_engine.get_ctk_image("chudjak", size=(130, 130))
             if chud_img:
@@ -941,7 +982,6 @@ class LayaHUD(ctk.CTk):
                 self.meme_image_label.configure(image=chud_img)
                 self.meme_image_label.pack(pady=(6, 4))
                 self.result_box.pack(fill="both", expand=True, padx=8, pady=(0, 6))
-            # Start full 10-second screen blinking countdown (allows phrase to complete in full)
             self._start_chud_countdown(seconds_left=10)
 
         elif mode_name == "lockdown":
@@ -950,62 +990,134 @@ class LayaHUD(ctk.CTk):
             self._render_result("⚡ EXTREME LOCKDOWN ACTIVATED:\nCortisol levels critical. Locking in.", 0)
 
     def _start_chud_countdown(self, seconds_left: int = 10):
-        """Blink the entire screen with emergency amber/red strobe while counting down from 10."""
-        # Create full-screen translucent emergency strobe overlay if not already present
-        if not hasattr(self, "_strobe_overlay") or not self._strobe_overlay:
-            try:
-                ov = ctk.CTkToplevel(self)
-                ov.overrideredirect(True)
-                ov.attributes("-fullscreen", True)
-                ov.attributes("-topmost", True)
-                ov.attributes("-alpha", 0.22)
-                ov.configure(fg_color="#ff1a00")
-                self._strobe_overlay = ov
-            except Exception:
-                self._strobe_overlay = None
+        """Full-screen red strobe + comic countdown. Does NOT close the app."""
+        # Spawn a native Win32 strobe window (actually covers the entire screen)
+        if not hasattr(self, "_strobe_hwnd") or not self._strobe_hwnd:
+            self._strobe_hwnd = self._create_strobe_window()
 
-        # Schedule 4 screen strobe blinks within this 1-second interval
+        # 4 rapid blinks this second (250ms each)
         for sub_step, is_on in enumerate([True, False, True, False]):
             self.after(sub_step * 250, lambda on=is_on: self._blink_strobe(on))
 
         if seconds_left > 0:
             count_bar = "█" * seconds_left + "░" * (10 - seconds_left)
             self._render_result(
-                f"💥 CHUD TAKE DETECTED:\n"
-                f"Oh, something happened! Initiating self destruction sequence:\n\n"
-                f"   [ T-MINUS {seconds_left} SECONDS ]   \n"
-                f"   {count_bar}\n"
-                f"Emergency alert strobe active. Core purging...", 0
+                f"💥 CHUD TAKE DETECTED\n"
+                f"Oh no... something happened. Initiating chud purge:\n\n"
+                f"   [ T-MINUS {seconds_left:02d} SECONDS ]\n"
+                f"   {count_bar}\n\n"
+                f"Chud detected. Self-cleaning in progress...", 0
             )
-            # Repeat next second
             self.after(1000, lambda: self._start_chud_countdown(seconds_left - 1))
         else:
+            # Sequence complete — clean up strobe and KEEP THE APP RUNNING
             self._render_result(
-                "💥 DETONATION COMPLETE:\n"
-                "Chud take eliminated. System self destruction executed.\n"
-                "Closing application now. Goodbye.", 0
+                "✅ CHUD PURGE COMPLETE\n"
+                "Chud take successfully neutralised. Cortisol levels normalising.\n"
+                "The system has survived. You're welcome.", 0
             )
-            # Clean up strobe overlay and terminate application cleanly
-            self.after(1400, self._cleanup_and_destroy)
+            self._chud_active = False
+            self.after(800, self._cleanup_strobe)
+            # Reset badge to normal after a delay
+            self.after(4000, self._reset_state_badge)
+
+    def _create_strobe_window(self):
+        """Create a real full-screen red strobe window via pure Win32 ctypes."""
+        try:
+            user32 = ctypes.windll.user32
+            kernel32 = ctypes.windll.kernel32
+            gdi32 = ctypes.windll.gdi32
+
+            sw = user32.GetSystemMetrics(0)
+            sh = user32.GetSystemMetrics(1)
+            hinstance = kernel32.GetModuleHandleW(None)
+
+            class_name = "LayaStrobeWnd"
+
+            wnd_proc_type = ctypes.WINFUNCTYPE(
+                ctypes.c_long,
+                ctypes.c_void_p,
+                ctypes.c_uint,
+                ctypes.c_size_t,
+                ctypes.c_size_t,
+            )
+
+            def wnd_proc(hwnd, msg, wparam, lparam):
+                WM_DESTROY = 0x0002
+                if msg == WM_DESTROY:
+                    user32.PostQuitMessage(0)
+                    return 0
+                return user32.DefWindowProcW(hwnd, msg, wparam, lparam)
+
+            self._strobe_wnd_proc_cb = wnd_proc_type(wnd_proc)
+
+            class WNDCLASS(ctypes.Structure):
+                _fields_ = [
+                    ("style", ctypes.c_uint), ("lpfnWndProc", wnd_proc_type),
+                    ("cbClsExtra", ctypes.c_int), ("cbWndExtra", ctypes.c_int),
+                    ("hInstance", ctypes.c_void_p), ("hIcon", ctypes.c_void_p),
+                    ("hCursor", ctypes.c_void_p), ("hbrBackground", ctypes.c_void_p),
+                    ("lpszMenuName", ctypes.c_wchar_p), ("lpszClassName", ctypes.c_wchar_p),
+                ]
+
+            wc = WNDCLASS()
+            wc.lpfnWndProc = self._strobe_wnd_proc_cb
+            wc.hInstance = hinstance
+            wc.lpszClassName = class_name
+            RED_BRUSH = gdi32.CreateSolidBrush(0x000022FF)  # BGR = 0x0000FF = pure red
+            wc.hbrBackground = RED_BRUSH
+            user32.RegisterClassW(ctypes.byref(wc))
+
+            WS_EX_TOPMOST = 0x00000008
+            WS_EX_LAYERED = 0x00080000
+            WS_EX_TOOLWINDOW = 0x00000080
+            WS_POPUP = 0x80000000
+
+            hwnd = user32.CreateWindowExW(
+                WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_TOOLWINDOW,
+                class_name, "", WS_POPUP,
+                0, 0, sw, sh,
+                None, None, hinstance, None
+            )
+            if hwnd:
+                LWA_ALPHA = 0x02
+                user32.SetLayeredWindowAttributes(hwnd, 0, int(255 * 0.28), LWA_ALPHA)
+                user32.ShowWindow(hwnd, 5)  # SW_SHOW
+                user32.UpdateWindow(hwnd)
+            return hwnd
+        except Exception:
+            return None
 
     def _blink_strobe(self, is_on: bool):
         try:
-            if hasattr(self, "_strobe_overlay") and self._strobe_overlay and self._strobe_overlay.winfo_exists():
-                self._strobe_overlay.attributes("-alpha", 0.25 if is_on else 0.0)
-            # Flash HUD borders simultaneously
+            if getattr(self, "_strobe_hwnd", None):
+                user32 = ctypes.windll.user32
+                LWA_ALPHA = 0x02
+                alpha = int(255 * 0.35) if is_on else 0
+                user32.SetLayeredWindowAttributes(self._strobe_hwnd, 0, alpha, LWA_ALPHA)
+            # Also flash HUD border
             border_c = "#ff2200" if is_on else self.CLR_BORDER
             self.island_frame.configure(border_color=border_c)
             self.result_container.configure(border_color=border_c)
         except Exception:
             pass
 
-    def _cleanup_and_destroy(self):
+    def _cleanup_strobe(self):
         try:
-            if hasattr(self, "_strobe_overlay") and self._strobe_overlay and self._strobe_overlay.winfo_exists():
-                self._strobe_overlay.destroy()
+            if getattr(self, "_strobe_hwnd", None):
+                ctypes.windll.user32.DestroyWindow(self._strobe_hwnd)
+                self._strobe_hwnd = None
         except Exception:
             pass
-        self._on_close()
+
+    def _reset_state_badge(self):
+        """Return state badge to normal after a meme mode ends."""
+        try:
+            self.state_badge.configure(text="● READY", fg_color="#1a1a24", text_color="#6b7280")
+            self.island_frame.configure(border_color=self.CLR_BORDER)
+            self.result_container.configure(border_color=self.CLR_BORDER)
+        except Exception:
+            pass
 
     def _flash_border(self, color_seq: list, interval_ms: int = 180, idx: int = 0):
         if idx < len(color_seq):
