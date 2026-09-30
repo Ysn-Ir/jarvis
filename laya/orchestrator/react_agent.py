@@ -78,6 +78,9 @@ Persona & Delivery:
 Current Desktop State:
 {desktop_env}
 
+User Profile & Long-Term Memory (Learned From Experience):
+{memory_summary}
+
 Core Execution Paradigms:
 1. UNIVERSAL CODE EXECUTION:
    - For calculations, regex, data transforms, and complex logic, use `run_python`.

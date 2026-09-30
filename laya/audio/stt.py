@@ -44,12 +44,21 @@ class STTEngine:
             )
             print(f"[STT] Model loaded successfully in {(time.time() - t0)*1000:.1f}ms")
         except Exception as e:
-            print(f"[STT Warning] Failed loading on {self.device} ({e}). Falling back to CPU int8...", file=sys.stderr)
+            print(f"[STT Notice] Could not load '{self.model_name}' on {self.device}: {e}", file=sys.stderr)
+            if self.model_name != "small.en" and self.device == "cuda":
+                try:
+                    print("[STT Fallback] Loading local cached 'small.en' on CUDA float16...")
+                    self.model_name = "small.en"
+                    self.model = WhisperModel("small.en", device="cuda", compute_type="float16")
+                    print("[STT] Cached 'small.en' CUDA model loaded successfully.")
+                    return
+                except Exception as ex_cuda:
+                    print(f"[STT Warning] CUDA small.en fallback failed: {ex_cuda}", file=sys.stderr)
             try:
                 self.device = "cpu"
                 self.compute_type = "int8"
                 self.model = WhisperModel(
-                    self.model_name,
+                    "small.en",
                     device="cpu",
                     compute_type="int8",
                 )

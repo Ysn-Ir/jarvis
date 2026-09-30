@@ -220,6 +220,62 @@ class ToolRegistry:
             handler=fp.lock_workstation,
             parameters={"delay_sec": "optional integer"},
         )
+        self.register(
+            name="start_screen_recording",
+            description="Start recording screen video continuously.",
+            tier=1,
+            handler=fp.start_screen_recording,
+            parameters={"duration": "optional int"},
+        )
+        self.register(
+            name="record_camera_video",
+            description="Record or toggle camera video.",
+            tier=1,
+            handler=fp.record_camera_video,
+            parameters={"duration": "optional int"},
+        )
+        self.register(
+            name="start_camera_recording",
+            description="Start recording camera video continuously.",
+            tier=1,
+            handler=fp.start_camera_recording,
+            parameters={"duration": "optional int"},
+        )
+        self.register(
+            name="stop_camera_recording",
+            description="Stop active camera video recording.",
+            tier=1,
+            handler=fp.stop_camera_recording,
+            parameters={},
+        )
+        self.register(
+            name="stop_all_recordings",
+            description="Stop all active screen and camera recordings.",
+            tier=1,
+            handler=fp.stop_all_recordings,
+            parameters={},
+        )
+        self.register(
+            name="save_user_fact",
+            description="Save a durable fact about the user.",
+            tier=1,
+            handler=mem.add_fact,
+            parameters={"fact": "string"},
+        )
+        self.register(
+            name="update_user_profile",
+            description="Update user profile attribute.",
+            tier=1,
+            handler=mem.set_profile,
+            parameters={"key": "string", "value": "string"},
+        )
+        self.register(
+            name="who_am_i",
+            description="Recall user identity and profile from durable memory.",
+            tier=1,
+            handler=fp.who_am_i,
+            parameters={},
+        )
 
     def search_tools(self, query: str) -> List[Dict[str, Any]]:
         """Dynamic tool discovery to avoid over-tooling prompt degradation."""

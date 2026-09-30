@@ -34,6 +34,9 @@ class FastPathExecutor:
         self._screen_recorder_thread: Optional[threading.Thread] = None
         self._screen_recorder_stop = threading.Event()
         self._screen_recorder_file: Optional[Path] = None
+        self._camera_recorder_thread: Optional[threading.Thread] = None
+        self._camera_recorder_stop = threading.Event()
+        self._camera_recorder_file: Optional[Path] = None
 
     @classmethod
     def get_instance(cls) -> "FastPathExecutor":
@@ -483,47 +486,90 @@ class FastPathExecutor:
             return f"Screen recording stopped. Saved to {saved_file.name} in Videos/Captures."
         return "Screen recording stopped."
 
-    def record_camera_video(self, duration: int = 5) -> str:
-        """Record a short video clip from the webcam and save to Videos/Captures."""
-        try:
-            import cv2
-            out_dir = Path.home() / "Videos" / "Captures"
-            out_dir.mkdir(parents=True, exist_ok=True)
-            filename = f"webcam_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
-            filepath = out_dir / filename
+    def record_camera_video(self, duration: int = 0) -> str:
+        """Toggle or record camera video asynchronously without blocking. If duration > 0, records for that many seconds. If currently recording, stops it."""
+        if self._camera_recorder_thread and self._camera_recorder_thread.is_alive():
+            return self.stop_camera_recording()
+        return self.start_camera_recording(duration=duration)
 
-            cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
-            if not cap.isOpened():
-                cap = cv2.VideoCapture(0)
-            if not cap.isOpened():
-                os.startfile("microsoft.windows.camera:")
-                return "Webcam not detected. Opened Camera app."
+    def start_camera_recording(self, duration: int = 0) -> str:
+        """Start capturing webcam video in the background without blocking the assistant."""
+        if self._camera_recorder_thread and self._camera_recorder_thread.is_alive():
+            return "Camera recording is already in progress. Say 'stop camera recording' when finished."
 
-            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)) or 640
-            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or 480
-            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-            fps = 20.0
-            out = cv2.VideoWriter(str(filepath), fourcc, fps, (width, height))
+        out_dir = Path.home() / "Videos" / "Captures"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        filename = f"webcam_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
+        filepath = out_dir / filename
+        self._camera_recorder_file = filepath
+        self._camera_recorder_stop.clear()
 
-            total_frames = int(fps * max(2, min(30, int(duration))))
-            for _ in range(total_frames):
-                ret, frame = cap.read()
-                if not ret:
-                    break
-                out.write(frame)
+        def _cam_worker():
+            try:
+                import cv2
+                cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+                if not cap.isOpened():
+                    cap = cv2.VideoCapture(0)
+                if not cap.isOpened():
+                    print("[Camera Recorder] Unable to open webcam.", file=sys.stderr)
+                    return
 
-            cap.release()
-            out.release()
+                width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)) or 640
+                height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or 480
+                fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                fps = 20.0
+                out = cv2.VideoWriter(str(filepath), fourcc, fps, (width, height))
+                start_time = time.time()
+                frame_delay = 1.0 / fps
 
-            if os.path.exists(filepath):
-                try:
-                    os.startfile(str(filepath))
-                except Exception:
-                    pass
-                return f"Recorded {duration}s video saved to {filepath.name}."
-            return "Failed to save video recording."
-        except Exception as e:
-            return f"Error recording video: {e}"
+                while not self._camera_recorder_stop.is_set():
+                    t0 = time.time()
+                    ret, frame = cap.read()
+                    if not ret:
+                        break
+                    out.write(frame)
+
+                    if duration > 0 and (time.time() - start_time) >= duration:
+                        break
+
+                    elapsed = time.time() - t0
+                    if elapsed < frame_delay:
+                        time.sleep(frame_delay - elapsed)
+
+                cap.release()
+                out.release()
+            except Exception as e:
+                print(f"[Camera Recorder Error] {e}", file=sys.stderr)
+
+        self._camera_recorder_thread = threading.Thread(target=_cam_worker, daemon=True, name="CameraRecorderThread")
+        self._camera_recorder_thread.start()
+
+        if duration > 0:
+            return f"Recording camera for {duration} seconds to Videos/Captures/{filename}."
+        return f"Camera recording started. Saving to Videos/Captures/{filename}. Say 'stop camera recording' when finished."
+
+    def stop_camera_recording(self) -> str:
+        """Stop active camera recording."""
+        if not (self._camera_recorder_thread and self._camera_recorder_thread.is_alive()):
+            return "No active camera recording was in progress."
+
+        self._camera_recorder_stop.set()
+        self._camera_recorder_thread.join(timeout=3.0)
+        saved = self._camera_recorder_file
+        if saved and saved.exists():
+            return f"Camera recording stopped. Saved to {saved.name} in Videos/Captures."
+        return "Camera recording stopped."
+
+    def stop_all_recordings(self) -> str:
+        """Stop any active screen or camera recordings."""
+        stopped = []
+        if self._screen_recorder_thread and self._screen_recorder_thread.is_alive():
+            stopped.append(self.stop_screen_recording())
+        if self._camera_recorder_thread and self._camera_recorder_thread.is_alive():
+            stopped.append(self.stop_camera_recording())
+        if stopped:
+            return " ".join(stopped)
+        return "No active recordings were running."
 
     def set_brightness(self, level: int) -> str:
         level = max(0, min(100, int(level)))
@@ -1353,12 +1399,50 @@ class FastPathExecutor:
         ]
         return random.choice(tracks)
 
+    # -------------------------------------------------------------
+    # User Profile & Durable Memory Fast Paths
+    # -------------------------------------------------------------
+    def save_user_fact(self, fact: str) -> str:
+        """Store a durable fact learned from user experience into SQLite."""
+        from laya.orchestrator.memory import get_memory_store
+        clean_fact = fact.strip()
+        if not clean_fact:
+            return "What would you like me to remember?"
+        return get_memory_store().add_fact(clean_fact)
+
+    def update_user_profile(self, key: str, value: str) -> str:
+        """Update a specific user profile field (name, role, location, etc.)."""
+        from laya.orchestrator.memory import get_memory_store
+        k = key.strip().lower()
+        v = value.strip()
+        res = get_memory_store().set_profile(k, v)
+        # Also store as fact for semantic recall
+        get_memory_store().add_fact(f"User's {k} is {v}")
+        return f"Got it. I've updated your {k} to '{v}' in memory."
+
     def who_am_i(self) -> str:
+        """Recall everything learned about the user across sessions."""
         from laya.orchestrator.memory import get_memory_store
         mem = get_memory_store()
         profile = mem.get_user_profile()
-        profile_details = ", ".join([f"{k}: {v}" for k, v in list(profile.items())[:3]]) if profile else "building autonomous AI systems"
-        return f"You are the boss here. I know you're working on: {profile_details}. What are we conquering today?"
+        facts_summary = mem.get_all_summary()
+
+        name = profile.get("name") or profile.get("username")
+        role = profile.get("role") or profile.get("profession") or profile.get("job")
+
+        intro = []
+        if name:
+            intro.append(f"you are {name}")
+        if role:
+            intro.append(f"working as a {role}")
+        for k, v in profile.items():
+            if k not in ["name", "username", "role", "profession", "job"]:
+                intro.append(f"{k}: {v}")
+
+        if intro:
+            details_str = ", ".join(intro)
+            return f"From our history: {details_str}. {facts_summary}"
+        return f"You are the boss here. I have our memory database online. Tell me your name, role, or what to remember anytime!"
 
     # NOTE: browser_search, browser_open_url, play_youtube are defined above (lines ~569-534)
     # Keeping them as single canonical definitions to avoid Python override shadowing.

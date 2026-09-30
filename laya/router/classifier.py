@@ -291,6 +291,36 @@ class IntentRouter:
         ]:
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="turn_screen_on", safety_tier="GREEN", confidence=1.0, reasoning="Instant screen turn-on.")
 
+        # 2c. Screen & Camera Video Recording Controls (<0.0ms)
+        # Stop active recordings
+        if any(w in text for w in ["stop camera recording", "stop camera video", "stop recording camera", "stop camera"]):
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="stop_camera_recording")
+        if any(w in text for w in ["stop screen recording", "stop recording screen", "stop recording", "stop video recording", "stop the recording"]):
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="stop_all_recordings")
+
+        # Camera video recording (asynchronous, continuous by default unless duration given)
+        cam_rec_match = re.search(
+            r"\b(?:record\s+(?:the\s+|a\s+)?(?:camera|webcam|webcam\s+video|camera\s+video)|start\s+(?:a\s+)?(?:camera|webcam)\s+recording|record\s+video\s+(?:with|using|from)\s+(?:the\s+)?(?:camera|webcam))\b(?:\s+(?:for\s+)?(\d+)\s*(?:seconds?|secs?))?",
+            text,
+            re.I
+        )
+        if cam_rec_match:
+            cam_dur = int(cam_rec_match.group(1)) if cam_rec_match.group(1) else 0
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="record_camera_video", params={"duration": cam_dur})
+
+        if text in ["record video", "take video", "take a video", "record camera", "record a video", "video record"]:
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="record_camera_video", params={"duration": 0})
+
+        # Screen recording (asynchronous, continuous by default unless duration given)
+        screen_rec_match = re.search(
+            r"\b(?:record\s+(?:the\s+|my\s+)?screen|start\s+(?:a\s+)?screen\s+recording|start\s+(?:a\s+)?recording|screen\s+record|toggle\s+screen\s+recording)\b(?:\s+(?:for\s+)?(\d+)\s*(?:seconds?|secs?))?",
+            text,
+            re.I
+        )
+        if screen_rec_match:
+            rec_dur = int(screen_rec_match.group(1)) if screen_rec_match.group(1) else 0
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="record_screen", params={"duration": rec_dur})
+
         # 3. Media & Song Controls (<0.0ms)
         if text in ["play music", "pause music", "resume music", "toggle media", "pause", "play", "stop music"]:
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="play_media")
@@ -940,6 +970,41 @@ class IntentRouter:
         ):
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="get_conversation_history")
 
+        # User Memory & Experience Recall (<0.0ms)
+        if (
+            re.search(r"\b(?:who\s+am\s+i|who\s+am\s+i\s+exactly|do\s+you\s+know\s+who\s+i\s+am|tell\s+me\s+about\s+myself|what\s+do\s+you\s+know\s+about\s+me|what\s+is\s+my\s+name|what['']s\s+my\s+name|my\s+profile)\b", text, re.I)
+            or text in ["who am i", "who am i exactly", "what is my name", "whats my name", "what's my name", "tell me about myself", "do you remember me", "what do you know about me"]
+        ):
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="who_am_i", confidence=1.0, reasoning="Instant user identity recall.")
+
+        if (
+            re.search(r"\b(?:who\s+are\s+you|what\s+is\s+your\s+name|what['']s\s+your\s+name|what\s+can\s+you\s+do|introduce\s+yourself)\b", text, re.I)
+            or text in ["who are you", "what are you", "what is your name", "whats your name", "what's your name", "introduce yourself"]
+        ):
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="query_identity", confidence=1.0, reasoning="Instant assistant identity response.")
+
+        # User Facts & Preferences Memorization (<0.0ms)
+        name_stmt = re.search(r"^(?:my\s+name\s+is|call\s+me|i\s+am\s+called)\s+([a-zA-Z\s\-]+)$", text, re.I)
+        if name_stmt:
+            u_name = name_stmt.group(1).strip()
+            if u_name.lower() not in ["ready", "done", "trying", "going", "sorry", "here", "fine"]:
+                return RouteDecision(path=ExecutionPath.FAST_PATH, action="update_user_profile", params={"key": "name", "value": u_name}, confidence=1.0, reasoning="Instant user name memory.")
+
+        role_stmt = re.search(r"^(?:i\s+am\s+a|i\s+work\s+as\s+a|my\s+job\s+is|my\s+profession\s+is)\s+([a-zA-Z\s\-]+)$", text, re.I)
+        if role_stmt:
+            u_role = role_stmt.group(1).strip()
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="update_user_profile", params={"key": "role", "value": u_role}, confidence=1.0, reasoning="Instant user role memory.")
+
+        loc_stmt = re.search(r"^(?:i\s+live\s+in|my\s+location\s+is|i\s+am\s+located\s+in)\s+([a-zA-Z\s\-]+)$", text, re.I)
+        if loc_stmt:
+            u_loc = loc_stmt.group(1).strip()
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="update_user_profile", params={"key": "location", "value": u_loc}, confidence=1.0, reasoning="Instant user location memory.")
+
+        rem_fact = re.search(r"^(?:remember\s+that|remember\s+to|please\s+remember\s+that|remember)\s+(.+)$", text, re.I)
+        if rem_fact and not re.search(r"\b(?:in|after)\s+\d+\s*(?:sec|min|hour)", text, re.I):
+            fact_val = rem_fact.group(1).strip()
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="save_user_fact", params={"fact": fact_val}, confidence=1.0, reasoning="Instant fact memory.")
+
         # 14. Telemetry & Diagnostics (<0.0ms)
         if "battery" in text and not any(w in text for w in ["buy", "order", "replace"]):
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="check_battery")
@@ -982,25 +1047,11 @@ class IntentRouter:
         if any(w in text for w in ["brightness down", "lower brightness", "dimmer"]):
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="brightness_down")
 
-        # Camera & Video / Screen Recording (<0.0ms)
+        # Camera Photo & App Launch (<0.0ms)
         if any(w in text for w in ["take a photo", "take photo", "take a picture", "take picture", "take a selfie", "capture photo", "snap a photo", "snap photo", "take a snapshot"]):
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="take_photo")
-        if any(w in text for w in ["open camera", "launch camera", "start camera", "turn on camera", "camera", "webcam", "take camera"]):
+        if re.search(r"^(?:can\s+you\s+)?(?:open|launch|start|turn\s+on|show)\s+(?:the\s+)?(?:camera|webcam)$|^camera$|^webcam$", text, re.I):
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="open_camera")
-        if any(w in text for w in ["record video", "take video", "take a video", "record camera", "record a video", "take video record", "video record"]):
-            return RouteDecision(path=ExecutionPath.FAST_PATH, action="record_camera_video", params={"duration": 5})
-
-        if any(w in text for w in ["stop screen recording", "stop recording screen", "stop recording", "stop video recording"]):
-            return RouteDecision(path=ExecutionPath.FAST_PATH, action="stop_screen_recording")
-
-        screen_rec_match = re.search(
-            r"\b(?:record\s+(?:the\s+)?screen|screen\s+record|start\s+(?:a\s+)?screen\s+recording|toggle\s+screen\s+recording)\b(?:\s+(?:for\s+)?(\d+)\s*(?:seconds?|secs?))?",
-            text,
-            re.I
-        )
-        if screen_rec_match:
-            rec_dur = int(screen_rec_match.group(1)) if screen_rec_match.group(1) else 0
-            return RouteDecision(path=ExecutionPath.FAST_PATH, action="record_screen", params={"duration": rec_dur})
 
         # Telegram Messaging & Calls (<0.0ms)
         tg_send = re.search(

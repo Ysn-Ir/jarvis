@@ -522,7 +522,44 @@ TOOLS_SCHEMA: List[Dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "record_screen",
-            "description": "Start, stop, or toggle screen video recording to Videos/Captures (.mp4 format).",
+            "description": "Start, stop, or toggle screen video recording to Videos/Captures (.mp4 format). Records indefinitely until told to stop if duration is 0.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "duration": {"type": "integer", "description": "Optional recording duration in seconds (0 for continuous recording until stopped)"}
+                }
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "start_screen_recording",
+            "description": "Start recording the computer screen in the background indefinitely until 'stop recording' is called.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "duration": {"type": "integer", "description": "Optional duration in seconds (default 0 for indefinite)"}
+                }
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "stop_screen_recording",
+            "description": "Stop active screen recording and save the video file.",
+            "parameters": {
+                "type": "object",
+                "properties": {}
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "record_camera_video",
+            "description": "Start, stop, or toggle webcam video recording in the background (.mp4 format). Records indefinitely until stopped if duration is 0.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -534,8 +571,72 @@ TOOLS_SCHEMA: List[Dict[str, Any]] = [
     {
         "type": "function",
         "function": {
-            "name": "stop_screen_recording",
-            "description": "Stop any active screen recording and save the video file.",
+            "name": "start_camera_recording",
+            "description": "Start recording webcam video in the background indefinitely until 'stop camera recording' is called.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "duration": {"type": "integer", "description": "Optional duration in seconds (default 0 for indefinite)"}
+                }
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "stop_camera_recording",
+            "description": "Stop active webcam video recording and save the file.",
+            "parameters": {
+                "type": "object",
+                "properties": {}
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "stop_all_recordings",
+            "description": "Stop any active screen recording or camera recording.",
+            "parameters": {
+                "type": "object",
+                "properties": {}
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "save_user_fact",
+            "description": "Permanently save a personal fact, habit, detail, project, or preference about the user into long-term memory.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "fact": {"type": "string", "description": "The fact or preference to remember about the user"}
+                },
+                "required": ["fact"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "update_user_profile",
+            "description": "Update a core attribute about the user in durable memory (e.g. name, role, email, location, preferences).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "key": {"type": "string", "description": "Profile attribute key like 'name', 'role', 'email', 'location'"},
+                    "value": {"type": "string", "description": "Value to store"}
+                },
+                "required": ["key", "value"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "who_am_i",
+            "description": "Recall everything learned about the user from experience across past conversations (name, role, preferences, facts).",
             "parameters": {
                 "type": "object",
                 "properties": {}
@@ -1228,7 +1329,15 @@ CORE_TOOL_NAMES = {
     "sleep_system",
     "lock_workstation",
     "record_screen",
+    "start_screen_recording",
     "stop_screen_recording",
+    "record_camera_video",
+    "start_camera_recording",
+    "stop_camera_recording",
+    "stop_all_recordings",
+    "save_user_fact",
+    "update_user_profile",
+    "who_am_i",
 }
 
 CORE_TOOLS_SCHEMA: List[Dict[str, Any]] = [

@@ -47,8 +47,8 @@ VAD_ENERGY_THRESHOLD = 0.007       # Balanced speech onset sensitivity (avoids n
 VAD_SILENCE_LIMIT_SEC = 0.85       # Snappy reflex silence limit
 VAD_MIN_SPEECH_SEC = 0.40         # Minimum speech length (0.4s) to reject noise clicks
 
-# Speech-to-Text (STT) Settings
-WHISPER_MODEL_NAME = os.getenv("WHISPER_MODEL", "small.en")
+# Speech-to-Text (STT) Settings: high-accuracy medium.en with instant CUDA small.en fallback
+WHISPER_MODEL_NAME = os.getenv("WHISPER_MODEL", "medium.en")
 WHISPER_DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 WHISPER_COMPUTE_TYPE = "float16" if torch.cuda.is_available() else "int8"
 
