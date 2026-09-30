@@ -475,6 +475,91 @@ TOOLS_SCHEMA: List[Dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "add_task",
+            "description": "Add a new task, event, or todo item with an optional due date to durable memory.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string", "description": "Task description or title"},
+                    "due_date": {"type": "string", "description": "Optional due date or time (e.g. 'tomorrow', 'Friday at 5pm', '2026-10-05')"},
+                    "priority": {"type": "number", "description": "Priority from 1 (normal) to 3 (urgent)"}
+                },
+                "required": ["title"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_tasks",
+            "description": "List scheduled tasks and todos from durable memory.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "status": {"type": "string", "description": "Filter by status: 'pending', 'completed', or 'all'"}
+                }
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "complete_task",
+            "description": "Mark a task as completed in memory.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Task ID or keyword in the title to match"}
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "clear_memory",
+            "description": "Wipe noisy conversational memories and facts, leaving user profile intact.",
+            "parameters": {
+                "type": "object",
+                "properties": {}
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "jump_to_line",
+            "description": "Jump to a specific line number in the currently focused or named editor window (VS Code, Notepad, IDE) via Ctrl+G.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "line_number": {"type": "integer", "description": "Line number to jump to"},
+                    "title_keyword": {"type": "string", "description": "Optional window title keyword (e.g. 'Code', 'Notepad')"}
+                },
+                "required": ["line_number"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "append_to_file",
+            "description": "Append text to an existing or recently created file, resolving 'it' to the last referenced file.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filename_or_path": {"type": "string", "description": "Target filename, path, or 'it' for recently created file"},
+                    "content": {"type": "string", "description": "Content to append to the file"},
+                    "location": {"type": "string", "description": "Optional directory location"}
+                },
+                "required": ["content"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "turn_screen_off",
             "description": "Turn off the physical computer screen, monitor, or display immediately.",
             "parameters": {
@@ -1368,6 +1453,12 @@ CORE_TOOL_NAMES = {
     "set_reminder",
     "list_reminders",
     "cancel_reminders",
+    "add_task",
+    "list_tasks",
+    "complete_task",
+    "clear_memory",
+    "jump_to_line",
+    "append_to_file",
     "turn_screen_off",
     "turn_screen_on",
     "sleep_system",

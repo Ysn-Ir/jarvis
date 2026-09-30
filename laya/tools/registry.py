@@ -297,6 +297,48 @@ class ToolRegistry:
             handler=fp.toggle_hud_mode,
             parameters={"mode": "optional string"},
         )
+        self.register(
+            name="add_task",
+            description="Add a new structured task or event to memory.",
+            tier=1,
+            handler=mem.add_task,
+            parameters={"title": "string", "due_date": "optional string", "priority": "optional integer"},
+        )
+        self.register(
+            name="list_tasks",
+            description="List scheduled tasks from memory.",
+            tier=1,
+            handler=mem.list_tasks,
+            parameters={"status": "optional string"},
+        )
+        self.register(
+            name="complete_task",
+            description="Mark a task as completed in memory.",
+            tier=1,
+            handler=mem.complete_task,
+            parameters={"query": "string"},
+        )
+        self.register(
+            name="clear_memory",
+            description="Clear conversational noise and reset memory.",
+            tier=1,
+            handler=mem.clear_memory,
+            parameters={},
+        )
+        self.register(
+            name="jump_to_line",
+            description="Jump to a specific line number in the active editor via Ctrl+G.",
+            tier=1,
+            handler=fp.jump_to_line,
+            parameters={"line_number": "integer", "title_keyword": "optional string"},
+        )
+        self.register(
+            name="append_to_file",
+            description="Append text directly to a file or last referenced file.",
+            tier=1,
+            handler=fp.append_to_file,
+            parameters={"content": "string", "filename_or_path": "optional string", "location": "optional string"},
+        )
 
     def search_tools(self, query: str) -> List[Dict[str, Any]]:
         """Dynamic tool discovery to avoid over-tooling prompt degradation."""

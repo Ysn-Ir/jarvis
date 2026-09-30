@@ -243,6 +243,31 @@ class OrchestratorEngine:
                 return self.memory.list_reminders()
             elif tool in ["cancel_reminders", "clear_reminders", "cancel_timer", "stop_timer"]:
                 return self.memory.cancel_reminders(query=args.get("query", ""))
+            elif tool in ["add_task", "create_task"]:
+                return self.memory.add_task(
+                    title=args.get("title", ""),
+                    due_date=args.get("due_date", ""),
+                    priority=int(args.get("priority", 1))
+                )
+            elif tool in ["list_tasks", "get_tasks"]:
+                return self.memory.list_tasks(status=args.get("status", "all"))
+            elif tool in ["complete_task", "finish_task"]:
+                return self.memory.complete_task(query=args.get("query", ""))
+            elif tool in ["delete_task", "remove_task"]:
+                return self.memory.delete_task(query=args.get("query", ""))
+            elif tool in ["clear_memory", "wipe_memory", "reset_memory"]:
+                return self.memory.clear_memory()
+            elif tool == "jump_to_line":
+                return self.fast_path.jump_to_line(
+                    line_number=int(args.get("line_number", 1)),
+                    title_keyword=args.get("title_keyword", "")
+                )
+            elif tool == "append_to_file":
+                return self.fast_path.append_to_file(
+                    filename_or_path=args.get("filename_or_path", ""),
+                    content=args.get("content", ""),
+                    location=args.get("location", "")
+                )
 
             # Screen Recording & Media Capture
             elif tool in ["record_screen", "start_screen_recording", "screen_record"]:

@@ -31,6 +31,7 @@ class FastPathExecutor:
 
     def __init__(self):
         self.last_created_folder: Optional[str] = None
+        self.last_created_file: Optional[str] = None
         self._screen_recorder_thread: Optional[threading.Thread] = None
         self._screen_recorder_stop = threading.Event()
         self._screen_recorder_file: Optional[Path] = None
@@ -65,6 +66,31 @@ class FastPathExecutor:
         """Cancel pending reminders or timers."""
         from laya.orchestrator.memory import get_memory_store
         return get_memory_store().cancel_reminders(query=query)
+
+    def add_task(self, title: str, due_date: str = "", priority: int = 1) -> str:
+        """Add a structured task or event to memory store."""
+        from laya.orchestrator.memory import get_memory_store
+        return get_memory_store().add_task(title=title, due_date=due_date, priority=priority)
+
+    def list_tasks(self, status: str = "all") -> str:
+        """List structured tasks from memory store."""
+        from laya.orchestrator.memory import get_memory_store
+        return get_memory_store().list_tasks(status=status)
+
+    def complete_task(self, query: str = "") -> str:
+        """Mark a task as completed in memory store."""
+        from laya.orchestrator.memory import get_memory_store
+        return get_memory_store().complete_task(query=query)
+
+    def delete_task(self, query: str = "") -> str:
+        """Delete a task from memory store."""
+        from laya.orchestrator.memory import get_memory_store
+        return get_memory_store().delete_task(query=query)
+
+    def clear_memory(self) -> str:
+        """Reset and wipe conversational noise from memory store."""
+        from laya.orchestrator.memory import get_memory_store
+        return get_memory_store().clear_memory()
 
     # -------------------------------------------------------------
     # Emergency Abort & Stop Control (<0.0ms)
@@ -793,10 +819,18 @@ class FastPathExecutor:
     # -------------------------------------------------------------
     # Filesystem & OS Automation Primitives (Local Fast Path)
     # -------------------------------------------------------------
-    def create_file(self, filename: str, content: str = "", location: str = "desktop") -> str:
+    def create_file(self, filename: str, content: str = "", location: str = "desktop", open_after: bool = False) -> str:
         """Create a new file with optional content instantly on Desktop or in specified folder."""
         from laya.tools.tier2_os_mcp import get_tier2_tools
-        return get_tier2_tools().create_file(filename=filename, content=content, location=location)
+        res = get_tier2_tools().create_file(filename=filename, content=content, location=location)
+        self.last_created_file = get_tier2_tools().last_created_file
+        if open_after and self.last_created_file and Path(self.last_created_file).exists():
+            try:
+                os.startfile(self.last_created_file)
+                return f"{res} and opened it."
+            except Exception:
+                pass
+        return res
 
     def create_and_open_folder(self, folder_name: str = "New Folder", location: str = "desktop") -> str:
         """Create a new folder instantly on Desktop, Bureau, or specified directory and reveal it in Windows Explorer."""
@@ -845,32 +879,106 @@ class FastPathExecutor:
 
         return f"Created folder '{clean_name}' at '{target.resolve()}'."
 
-    def open_file(self, filename_or_path: str) -> str:
-        """Open any file in its default Windows application instantly."""
+    def open_file(self, filename_or_path: str = "") -> str:
+        """Open any file in its default Windows application instantly (resolving 'it' to last created/used file)."""
+        from laya.tools.tier2_os_mcp import get_tier2_tools
         from laya.tools.filesystem_pro import get_filesystem_pro
-        return get_filesystem_pro().open_file(filename_or_path)
+        target_name = (filename_or_path or "").strip()
+        if target_name.lower() in ["it", "the file", "that file", "this file", "file", "it's", "last file", "recent file", ""]:
+            if self.last_created_file and Path(self.last_created_file).exists():
+                target_name = self.last_created_file
+            elif get_tier2_tools().last_created_file and Path(get_tier2_tools().last_created_file).exists():
+                target_name = get_tier2_tools().last_created_file
+        res = get_filesystem_pro().open_file(target_name)
+        if "Opened" in res:
+            try:
+                resolved = get_filesystem_pro()._resolve_path(target_name)
+                self.last_created_file = str(resolved.resolve())
+                get_tier2_tools().last_created_file = str(resolved.resolve())
+            except Exception:
+                pass
+        return res
 
-    def write_to_file(self, filename: str, content: str) -> str:
-        """Write or append text directly to a file."""
+    def write_to_file(self, filename: str = "", content: str = "") -> str:
+        """Write or overwrite text directly to a file (resolving 'it' to last created/used file)."""
+        from laya.tools.tier2_os_mcp import get_tier2_tools
         from laya.tools.filesystem_pro import get_filesystem_pro
-        target = get_filesystem_pro()._resolve_path(filename)
+        target_name = (filename or "").strip()
+        if target_name.lower() in ["it", "the file", "that file", "this file", "file", "it's", "last file", "recent file", ""]:
+            if self.last_created_file and Path(self.last_created_file).exists():
+                target_name = self.last_created_file
+            elif get_tier2_tools().last_created_file and Path(get_tier2_tools().last_created_file).exists():
+                target_name = get_tier2_tools().last_created_file
+        target = get_filesystem_pro()._resolve_path(target_name)
         try:
             target.parent.mkdir(parents=True, exist_ok=True)
-            with open(target, "a" if target.exists() else "w", encoding="utf-8") as f:
+            with open(target, "w", encoding="utf-8") as f:
                 f.write(content + "\n")
+            self.last_created_file = str(target.resolve())
+            get_tier2_tools().last_created_file = str(target.resolve())
             return f"Wrote to '{target.name}' successfully."
         except Exception as e:
             return f"Failed to write to file: {e}"
+
+    def append_to_file(self, filename_or_path: str = "", content: str = "", location: str = "") -> str:
+        """Append text directly to a file (resolving pronouns like 'it' to the last referenced file)."""
+        from laya.tools.tier2_os_mcp import get_tier2_tools
+        from laya.tools.filesystem_pro import get_filesystem_pro
+        target_name = (filename_or_path or "").strip()
+        if target_name.lower() in ["it", "the file", "that file", "this file", "file", "it's", "last file", "recent file", ""]:
+            if self.last_created_file and Path(self.last_created_file).exists():
+                target_name = self.last_created_file
+            elif get_tier2_tools().last_created_file and Path(get_tier2_tools().last_created_file).exists():
+                target_name = get_tier2_tools().last_created_file
+
+        if location and location.strip() and not Path(target_name).is_absolute():
+            base = get_tier2_tools()._resolve_base_dir(location)
+            target = base / target_name
+        else:
+            target = get_filesystem_pro()._resolve_path(target_name)
+
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with open(target, "a", encoding="utf-8") as f:
+                f.write(content + "\n")
+            self.last_created_file = str(target.resolve())
+            get_tier2_tools().last_created_file = str(target.resolve())
+            return f"Appended text to '{target.name}' successfully."
+        except Exception as e:
+            return f"Failed to append to file: {e}"
 
     def search_files(self, pattern: str, root_dir: str = "desktop") -> str:
         """Search files across Windows and folders."""
         from laya.tools.filesystem_pro import get_filesystem_pro
         return get_filesystem_pro().search_filesystem(pattern=pattern, root_dir=root_dir)
 
-    def delete_file(self, filename_or_path: str) -> str:
-        """Delete a file safely by moving it to the Windows Recycle Bin."""
+    def delete_file(self, filename_or_path: str = "") -> str:
+        """Delete a file safely by moving it to the Windows Recycle Bin (resolving 'it' to last file)."""
+        from laya.tools.tier2_os_mcp import get_tier2_tools
         from laya.tools.filesystem_pro import get_filesystem_pro
-        return get_filesystem_pro().delete_file(filename_or_path)
+        target_name = (filename_or_path or "").strip()
+        if target_name.lower() in ["it", "the file", "that file", "this file", "file", "it's", "last file", "recent file", ""]:
+            if self.last_created_file and Path(self.last_created_file).exists():
+                target_name = self.last_created_file
+            elif get_tier2_tools().last_created_file and Path(get_tier2_tools().last_created_file).exists():
+                target_name = get_tier2_tools().last_created_file
+        res = get_filesystem_pro().delete_file(target_name)
+        if self.last_created_file and (target_name in self.last_created_file or Path(target_name).name == Path(self.last_created_file).name):
+            self.last_created_file = None
+        return res
+
+    def jump_to_line(self, line_number: int, title_keyword: str = "") -> str:
+        """Jump to a specific line number in the active editor or named window (VS Code, Notepad, IDE) via Ctrl+G."""
+        if title_keyword and title_keyword.strip():
+            self.bring_to_front(title_keyword.strip())
+            time.sleep(0.15)
+        # Send Ctrl+G (standard 'Go to line' in VS Code, Notepad, Notepad++, Cursor, Sublime, JetBrains)
+        pyautogui.hotkey("ctrl", "g")
+        time.sleep(0.12)
+        pyautogui.typewrite(str(int(line_number)), interval=0.01)
+        time.sleep(0.05)
+        pyautogui.press("enter")
+        return f"Jumped to line {line_number}."
 
     # -------------------------------------------------------------
     # App Shifting, Splitting & Window Management

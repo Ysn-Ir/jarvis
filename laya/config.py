@@ -14,9 +14,19 @@ dotenv.load_dotenv(ROOT_DIR / ".env")
 DOCS_DIR = Path.home() / "Documents" / "LayaDocs"
 DOCS_DIR.mkdir(parents=True, exist_ok=True)
 
-DATA_DIR = ROOT_DIR / "data"
+# Local SSD data directory to prevent OneDrive file syncing and locking on SQLite
+DATA_DIR = Path(os.getenv("LOCALAPPDATA", str(Path.home()))) / "Laya" / "data"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 MEMORY_DB_PATH = DATA_DIR / "laya_memory.db"
+
+# Migrate legacy database from workspace if it exists and target doesn't
+legacy_db = ROOT_DIR / "data" / "laya_memory.db"
+if legacy_db.exists() and not MEMORY_DB_PATH.exists():
+    try:
+        import shutil
+        shutil.copy2(legacy_db, MEMORY_DB_PATH)
+    except Exception:
+        pass
 
 # LLM Providers (Dual-Backend: Cloud Ultra-Fast Groq + Local Private Ollama)
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")

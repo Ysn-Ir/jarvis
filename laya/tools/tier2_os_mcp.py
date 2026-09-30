@@ -173,7 +173,14 @@ class Tier2OSAutomationTools:
         if check_direct.exists():
             return check_direct
 
+        # If it's a valid folder name, create it under Desktop
+        if not any(c in loc for c in r'<>:"/\|?*'):
+            target_dir = REAL_DESKTOP_DIR / loc
+            target_dir.mkdir(parents=True, exist_ok=True)
+            return target_dir
+
         return REAL_DESKTOP_DIR
+
 
 
     def create_folder(self, folder_name: str, location: Optional[str] = None) -> str:

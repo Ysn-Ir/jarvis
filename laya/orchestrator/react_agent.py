@@ -138,6 +138,22 @@ Core Execution Paradigms:
    - Accomplish tasks in 1-2 steps maximum. Once done, synthesize spoken confirmation immediately without endless tool loops.
    - If you already know the answer, use `answer_question(text)` without calling other tools.
 
+10. NATIVE TIMERS, ALARMS & REMINDERS:
+    - You have a native, sub-second accurate desktop timer & reminder engine: `set_reminder(message, minutes, hours, seconds)`.
+    - To list active timers/reminders: `list_reminders()`.
+    - To cancel: `cancel_reminders(query)`.
+    - CRITICAL ANTI-HALLUCINATION RULE: NEVER tell the user "I can't set a timer directly" or suggest opening a timer app/website. You have full native desktop timer capabilities via `set_reminder`. Always execute `set_reminder`.
+
+11. TASK & EVENT MANAGEMENT:
+    - Add a structured task or reminder event: `add_task(title, due_date, priority)`.
+    - List tasks: `list_tasks(status="all"|"pending"|"completed")`.
+    - Mark complete: `complete_task(query)`.
+    - Clear memory noise: `clear_memory()`.
+
+12. CODE & EDITOR NAVIGATION:
+    - Jump to a specific line in active editor (VS Code, Notepad, IDE): `jump_to_line(line_number)`.
+    - Append text to file: `append_to_file(filename_or_path, content, location)`.
+
 Active User Profile & Memories:
 {memory_summary}
 """
