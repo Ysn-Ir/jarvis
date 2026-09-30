@@ -194,6 +194,31 @@ class MemoryStore:
         except Exception as e:
             return f"Error listing reminders: {e}"
 
+    def cancel_reminders(self, query: str = "") -> str:
+        """Cancel pending (unfired) reminders or timers."""
+        try:
+            conn = sqlite3.connect(str(self.db_path))
+            cursor = conn.cursor()
+            clean_q = (query or "").strip().lower()
+            if not clean_q or clean_q in ["all", "everything", "all reminders", "all timers"]:
+                cursor.execute("UPDATE reminders SET fired=1 WHERE fired=0")
+                count = cursor.rowcount
+                conn.commit()
+                conn.close()
+                if count > 0:
+                    return f"Cancelled {count} pending timer{'s' if count != 1 else ''}."
+                return "No active timers or reminders were pending."
+            else:
+                cursor.execute("UPDATE reminders SET fired=1 WHERE fired=0 AND LOWER(message) LIKE ?", (f"%{clean_q}%",))
+                count = cursor.rowcount
+                conn.commit()
+                conn.close()
+                if count > 0:
+                    return f"Cancelled {count} reminder{'s' if count != 1 else ''} matching '{query}'."
+                return f"No pending reminders found matching '{query}'."
+        except Exception as e:
+            return f"Error cancelling reminders: {e}"
+
 
     def search_facts(self, query: str) -> str:
         """Search memory for relevant facts using keyword matching."""

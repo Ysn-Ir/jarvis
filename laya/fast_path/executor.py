@@ -56,6 +56,11 @@ class FastPathExecutor:
         from laya.orchestrator.memory import get_memory_store
         return get_memory_store().list_reminders()
 
+    def cancel_reminders(self, query: str = "") -> str:
+        """Cancel pending reminders or timers."""
+        from laya.orchestrator.memory import get_memory_store
+        return get_memory_store().cancel_reminders(query=query)
+
     # -------------------------------------------------------------
     # Emergency Abort & Stop Control (<0.0ms)
     # -------------------------------------------------------------
@@ -235,6 +240,21 @@ class FastPathExecutor:
         ctypes.windll.user32.LockWorkStation()
         return "Your PC is now locked."
 
+    def sleep_system(self) -> str:
+        """Put computer into sleep/suspend state immediately."""
+        try:
+            # powrprof.dll SetSuspendState(bHibernate=False, bForce=True, bWakeupEventsDisabled=False)
+            res = ctypes.windll.powrprof.SetSuspendState(0, 1, 0)
+            if res:
+                return "Putting computer to sleep."
+        except Exception:
+            pass
+        try:
+            subprocess.run("rundll32.exe powrprof.dll,SetSuspendState 0,1,0", shell=True)
+            return "Putting computer to sleep."
+        except Exception as e:
+            return f"Failed to put computer to sleep: {e}"
+
     def shutdown_system(self) -> str:
         subprocess.run(["shutdown", "/s", "/t", "30"], check=False)
         return "System shutdown scheduled in 30 seconds. Say 'abort shutdown' to cancel."
@@ -242,6 +262,33 @@ class FastPathExecutor:
     def restart_system(self) -> str:
         subprocess.run(["shutdown", "/r", "/t", "30"], check=False)
         return "System restart scheduled in 30 seconds. Say 'abort shutdown' to cancel."
+
+    def turn_screen_off(self) -> str:
+        """Turn off the physical display/monitor immediately using Windows PostMessage."""
+        try:
+            # SC_MONITORPOWER = 0xF170, 2 = monitor off, -1 = HWND_BROADCAST
+            win32gui.PostMessage(win32con.HWND_BROADCAST, win32con.WM_SYSCOMMAND, 0xF170, 2)
+            return "Turned off the screen."
+        except Exception as e:
+            # Fallback via powershell command
+            try:
+                subprocess.Popen(
+                    ["powershell", "-Command", "(Add-Type '[DllImport(\"user32.dll\")]public static extern int SendMessage(int hWnd, int hMsg, int wParam, int lParam);' -Name a -PassThru)::SendMessage(-1, 0x0112, 0xF170, 2)"],
+                    creationflags=0x08000000
+                )
+                return "Turned off the screen."
+            except Exception:
+                return f"Failed to turn off screen: {e}"
+
+    def turn_screen_on(self) -> str:
+        """Wake up the display by simulating mouse movement."""
+        try:
+            win32gui.PostMessage(win32con.HWND_BROADCAST, win32con.WM_SYSCOMMAND, 0xF170, -1)
+            pyautogui.moveRel(1, 0)
+            pyautogui.moveRel(-1, 0)
+            return "Turned on the screen."
+        except Exception as e:
+            return f"Failed to turn on screen: {e}"
 
 
     def take_screenshot(self, open_after: bool = True) -> str:

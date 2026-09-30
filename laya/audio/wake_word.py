@@ -34,7 +34,7 @@ from laya.config import (
 )
 from laya.tools.interrupt_manager import request_interrupt, is_interrupt_requested
 
-INTERRUPT_KEYWORDS_REGEX = r"\b(?:stop|shut\s*up|quiet|cancel|silence|halt|pause|abort|wait|freeze|hold\s*on)\b"
+INTERRUPT_KEYWORDS_REGEX = r"^(?:please\s+)?(?:stop(?:\s+(?:talking|it|that|now|please))?|shut\s*up|be\s+quiet|quiet|cancel(?:\s+it)?|silence|halt|abort|freeze)$"
 
 
 def compile_wake_patterns() -> Tuple[re.Pattern, Set[str]]:
@@ -54,7 +54,12 @@ def compile_wake_patterns() -> Tuple[re.Pattern, Set[str]]:
     combined = "|".join(escaped)
 
     pattern = re.compile(rf"\b(?:hey|hi|hello|ok|okay)?[\s,]*(?:{combined})\b", re.IGNORECASE)
-    non_cmd = set(all_phrases) | {"hey", "hi", "hello", "ok", "okay", "please", "call"}
+    filler_words = {
+        "hey", "hi", "hello", "ok", "okay", "please", "call",
+        "mm-hmm", "mmhmm", "mhm", "uh-huh", "uhhuh", "hmm", "um", "uh", "ah",
+        "yeah", "yep", "yes", "sure", "alright", "so", "well", "like", "you know"
+    }
+    non_cmd = set(all_phrases) | filler_words
     return pattern, non_cmd
 
 
@@ -170,8 +175,8 @@ class WakeWordDetector:
                             if is_in_speech:
                                 silence_count += 1
                                 speech_buffer.append(audio_chunk)
-                                # ~0.5s silence during active execution to be snappier, ~1.0s during idle
-                                limit_silence = 2 if self.is_listening_active else 4
+                                # ~0.5s trailing silence for ultra-low latency response
+                                limit_silence = 2
                                 if silence_count >= limit_silence:
                                     if self.is_listening_active:
                                         self._process_interruption(speech_buffer)

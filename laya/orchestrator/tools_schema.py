@@ -451,11 +451,70 @@ TOOLS_SCHEMA: List[Dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "list_reminders",
-            "description": "List all pending (not yet fired) reminders that have been scheduled.",
+            "description": "List all pending (not yet fired) reminders or timers that have been scheduled.",
             "parameters": {
                 "type": "object",
                 "properties": {},
                 "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "cancel_reminders",
+            "description": "Cancel or clear pending timers or reminders. Use when the user says 'cancel timer', 'stop timer', 'clear reminders', or 'cancel all timers'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Optional keyword or 'all' to cancel all timers/reminders"}
+                }
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "turn_screen_off",
+            "description": "Turn off the physical computer screen, monitor, or display immediately.",
+            "parameters": {
+                "type": "object",
+                "properties": {}
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "turn_screen_on",
+            "description": "Turn on or wake up the computer screen/monitor/display.",
+            "parameters": {
+                "type": "object",
+                "properties": {}
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "sleep_system",
+            "description": "Put the computer/system into sleep or suspend state immediately.",
+            "parameters": {
+                "type": "object",
+                "properties": {}
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "lock_workstation",
+            "description": "Lock the Windows computer screen or workstation immediately.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "delay_sec": {"type": "integer", "description": "Optional delay in seconds before locking (default 0)"}
+                }
             }
         }
     },
@@ -1161,6 +1220,15 @@ CORE_TOOL_NAMES = {
     "mouse_click",
     "check_system",
     "send_message",
+    "set_reminder",
+    "list_reminders",
+    "cancel_reminders",
+    "turn_screen_off",
+    "turn_screen_on",
+    "sleep_system",
+    "lock_workstation",
+    "record_screen",
+    "stop_screen_recording",
 }
 
 CORE_TOOLS_SCHEMA: List[Dict[str, Any]] = [

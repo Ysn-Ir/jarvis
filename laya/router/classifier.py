@@ -151,7 +151,13 @@ class IntentRouter:
         if compound_decision:
             return compound_decision
 
-        # 4. Primary: Official Laya ModernBERT Neural Decision Engine (<40ms Local)
+        # 4. Primary: Deterministic OS Fast-Path Patterns (<1ms)
+        # Rock-solid zero-LLM dispatch covering all hardware, apps, filesystem, timers, power & telemetry
+        single_decision = self._route_single_deterministic(text, utterance)
+        if single_decision:
+            return single_decision
+
+        # 5. Local Neural Intent Classifier: Official Laya ModernBERT (<40ms Local)
         # Evaluates natural colloquial speech without brittle regexes
         try:
             from laya.router.laya_engine import get_laya_engine
@@ -160,12 +166,6 @@ class IntentRouter:
                 return laya_decision
         except Exception as e:
             pass
-
-        # 5. Fallback: Deterministic OS Fast-Path Patterns (<1ms)
-        # Rock-solid fallback covering all hardware, apps, filesystem, windowing & telemetry controls
-        single_decision = self._route_single_deterministic(text, utterance)
-        if single_decision:
-            return single_decision
 
         # 6. Ultra-Fast LLM Intent Classifier Layer (<250ms on Groq)
         llm_decision = self._classify_with_fast_llm(utterance)
@@ -235,7 +235,8 @@ class IntentRouter:
     def _route_single_deterministic(self, text: str, original: str) -> Optional[RouteDecision]:
         # 0. Interruption, Abort & UI Visibility (<0.0ms)
         if re.search(r"\b(?:stop|cancel|shut\s*up|abort|freeze|halt)\b", text) and len(text.split()) <= 3:
-            return RouteDecision(path=ExecutionPath.FAST_PATH, action="stop_action")
+            if not re.search(r"\b(?:timer|timers|reminder|reminders|recording|download|downloads)\b", text, re.I):
+                return RouteDecision(path=ExecutionPath.FAST_PATH, action="stop_action")
 
         if re.search(r"\b(?:hide|dismiss|close|minimize)\s+(?:the\s+)?(?:ui|hud|window|overlay|assistant)\b|^hide$|^dismiss$", text):
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="hide_hud")
@@ -263,6 +264,32 @@ class IntentRouter:
             num_m = re.search(r"\b(?:by\s+)?(\d{1,2})\s*(?:percent|%|steps?)?\b", text)
             steps = (int(num_m.group(1)) // 2) if num_m else 8
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="volume_down", params={"steps": max(2, steps)})
+
+        # 2b. System Power, Sleep, Lock & Display Management (<0.0ms)
+        if re.search(r"\b(?:put\s+(?:the\s+|my\s+)?(?:computer|pc|laptop|system|machine)\s+to\s+sleep|sleep\s+(?:the\s+|my\s+)?(?:computer|pc|laptop|system|machine)|suspend\s+(?:the\s+|my\s+)?(?:computer|pc|laptop|system)|go\s+to\s+sleep)\b", text, re.I) or text in [
+            "sleep pc", "sleep computer", "sleep system", "put pc to sleep", "put computer to sleep", "sleep the pc", "sleep the computer", "suspend pc", "suspend computer"
+        ]:
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="sleep_system", safety_tier="GREEN", confidence=1.0, reasoning="Instant computer sleep.")
+
+        if re.search(r"\b(?:lock\s+(?:the\s+|my\s+)?(?:pc|computer|workstation|screen|machine|laptop|windows)|lock\s+it|^lock$)\b", text, re.I) or text in [
+            "lock pc", "lock the pc", "lock my pc", "lock workstation", "lock computer", "lock screen", "lock the screen", "lock machine"
+        ]:
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="lock_workstation", safety_tier="GREEN", confidence=1.0, reasoning="Instant screen lock.")
+
+        if re.search(r"\b(?:turn\s+off\s+(?:the\s+)?(?:screen|display|monitor)|turn\s+(?:the\s+)?(?:screen|display|monitor)\s+off|(?:screen|display|monitor)\s+off|shut\s+off\s+(?:the\s+)?(?:screen|display|monitor)|sleep\s+(?:the\s+)?(?:screen|display|monitor)|put\s+(?:the\s+)?(?:screen|display|monitor)\s+to\s+sleep|blank\s+screen|turn\s+(?:the\s+)?screen\s+black)\b", text, re.I) or text in [
+            "turn off screen", "turn off the screen", "turn the screen off", "screen off",
+            "turn off display", "turn off the display", "turn the display off", "display off",
+            "sleep screen", "sleep display", "turn off monitor", "turn off the monitor", "turn monitor off",
+            "blank screen"
+        ]:
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="turn_screen_off", safety_tier="GREEN", confidence=1.0, reasoning="Instant screen turn-off.")
+
+        if re.search(r"\b(?:turn\s+on\s+(?:the\s+)?(?:screen|display|monitor)|turn\s+(?:the\s+)?(?:screen|display|monitor)\s+on|(?:screen|display|monitor)\s+on|wake\s+(?:up\s+)?(?:the\s+)?(?:screen|display|monitor))\b", text, re.I) or text in [
+            "turn on screen", "turn on the screen", "turn the screen on", "screen on",
+            "turn on display", "turn on the display", "turn the display on", "display on",
+            "wake screen", "wake up screen", "wake display"
+        ]:
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="turn_screen_on", safety_tier="GREEN", confidence=1.0, reasoning="Instant screen turn-on.")
 
         # 3. Media & Song Controls (<0.0ms)
         if text in ["play music", "pause music", "resume music", "toggle media", "pause", "play", "stop music"]:
@@ -464,11 +491,12 @@ class IntentRouter:
             target_f = open_file_match.group(1).strip()
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="open_file", params={"filename_or_path": target_f})
 
-        write_file_match = re.search(r"\b(?:write|append|add|put)\s+(.+?)\s+(?:to|into|in)\s+(?:the\s+)?(?:file\s+)?([a-zA-Z0-9_\-\.\/\\]+)$", text)
+        write_file_match = re.search(r"\b(?:write|append|add|put)\s+(.+?)\s+(?:to|into|in)\s+(?:(?:the\s+)?file\s+([a-zA-Z0-9_\-\.\/\\]+)|([a-zA-Z0-9_\-\.\/\\]+\.[a-zA-Z0-9]{1,5}))$", text)
         if write_file_match:
             content = write_file_match.group(1).strip()
-            target_f = write_file_match.group(2).strip()
-            return RouteDecision(path=ExecutionPath.FAST_PATH, action="write_to_file", params={"filename": target_f, "content": content})
+            target_f = (write_file_match.group(2) or write_file_match.group(3) or "").strip()
+            if target_f and target_f.lower() not in ["sleep", "lock", "screen", "display", "mute", "sound", "volume"]:
+                return RouteDecision(path=ExecutionPath.FAST_PATH, action="write_to_file", params={"filename": target_f, "content": content})
 
         search_file_match = re.search(r"\b(?:search\s+(?:for\s+)?(?:files?|folders?|documents?)|find\s+(?:file|folder)|locate\s+(?:file|folder))\s+(?:called\s+|named\s+)?([^\s,]+)", text)
         if search_file_match:
@@ -623,16 +651,111 @@ class IntentRouter:
                 reasoning="Instant clarification for underspecified messaging request."
             )
 
-        # Timed Reminders (<0.0ms Fast Path)
-        remind_match = re.search(
+        # ---------------------------------------------------------
+        # Timers & Timed Reminders (<0.0ms Fast Path)
+        # ---------------------------------------------------------
+        # 1. Timer / Reminder cancellation
+        if re.search(r"\b(?:cancel|stop|clear|delete|remove)\s+(?:all\s+)?(?:the\s+)?(?:timers?|reminders?)\b", text, re.I) or text in [
+            "cancel timer", "cancel timers", "stop timer", "stop the timer", "clear timers", "cancel all timers",
+            "cancel reminder", "cancel reminders", "stop reminder", "clear reminders", "cancel all reminders"
+        ]:
+            cancel_match = re.search(r"\b(?:cancel|stop|clear|delete|remove)\s+(?:the\s+)?(?:timer|reminder)\s+(?:for\s+|called\s+|about\s+)?(.+)$", text, re.I)
+            query_filter = cancel_match.group(1).strip() if cancel_match else ""
+            if query_filter.lower() in ["all", "everything", "all timers", "all reminders"]:
+                query_filter = "all"
+            return RouteDecision(
+                path=ExecutionPath.FAST_PATH,
+                action="cancel_reminders",
+                params={"query": query_filter},
+                confidence=1.0,
+                reasoning="Instant timer/reminder cancellation."
+            )
+
+        # 2. List Timers / Reminders
+        if (
+            re.search(r"^(?:list|show|view|get|check|what\s+are)(?:\s+(?:all|my|active|pending))?\s+(?:timers?|reminders?)$", text, re.I)
+            or text in ["timers", "my timers", "reminders", "my reminders", "what are my reminders", "what are my timers", "active timers", "active reminders"]
+        ):
+            return RouteDecision(
+                path=ExecutionPath.FAST_PATH,
+                action="list_reminders",
+                confidence=1.0,
+                reasoning="Instant timer/reminder listing."
+            )
+
+        # 3. Time-first timer: "set a 5 minute timer [for pasta]", "start a 10 min timer", "5 minute timer"
+        t_first_match = re.search(
+            r"^(?:can\s+you\s+|please\s+)?(?:set|start|create|make)?\s*(?:a\s+)?(\d+(?:\.\d+)?)\s*(seconds?|secs?|minutes?|mins?|hours?|hrs?)\s+timer(?:\s+(?:for|to|called|named|about)\s+(.+))?$",
+            text,
+            re.I
+        )
+        if t_first_match:
+            n_val = float(t_first_match.group(1))
+            unit = t_first_match.group(2).lower()
+            label = (t_first_match.group(3) or "timer").strip()
+            secs = n_val if "sec" in unit else 0
+            mins = n_val if "min" in unit else 0
+            hrs = n_val if "hour" in unit or "hr" in unit else 0
+            return RouteDecision(
+                path=ExecutionPath.FAST_PATH,
+                action="set_reminder",
+                params={"message": f"Timer: {label}", "seconds": secs, "minutes": mins, "hours": hrs},
+                confidence=1.0,
+                reasoning="Instant time-first timer."
+            )
+
+        # 4. Standard timer: "set a timer for 5 minutes [for tea]", "timer for 10 minutes", "timer 5 mins"
+        t_std_match = re.search(
+            r"^(?:can\s+you\s+|please\s+)?(?:set\s+(?:a\s+)?timer|start\s+(?:a\s+)?timer|create\s+(?:a\s+)?timer|timer)(?:\s+(?:for|of|at))?\s+(\d+(?:\.\d+)?)\s*(seconds?|secs?|minutes?|mins?|hours?|hrs?)(?:\s+(?:for|to|called|named|about)\s+(.+))?$",
+            text,
+            re.I
+        )
+        if t_std_match:
+            n_val = float(t_std_match.group(1))
+            unit = t_std_match.group(2).lower()
+            label = (t_std_match.group(3) or "timer").strip()
+            secs = n_val if "sec" in unit else 0
+            mins = n_val if "min" in unit else 0
+            hrs = n_val if "hour" in unit or "hr" in unit else 0
+            return RouteDecision(
+                path=ExecutionPath.FAST_PATH,
+                action="set_reminder",
+                params={"message": f"Timer: {label}", "seconds": secs, "minutes": mins, "hours": hrs},
+                confidence=1.0,
+                reasoning="Instant standard timer scheduling."
+            )
+
+        # 5. Time-first reminder: "remind me in 5 minutes to check the oven", "in 10 minutes remind me to call mom"
+        r_time_first = re.search(
+            r"^(?:can\s+you\s+|please\s+)?(?:remind\s+(?:me\s+)?in|in)\s+(\d+(?:\.\d+)?)\s*(seconds?|secs?|minutes?|mins?|hours?|hrs?)\s+(?:remind\s+me\s+)?(?:to\s+|about\s+)(.+)$",
+            text,
+            re.I
+        )
+        if r_time_first:
+            n_val = float(r_time_first.group(1))
+            unit = r_time_first.group(2).lower()
+            msg = r_time_first.group(3).strip()
+            secs = n_val if "sec" in unit else 0
+            mins = n_val if "min" in unit else 0
+            hrs = n_val if "hour" in unit or "hr" in unit else 0
+            return RouteDecision(
+                path=ExecutionPath.FAST_PATH,
+                action="set_reminder",
+                params={"message": msg, "seconds": secs, "minutes": mins, "hours": hrs},
+                confidence=1.0,
+                reasoning="Instant time-first reminder."
+            )
+
+        # 6. Standard reminder: "remind me to check the oven in 5 minutes", "set a reminder to call Bob in 1 hour"
+        r_std_match = re.search(
             r"^(?:can\s+you\s+|please\s+)?(?:remind\s+(?:me\s+)?(?:to\s+|about\s+)?|set\s+(?:a\s+)?reminder\s+(?:to\s+|for\s+)?)(.+?)\s+(?:in|after)\s+(\d+(?:\.\d+)?)\s*(seconds?|secs?|minutes?|mins?|hours?|hrs?)$",
             text,
             re.I
         )
-        if remind_match:
-            rem_msg = remind_match.group(1).strip()
-            num_val = float(remind_match.group(2))
-            unit = remind_match.group(3).lower()
+        if r_std_match:
+            rem_msg = r_std_match.group(1).strip()
+            num_val = float(r_std_match.group(2))
+            unit = r_std_match.group(3).lower()
             secs = num_val if "sec" in unit else 0
             mins = num_val if "min" in unit else 0
             hrs = num_val if "hour" in unit or "hr" in unit else 0
@@ -644,12 +767,24 @@ class IntentRouter:
                 reasoning="Instant timed reminder scheduling."
             )
 
-        if re.search(r"^(?:list|show|view|get|check)(?:\s+(?:all|my|pending))?\s+reminders$", text, re.I) or text in ["reminders", "my reminders", "what are my reminders"]:
+        # 7. Bare reminder with time only: "set a reminder for 5 minutes", "remind me in 10 minutes"
+        r_bare_match = re.search(
+            r"^(?:can\s+you\s+|please\s+)?(?:remind\s+me\s+in|set\s+(?:a\s+)?reminder\s+(?:for|in))\s+(\d+(?:\.\d+)?)\s*(seconds?|secs?|minutes?|mins?|hours?|hrs?)$",
+            text,
+            re.I
+        )
+        if r_bare_match:
+            num_val = float(r_bare_match.group(1))
+            unit = r_bare_match.group(2).lower()
+            secs = num_val if "sec" in unit else 0
+            mins = num_val if "min" in unit else 0
+            hrs = num_val if "hour" in unit or "hr" in unit else 0
             return RouteDecision(
                 path=ExecutionPath.FAST_PATH,
-                action="list_reminders",
+                action="set_reminder",
+                params={"message": "Reminder", "seconds": secs, "minutes": mins, "hours": hrs},
                 confidence=1.0,
-                reasoning="Instant reminder listing."
+                reasoning="Instant bare reminder scheduling."
             )
 
         # Universal Cross-Platform Messaging (Telegram / WhatsApp) (<0.0ms)
@@ -815,8 +950,31 @@ class IntentRouter:
         if any(w in text for w in ["check ip", "what is my ip", "my ip address"]):
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="check_ip")
 
-        if any(w in text for w in ["lock pc", "lock the pc", "lock my pc", "lock workstation", "lock computer"]):
-            return RouteDecision(path=ExecutionPath.FAST_PATH, action="lock_workstation")
+        # System Power & Display Management (<0.0ms)
+        if re.search(r"\b(?:put\s+(?:the\s+|my\s+)?(?:computer|pc|laptop|system|machine)\s+to\s+sleep|sleep\s+(?:the\s+|my\s+)?(?:computer|pc|laptop|system|machine)|suspend\s+(?:the\s+|my\s+)?(?:computer|pc|laptop|system)|go\s+to\s+sleep)\b", text, re.I) or text in [
+            "sleep pc", "sleep computer", "sleep system", "put pc to sleep", "put computer to sleep", "sleep the pc", "sleep the computer", "suspend pc", "suspend computer"
+        ]:
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="sleep_system", safety_tier="GREEN", confidence=1.0, reasoning="Instant computer sleep.")
+
+        if re.search(r"\b(?:lock\s+(?:the\s+|my\s+)?(?:pc|computer|workstation|screen|machine|laptop|windows)|lock\s+it|^lock$)\b", text, re.I) or text in [
+            "lock pc", "lock the pc", "lock my pc", "lock workstation", "lock computer", "lock screen", "lock the screen", "lock machine"
+        ]:
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="lock_workstation", safety_tier="GREEN", confidence=1.0, reasoning="Instant screen lock.")
+
+        if re.search(r"\b(?:turn\s+off\s+(?:the\s+)?(?:screen|display|monitor)|turn\s+(?:the\s+)?(?:screen|display|monitor)\s+off|(?:screen|display|monitor)\s+off|shut\s+off\s+(?:the\s+)?(?:screen|display|monitor)|sleep\s+(?:the\s+)?(?:screen|display|monitor)|put\s+(?:the\s+)?(?:screen|display|monitor)\s+to\s+sleep|blank\s+screen|turn\s+(?:the\s+)?screen\s+black)\b", text, re.I) or text in [
+            "turn off screen", "turn off the screen", "turn the screen off", "screen off",
+            "turn off display", "turn off the display", "turn the display off", "display off",
+            "sleep screen", "sleep display", "turn off monitor", "turn off the monitor", "turn monitor off",
+            "blank screen"
+        ]:
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="turn_screen_off", safety_tier="GREEN", confidence=1.0, reasoning="Instant screen turn-off.")
+
+        if re.search(r"\b(?:turn\s+on\s+(?:the\s+)?(?:screen|display|monitor)|turn\s+(?:the\s+)?(?:screen|display|monitor)\s+on|(?:screen|display|monitor)\s+on|wake\s+(?:up\s+)?(?:the\s+)?(?:screen|display|monitor))\b", text, re.I) or text in [
+            "turn on screen", "turn on the screen", "turn the screen on", "screen on",
+            "turn on display", "turn on the display", "turn the display on", "display on",
+            "wake screen", "wake up screen", "wake display"
+        ]:
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="turn_screen_on", safety_tier="GREEN", confidence=1.0, reasoning="Instant screen turn-on.")
         if any(w in text for w in ["take a screenshot", "screenshot", "capture screen"]):
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="take_screenshot")
         if any(w in text for w in ["brightness up", "increase brightness", "brighter"]):

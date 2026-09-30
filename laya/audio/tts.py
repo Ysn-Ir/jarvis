@@ -103,21 +103,16 @@ class TTSEngine:
             unique_id = uuid.uuid4().hex[:12]
             cache_file = CACHE_DIR / f"speech_{unique_id}.mp3"
 
+            synthesis_timeout = 5.0 if len(speech_text) > 250 else 3.0
             async def _synthesize():
                 comm = edge_tts.Communicate(speech_text, self.voice)
-                # Generous 9.0s timeout to allow multi-sentence synthesis without dropping speech
-                await asyncio.wait_for(comm.save(str(cache_file)), timeout=9.0)
+                await asyncio.wait_for(comm.save(str(cache_file)), timeout=synthesis_timeout)
 
-            # Attempt synthesis with 1 retry on connection glitch
-            for attempt in range(2):
-                try:
-                    asyncio.run(_synthesize())
-                    if cache_file.exists() and cache_file.stat().st_size > 100:
-                        break
-                except Exception as ex:
-                    if attempt == 1:
-                        print(f"[TTS Neural Error] {ex}", file=sys.stderr)
-                    time.sleep(0.15)
+            # Attempt neural synthesis; fail fast to SAPI5 if network hangs
+            try:
+                asyncio.run(_synthesize())
+            except Exception as ex:
+                print(f"[TTS Neural Notice] Switching to offline fallback: {ex}", file=sys.stderr)
 
             if cache_file.exists() and cache_file.stat().st_size > 100:
                 for play_attempt in range(2):

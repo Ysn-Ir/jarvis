@@ -241,6 +241,8 @@ class OrchestratorEngine:
                 )
             elif tool == "list_reminders":
                 return self.memory.list_reminders()
+            elif tool in ["cancel_reminders", "clear_reminders", "cancel_timer", "stop_timer"]:
+                return self.memory.cancel_reminders(query=args.get("query", ""))
 
             # Screen Recording & Media Capture
             elif tool in ["record_screen", "start_screen_recording", "screen_record"]:
@@ -253,6 +255,14 @@ class OrchestratorEngine:
                 return self.fast_path.take_photo()
             elif tool in ["record_camera_video", "record_video"]:
                 return self.fast_path.record_camera_video(duration=int(args.get("duration", 5)))
+            elif tool in ["turn_screen_off", "screen_off", "display_off"]:
+                return self.fast_path.turn_screen_off()
+            elif tool in ["turn_screen_on", "screen_on", "display_on"]:
+                return self.fast_path.turn_screen_on()
+            elif tool in ["sleep_system", "sleep_pc", "system_sleep"]:
+                return self.fast_path.sleep_system()
+            elif tool in ["lock_workstation", "lock_pc", "lock_screen"]:
+                return self.fast_path.lock_workstation(delay_sec=int(args.get("delay_sec", 0)))
 
             # Telemetry & Diagnostics
             elif tool in ["check_system", "check_battery", "battery"]:

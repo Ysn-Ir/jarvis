@@ -185,6 +185,41 @@ class ToolRegistry:
             handler=fp.stop_screen_recording,
             parameters={},
         )
+        self.register(
+            name="cancel_reminders",
+            description="Cancel or clear pending reminders or timers.",
+            tier=1,
+            handler=mem.cancel_reminders,
+            parameters={"query": "optional string"},
+        )
+        self.register(
+            name="turn_screen_off",
+            description="Turn off the physical computer monitor/display instantly.",
+            tier=1,
+            handler=fp.turn_screen_off,
+            parameters={},
+        )
+        self.register(
+            name="turn_screen_on",
+            description="Wake up or turn on the computer monitor/display.",
+            tier=1,
+            handler=fp.turn_screen_on,
+            parameters={},
+        )
+        self.register(
+            name="sleep_system",
+            description="Put the computer into sleep/suspend state immediately.",
+            tier=1,
+            handler=fp.sleep_system,
+            parameters={},
+        )
+        self.register(
+            name="lock_workstation",
+            description="Lock the computer screen or workstation immediately.",
+            tier=1,
+            handler=fp.lock_workstation,
+            parameters={"delay_sec": "optional integer"},
+        )
 
     def search_tools(self, query: str) -> List[Dict[str, Any]]:
         """Dynamic tool discovery to avoid over-tooling prompt degradation."""
