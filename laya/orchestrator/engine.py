@@ -273,6 +273,12 @@ class OrchestratorEngine:
                 return self.memory.set_profile(args.get("key", ""), args.get("value", ""))
             elif tool in ["who_am_i", "user_profile"]:
                 return self.fast_path.who_am_i()
+            elif tool in ["inspect_screen", "look_at_screen", "read_screen"]:
+                return self.fast_path.inspect_screen(query=args.get("query", ""))
+            elif tool in ["get_daily_briefing", "daily_briefing", "morning_briefing", "brief_me"]:
+                return self.fast_path.get_daily_briefing()
+            elif tool in ["toggle_hud_mode", "toggle_hud", "compact_mode", "mini_hud"]:
+                return self.fast_path.toggle_hud_mode(mode=args.get("mode", ""))
 
             # Telemetry & Diagnostics
             elif tool in ["check_system", "check_battery", "battery"]:

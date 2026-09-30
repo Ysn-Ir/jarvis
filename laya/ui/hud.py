@@ -128,6 +128,8 @@ class ProminentFluidWaveform(ctk.CTkCanvas):
             col = "#ffffff" if state in ["LISTENING", "SPEAKING"] else "#e4e4e7"
             if state == "STOPPED":
                 col = "#f43f5e"
+            elif state == "FOLLOW-UP":
+                col = "#06b6d4"
             self.create_line(pts1, fill=col, width=2, smooth=True)
 
 
@@ -534,7 +536,9 @@ class LayaHUD(ctk.CTk):
     # -------------------------------------------------------------
     def _animation_loop(self):
         try:
-            self.waveform.draw_wave(self.current_state)
+            is_follow_up = bool(self.wake_detector and getattr(self.wake_detector, "is_in_follow_up", lambda: False)())
+            active_state = "FOLLOW-UP" if (self.current_state == "IDLE" and is_follow_up) else self.current_state
+            self.waveform.draw_wave(active_state)
 
             # Pulsing state beacon
             pulse = (math.sin(time.time() * 4.5) + 1) / 2
@@ -549,14 +553,23 @@ class LayaHUD(ctk.CTk):
             elif self.current_state == "STOPPED":
                 self.state_badge.configure(text="● STOPPED", text_color=self.CLR_ROSE)
             else:  # IDLE / READY
-                if self.is_core_ready:
+                if is_follow_up:
+                    self.state_badge.configure(text="● FOLLOW-UP", text_color="#06b6d4")
+                elif self.is_core_ready:
                     self.state_badge.configure(text="● READY", text_color=self.CLR_SILVER)
+                    if "Follow-up" in self.query_text.cget("text"):
+                        self.query_text.configure(
+                            text="Listening for voice... (Say 'Clanker', 'Jarvis', or 'Call')",
+                            text_color=self.CLR_TEXT_DIM,
+                        )
 
-            # Mic button pulsing glow when recording
+            # Mic button pulsing glow when recording or in follow-up
             if self.current_state == "LISTENING":
                 mic_pulse = (math.sin(time.time() * 6) + 1) / 2
                 g = int(90 + mic_pulse * 165)
                 self.mic_btn.configure(border_color=f"#{g:02x}{g:02x}{g:02x}", border_width=2)
+            elif is_follow_up and self.current_state == "IDLE":
+                self.mic_btn.configure(border_color="#06b6d4", border_width=2)
             else:
                 self.mic_btn.configure(border_color="#282834", border_width=1)
 
@@ -892,10 +905,16 @@ class LayaHUD(ctk.CTk):
         try:
             if self.current_state == "SPEAKING" and not self.tts.is_speaking():
                 self.current_state = "IDLE"
-                self.query_text.configure(
-                    text="Listening for voice... (Say 'Clanker', 'Jarvis', or 'Call')",
-                    text_color=self.CLR_TEXT_DIM,
-                )
+                if self.wake_detector and getattr(self.wake_detector, "is_in_follow_up", lambda: False)():
+                    self.query_text.configure(
+                        text="Listening... (Follow-up active: speak without wake word)",
+                        text_color="#06b6d4",
+                    )
+                else:
+                    self.query_text.configure(
+                        text="Listening for voice... (Say 'Clanker', 'Jarvis', or 'Call')",
+                        text_color=self.CLR_TEXT_DIM,
+                    )
         except Exception:
             pass
 

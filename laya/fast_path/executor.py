@@ -37,6 +37,8 @@ class FastPathExecutor:
         self._camera_recorder_thread: Optional[threading.Thread] = None
         self._camera_recorder_stop = threading.Event()
         self._camera_recorder_file: Optional[Path] = None
+        self._battery_warned = False
+        self._start_battery_sentinel()
 
     @classmethod
     def get_instance(cls) -> "FastPathExecutor":
@@ -1444,6 +1446,130 @@ class FastPathExecutor:
             return f"From our history: {details_str}. {facts_summary}"
         return f"You are the boss here. I have our memory database online. Tell me your name, role, or what to remember anytime!"
 
+    # -------------------------------------------------------------
+    # Proactive Intelligence: Daily Briefing & Battery Sentinel
+    # -------------------------------------------------------------
+    def _start_battery_sentinel(self):
+        """Proactive battery sentinel monitoring for low battery alerts."""
+        def _sentinel_worker():
+            while True:
+                try:
+                    batt = psutil.sensors_battery()
+                    if batt:
+                        if batt.power_plugged:
+                            self._battery_warned = False
+                        elif batt.percent <= 15 and not self._battery_warned:
+                            self._battery_warned = True
+                            from laya.orchestrator.memory import get_memory_store
+                            name = get_memory_store().get_profile("name", "sir")
+                            warn_msg = f"Warning {name}: Laptop battery is at {int(batt.percent)}% and discharging. Please connect power."
+                            from laya.audio.tts import get_tts_engine
+                            get_tts_engine().speak(warn_msg)
+                except Exception:
+                    pass
+                time.sleep(60)
+
+        t = threading.Thread(target=_sentinel_worker, daemon=True, name="BatterySentinelThread")
+        t.start()
+
+    def get_daily_briefing(self) -> str:
+        """Charismatic, JARVIS-style executive daily briefing."""
+        from laya.orchestrator.memory import get_memory_store
+        mem = get_memory_store()
+        profile = mem.get_user_profile()
+        name = profile.get("name", "Khalil")
+
+        # Time of day greeting
+        hour = datetime.datetime.now().hour
+        greeting = "Good morning" if 5 <= hour < 12 else ("Good afternoon" if 12 <= hour < 18 else "Good evening")
+
+        # Battery status
+        batt_str = ""
+        try:
+            batt = psutil.sensors_battery()
+            if batt:
+                plugged = "charging" if batt.power_plugged else "on battery"
+                batt_str = f"Battery is at {int(batt.percent)}% ({plugged})."
+        except Exception:
+            pass
+
+        # Pending reminders
+        pending_str = ""
+        try:
+            import sqlite3
+            conn = sqlite3.connect(str(mem.db_path))
+            cur = conn.cursor()
+            cur.execute("SELECT COUNT(*) FROM reminders WHERE fired=0")
+            count = cur.fetchone()[0]
+            conn.close()
+            if count > 0:
+                pending_str = f"You have {count} pending reminder{'s' if count != 1 else ''} scheduled."
+            else:
+                pending_str = "No pending reminders."
+        except Exception:
+            pass
+
+        # Active workspace windows
+        active_apps_str = ""
+        try:
+            from laya.orchestrator.react_agent import get_active_desktop_environment
+            env = get_active_desktop_environment()
+            for line in env.split("\n"):
+                if "Visible Windows:" in line:
+                    active_apps_str = f"Current active windows: {line.replace('Visible Windows:', '').strip()}."
+        except Exception:
+            pass
+
+        parts = [f"{greeting} {name}.", "All systems are operational."]
+        if batt_str:
+            parts.append(batt_str)
+        if pending_str:
+            parts.append(pending_str)
+        if active_apps_str:
+            parts.append(active_apps_str)
+        parts.append("Standing by for your command.")
+
+        return " ".join(parts)
+
+    # -------------------------------------------------------------
+    # Screen Eyes: On-Demand Zero-GPU Visual Inspection
+    # -------------------------------------------------------------
+    def inspect_screen(self, query: str = "") -> str:
+        """On-demand screen visual inspector. Uses UIA and focused window analysis with zero background overhead."""
+        # 1. Inspect active foreground window controls
+        fg_info = ""
+        title = "Desktop"
+        try:
+            from laya.tools.ufo_controller import get_ufo_controller
+            fg_info = get_ufo_controller().inspect_window_controls(max_depth=2)
+        except Exception:
+            pass
+
+        try:
+            hwnd = win32gui.GetForegroundWindow()
+            t = win32gui.GetWindowText(hwnd).strip()
+            if t:
+                title = t
+        except Exception:
+            pass
+
+        prompt_query = query.strip() or "Describe what is on my screen or diagnose any visible error."
+        try:
+            from laya.orchestrator.react_agent import run_single_prompt
+            prompt = (
+                f"User Question: '{prompt_query}'.\n"
+                f"Foreground Application: '{title}'.\n"
+                f"Visible UI Controls & Content Hierarchy:\n{fg_info[:1600]}\n\n"
+                f"Give a razor-sharp, helpful, and witty 1-2 sentence spoken explanation of what is on screen or diagnosing the error, in JARVIS style."
+            )
+            res = run_single_prompt(prompt)
+            if res and len(res.strip()) > 5:
+                return res.strip()
+        except Exception:
+            pass
+
+        return f"You are currently viewing '{title}'. Active window elements: {fg_info[:180]}."
+
     # NOTE: browser_search, browser_open_url, play_youtube are defined above (lines ~569-534)
     # Keeping them as single canonical definitions to avoid Python override shadowing.
 
@@ -1467,6 +1593,32 @@ class FastPathExecutor:
                 return "HUD displayed."
         except Exception:
             pass
+        return "UI displayed."
+
+    def toggle_hud_mode(self, mode: str = "") -> str:
+        """Toggle HUD between compact floating island pill and full interface."""
+        try:
+            from laya.ui.hud import LayaHUD
+            hud = getattr(LayaHUD, "_active_instance", None)
+            if not hud:
+                return "HUD interface is not running."
+
+            target = (mode or "").lower().strip()
+            if target in ["compact", "mini", "pill", "island"]:
+                if not hud.is_collapsed:
+                    hud.after(0, hud._toggle_collapse_animated)
+                return "Switched HUD to compact floating island mode."
+            elif target in ["full", "expand", "max", "maximize"]:
+                if hud.is_collapsed:
+                    hud.after(0, hud._toggle_collapse_animated)
+                return "Expanded HUD to full interface mode."
+            else:
+                hud.after(0, hud._toggle_collapse_animated)
+                state = "compact floating island" if not hud.is_collapsed else "full HUD"
+                return f"Toggled HUD to {state}."
+        except Exception as e:
+            return f"Failed to switch HUD mode: {e}"
+
     def check_emails(self, unread_only: bool = True) -> str:
         """Fetch unread emails and generate executive summary."""
         try:

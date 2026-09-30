@@ -276,6 +276,27 @@ class ToolRegistry:
             handler=fp.who_am_i,
             parameters={},
         )
+        self.register(
+            name="inspect_screen",
+            description="On-demand screen visual and textual inspection using UIA.",
+            tier=1,
+            handler=fp.inspect_screen,
+            parameters={"query": "optional string"},
+        )
+        self.register(
+            name="get_daily_briefing",
+            description="Charismatic JARVIS executive daily morning or status briefing.",
+            tier=1,
+            handler=fp.get_daily_briefing,
+            parameters={},
+        )
+        self.register(
+            name="toggle_hud_mode",
+            description="Toggle HUD between compact floating island and full HUD.",
+            tier=1,
+            handler=fp.toggle_hud_mode,
+            parameters={"mode": "optional string"},
+        )
 
     def search_tools(self, query: str) -> List[Dict[str, Any]]:
         """Dynamic tool discovery to avoid over-tooling prompt degradation."""

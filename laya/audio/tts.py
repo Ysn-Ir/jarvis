@@ -191,6 +191,16 @@ class TTSEngine:
 
             self._queue.task_done()
 
+            # Conversational Follow-Up: open a 7-second active listening window after Laya finishes speaking
+            if self._queue.empty() and not self._stop_event.is_set():
+                try:
+                    from laya.audio.wake_word import WakeWordDetector
+                    ww = getattr(WakeWordDetector, "_instance", None)
+                    if ww:
+                        ww.open_follow_up(duration_sec=7.0)
+                except Exception:
+                    pass
+
     def speak(self, text: str, block: bool = False):
         """Queue or speak text."""
         if not text or not text.strip():

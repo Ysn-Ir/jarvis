@@ -77,6 +77,7 @@ class WakeWordDetector:
         self.on_interrupt = on_interrupt
         self.is_running = False
         self.is_listening_active = False  # True during active execution/speech
+        self.follow_up_until: float = 0.0  # Conversational follow-up window
         self._thread: Optional[threading.Thread] = None
 
         self.wake_pattern, self.non_command_words = compile_wake_patterns()
@@ -104,6 +105,16 @@ class WakeWordDetector:
             if on_interrupt:
                 cls._instance.on_interrupt = on_interrupt
         return cls._instance
+
+    def open_follow_up(self, duration_sec: float = 7.0):
+        """Open a conversational follow-up window where speech is accepted without wake phrases."""
+        self.follow_up_until = time.time() + duration_sec
+        self.resume()
+        print(f"[WakeWord] Follow-up listening window open for {duration_sec}s (no wake word needed).")
+
+    def is_in_follow_up(self) -> bool:
+        """Check if currently within the conversational follow-up window."""
+        return time.time() < self.follow_up_until
 
     def reload_phrases(self):
         """Reload wake phrases from configuration or environment."""
@@ -220,6 +231,7 @@ class WakeWordDetector:
             # 1. Instant Vocal Barge-In: "Stop", "Quiet", "Shut up", "Cancel"
             if re.search(INTERRUPT_KEYWORDS_REGEX, text_lower):
                 print(f"[WakeWord] Interruption heard: '{text}'")
+                self.follow_up_until = 0.0
                 request_interrupt(f"Voice: '{text}'")
                 if self.on_interrupt:
                     self.on_interrupt()
@@ -228,6 +240,7 @@ class WakeWordDetector:
             # 2. Wake Word Detection (Matches 'call', 'assistant', 'computer', 'jarvis', etc.)
             match = self.wake_pattern.search(text_lower)
             if match:
+                self.follow_up_until = 0.0
                 print(f"[WakeWord] Trigger heard: '{text}'")
                 request_interrupt("New wake trigger")
                 if self.on_interrupt:
@@ -249,6 +262,19 @@ class WakeWordDetector:
                     self.pause()
                     if self.on_wake:
                         self.on_wake()
+                return
+
+            # 3. Conversational Follow-Up Mode: accept natural follow-ups without repeating wake word
+            if time.time() < self.follow_up_until:
+                clean_cmd = self._clean_command(text)
+                is_real_command = bool(clean_cmd and clean_cmd.lower() not in self.non_command_words and len(clean_cmd) >= 3)
+                if is_real_command:
+                    print(f"[WakeWord] Follow-up command heard without wake word: '{clean_cmd}'")
+                    self.follow_up_until = 0.0
+                    self.pause()
+                    if self.on_command:
+                        self.on_command(clean_cmd)
+                    return
 
         except Exception as ex:
             pass

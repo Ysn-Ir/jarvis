@@ -1295,6 +1295,50 @@ TOOLS_SCHEMA: List[Dict[str, Any]] = [
                 "required": ["direction"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "inspect_screen",
+            "description": "On-demand visual and textual screen inspection using native UIA and window analysis. Captures foreground window controls, text, layout, and active errors with zero background overhead. Use when user asks 'Look at my screen', 'What is on my screen?', 'Explain this error', or 'What am I looking at?'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Specific question or focus for the screen inspection, e.g. 'what is this error' or 'what does this page say'."
+                    }
+                }
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_daily_briefing",
+            "description": "Executive morning or status briefing. Reports time, personalized greeting, battery percentage and power status, pending reminders, active windows, and system status. Use for 'good morning', 'brief me', 'daily briefing', 'morning report', 'status report'.",
+            "parameters": {
+                "type": "object",
+                "properties": {}
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "toggle_hud_mode",
+            "description": "Toggle HUD between compact floating island pill (450x64) and full glass HUD (450x540). Use for 'compact mode', 'mini hud', 'island mode', 'floating pill', 'expand hud', 'full hud'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "mode": {
+                        "type": "string",
+                        "enum": ["compact", "full", "toggle"],
+                        "description": "'compact' for floating island pill, 'full' for expanded HUD, or 'toggle' to flip."
+                    }
+                }
+            }
+        }
     }
 ]
 
@@ -1338,6 +1382,9 @@ CORE_TOOL_NAMES = {
     "save_user_fact",
     "update_user_profile",
     "who_am_i",
+    "inspect_screen",
+    "get_daily_briefing",
+    "toggle_hud_mode",
 }
 
 CORE_TOOLS_SCHEMA: List[Dict[str, Any]] = [

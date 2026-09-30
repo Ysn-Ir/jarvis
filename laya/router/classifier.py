@@ -293,9 +293,11 @@ class IntentRouter:
 
         # 2c. Screen & Camera Video Recording Controls (<0.0ms)
         # Stop active recordings
-        if any(w in text for w in ["stop camera recording", "stop camera video", "stop recording camera", "stop camera"]):
+        if any(w in text for w in ["stop camera recording", "stop camera video", "stop recording camera", "stop camera", "stop webcam"]):
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="stop_camera_recording")
-        if any(w in text for w in ["stop screen recording", "stop recording screen", "stop recording", "stop video recording", "stop the recording"]):
+        if any(w in text for w in ["stop screen recording", "stop recording screen", "stop screen record"]):
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="stop_screen_recording")
+        if any(w in text for w in ["stop recording", "stop video recording", "stop the recording", "stop all recordings"]):
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="stop_all_recordings")
 
         # Camera video recording (asynchronous, continuous by default unless duration given)
@@ -1042,6 +1044,46 @@ class IntentRouter:
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="turn_screen_on", safety_tier="GREEN", confidence=1.0, reasoning="Instant screen turn-on.")
         if any(w in text for w in ["take a screenshot", "screenshot", "capture screen"]):
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="take_screenshot")
+
+        # Screen Eyes: On-Demand Zero-GPU Visual Inspection (<0.0ms)
+        if (
+            re.search(r"\b(?:look\s+at\s+(?:the\s+|my\s+)?screen|what\s+is\s+on\s+(?:the\s+|my\s+)?screen|what['']s\s+on\s+(?:the\s+|my\s+)?screen|read\s+(?:the\s+|my\s+)?screen|inspect\s+(?:the\s+|my\s+)?screen|what\s+am\s+i\s+looking\s+at|what\s+is\s+this\s+error|explain\s+(?:this\s+)?error|diagnose\s+(?:this\s+)?error|view\s+(?:the\s+|my\s+)?screen)\b", text, re.I)
+            or text in ["look at my screen", "look at the screen", "what's on my screen", "what is on my screen", "whats on my screen", "explain this error", "what is this error", "whats this error", "diagnose error", "read screen", "read my screen", "what am i looking at"]
+        ):
+            return RouteDecision(
+                path=ExecutionPath.FAST_PATH,
+                action="inspect_screen",
+                params={"query": original},
+                confidence=1.0,
+                reasoning="Instant on-demand screen inspection."
+            )
+
+        # Proactive Intelligence: Daily Briefing & Status Report (<0.0ms)
+        if (
+            re.search(r"^(?:can\s+you\s+|please\s+)?(?:give\s+me\s+(?:a\s+)?)?(?:good\s+morning|morning\s+briefing|daily\s+briefing|daily\s+report|morning\s+report|brief\s+me|system\s+briefing|status\s+report|executive\s+briefing)\b", text, re.I)
+            or text in ["good morning", "brief me", "morning briefing", "daily briefing", "daily report", "morning report", "status report", "give me a briefing"]
+        ):
+            return RouteDecision(
+                path=ExecutionPath.FAST_PATH,
+                action="get_daily_briefing",
+                confidence=1.0,
+                reasoning="Instant JARVIS daily executive briefing."
+            )
+
+        # Floating Glass HUD Mode Switching (<0.0ms)
+        if (
+            re.search(r"\b(?:compact\s+mode|mini\s+hud|island\s+mode|floating\s+pill|compact\s+hud|expand\s+hud|full\s+hud|maximize\s+hud|toggle\s+hud)\b", text, re.I)
+            or text in ["compact mode", "mini hud", "island mode", "expand hud", "full hud", "compact hud", "floating pill"]
+        ):
+            hud_mode = "compact" if any(w in text for w in ["compact", "mini", "pill", "island"]) else "full"
+            return RouteDecision(
+                path=ExecutionPath.FAST_PATH,
+                action="toggle_hud_mode",
+                params={"mode": hud_mode},
+                confidence=1.0,
+                reasoning="Instant HUD mode switch."
+            )
+
         if any(w in text for w in ["brightness up", "increase brightness", "brighter"]):
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="brightness_up")
         if any(w in text for w in ["brightness down", "lower brightness", "dimmer"]):
