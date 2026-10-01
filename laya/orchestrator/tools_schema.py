@@ -1570,63 +1570,31 @@ TOOLS_SCHEMA: List[Dict[str, Any]] = [
 ]
 
 # -----------------------------------------------------------------
-# High-Efficiency Core Toolset (~1,400 tokens)
-# Prevents context bloat and guarantees staying well under the 8,000 TPM limit
+# High-Efficiency Core Toolset (~2,300 tokens)
+# Stays well below Groq's 7,000 ITPM limit and avoids 429 rate limit errors.
+# All specialized tools (Excel, vision, etc.) discovered on demand via search_tools.
 # -----------------------------------------------------------------
 CORE_TOOL_NAMES = {
     "answer_question",
-    "open_app",
-    "close_app",
-    "focus_window",
     "write_to_notepad",
     "write_to_file",
     "create_file",
     "open_file",
+    "open_app",
+    "close_app",
+    "focus_window",
     "browser_search",
     "browser_open_url",
     "play_youtube",
-    "scroll_window",
-    "zoom_window_region",
-    "draw_shape",
-    "keyboard_type",
-    "mouse_click",
-    "check_system",
-    "send_message",
     "set_reminder",
-    "list_reminders",
     "cancel_reminders",
-    "add_task",
-    "list_tasks",
-    "complete_task",
-    "clear_memory",
-    "jump_to_line",
-    "append_to_file",
-    "write_to_file_line",
-    "replace_file_line",
-    "delete_file_line",
     "create_word_document",
     "create_notebook",
     "write_notebook_cell",
-    "update_notebook_cell",
-    "delete_notebook_cell",
-    "read_notebook_cells",
-    "turn_screen_off",
-    "turn_screen_on",
-    "sleep_system",
-    "lock_workstation",
-    "record_screen",
-    "start_screen_recording",
-    "stop_screen_recording",
-    "record_camera_video",
-    "start_camera_recording",
-    "stop_camera_recording",
-    "stop_all_recordings",
-    "save_user_fact",
-    "update_user_profile",
-    "who_am_i",
-    "inspect_screen",
-    "get_daily_briefing",
-    "toggle_hud_mode",
+    "send_telegram",
+    "run_python",
+    "search_filesystem",
+    "read_file_content",
 }
 
 CORE_TOOLS_SCHEMA: List[Dict[str, Any]] = [
@@ -1673,11 +1641,14 @@ def make_schema_nullable(schema_list: List[Dict[str, Any]]) -> List[Dict[str, An
                 elif "anyOf" in p_val:
                     if not any(x.get("type") == "null" for x in p_val["anyOf"]):
                         p_val["anyOf"].append({"type": "null"})
+                if "enum" in p_val and None not in p_val["enum"]:
+                    p_val["enum"] = list(p_val["enum"]) + [None]
     return result
 
 
 TOOLS_SCHEMA = make_schema_nullable(TOOLS_SCHEMA)
 CORE_TOOLS_SCHEMA = make_schema_nullable(CORE_TOOLS_SCHEMA)
+
 
 
 

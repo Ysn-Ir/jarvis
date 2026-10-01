@@ -48,6 +48,13 @@ class LayaAssistant:
         self.tts = get_tts_engine()
         self.conversation_history: List[Dict[str, str]] = []
 
+        # Warm up neural decision engine in background at startup
+        try:
+            from laya.router.laya_engine import get_laya_engine
+            get_laya_engine()
+        except Exception:
+            pass
+
     def handle_command(
         self,
         query: str,
@@ -97,6 +104,8 @@ class LayaAssistant:
         else:
             result_text = f"Unhandled path: {decision.path}"
 
+        dt_compute = (time.perf_counter() - t_start) * 1000
+
         # Contextual meme vocal reaction from Jarvis
         from laya.ui.meme_engine import get_meme_engine
         from laya.audio.meme_audio import get_meme_voice_quip
@@ -107,15 +116,15 @@ class LayaAssistant:
             if quip and not any(w in result_text.lower() for w in [reaction, "chudjak", "monkas", "feels bad", "feels good"]):
                 spoken_text = f"{quip}{result_text}"
 
+        # Log timings immediately once result is computed
+        status_flag = "⚡ [FAST-PATH]" if decision.path == ExecutionPath.FAST_PATH else "🧠 [REASONING]"
+        print(f"\n{status_flag} {result_text}")
+        print(f"⏱️  [Timing] Router={dt_router:.2f}ms | Compute={dt_compute:.2f}ms")
+
         from laya.tools.interrupt_manager import is_interrupt_requested
         if is_interrupt_requested():
             # Don't speak — TTS already stopped by interrupt handler
             return "Stopped."
-
-        if speak:
-            self.tts.speak(spoken_text)
-
-        dt_total = (time.perf_counter() - t_start) * 1000
 
         # Step 3: Record into multi-turn conversation memory
         self.conversation_history.append({"role": "user", "content": query})
@@ -123,10 +132,8 @@ class LayaAssistant:
         if len(self.conversation_history) > 16:
             self.conversation_history = self.conversation_history[-16:]
 
-        # Log timings
-        status_flag = "⚡ [FAST-PATH]" if decision.path == ExecutionPath.FAST_PATH else "🧠 [REASONING]"
-        print(f"\n{status_flag} {result_text}")
-        print(f"⏱️  [Timing] Router={dt_router:.2f}ms | Total={dt_total:.2f}ms")
+        if speak:
+            self.tts.speak(spoken_text)
 
         return result_text
 

@@ -682,6 +682,13 @@ class LayaHUD(ctk.CTk):
                 from laya.main import LayaAssistant
                 self.assistant = LayaAssistant()
 
+            # Warm up neural decision engine in background during bootstrap
+            try:
+                from laya.router.laya_engine import get_laya_engine
+                get_laya_engine()
+            except Exception:
+                pass
+
             self.msg_queue.put(("boot_status", "Loading CUDA Whisper..."))
             from laya.audio.stt import get_stt_engine
             self.stt = get_stt_engine()
@@ -782,6 +789,16 @@ class LayaHUD(ctk.CTk):
     def _start_command_execution(self, query: str):
         self.deiconify()
         self.lift()
+
+        # Preempt and abort any currently running task so it does not continue in background
+        if getattr(self, "is_processing", False):
+            request_interrupt("Preempted by new user command")
+            self.tts.stop()
+            time.sleep(0.04)
+
+        self._execution_id = getattr(self, "_execution_id", 0) + 1
+        my_exec_id = self._execution_id
+
         reset_interrupt()
         self.tts.stop()
         self.last_query = query
@@ -792,18 +809,22 @@ class LayaHUD(ctk.CTk):
         self.current_state = "PROCESSING"
         self.query_text.configure(text=f"\"{query}\"", text_color=self.CLR_WHITE)
 
-        threading.Thread(target=lambda: self._execute_task_worker(query), daemon=True).start()
+        threading.Thread(target=lambda: self._execute_task_worker(query, my_exec_id), daemon=True).start()
 
-    def _execute_task_worker(self, query: str):
+    def _execute_task_worker(self, query: str, exec_id: int):
         self.is_processing = True
         t0 = time.time()
         try:
             def on_step(step_msg: str):
-                self.msg_queue.put(("step", step_msg))
+                if getattr(self, "_execution_id", 0) == exec_id and not is_interrupt_requested():
+                    self.msg_queue.put(("step", step_msg))
 
             if not self.assistant:
                 from laya.main import LayaAssistant
                 self.assistant = LayaAssistant()
+
+            if getattr(self, "_execution_id", 0) != exec_id or is_interrupt_requested():
+                return
 
             if self.assistant:
                 result = self.assistant.handle_command(query, speak=True, step_callback=on_step)
@@ -811,16 +832,17 @@ class LayaHUD(ctk.CTk):
                 result = f"Completed command: {query}"
 
             dt_ms = (time.time() - t0) * 1000
-            if not is_interrupt_requested():
+            if getattr(self, "_execution_id", 0) == exec_id and not is_interrupt_requested():
                 self.msg_queue.put(("result", result, dt_ms))
 
         except Exception as e:
-            if not is_interrupt_requested():
+            if getattr(self, "_execution_id", 0) == exec_id and not is_interrupt_requested():
                 self.msg_queue.put(("result", f"Execution error: {e}", 0))
         finally:
-            self.is_processing = False
-            self.is_recording = False
-            self.msg_queue.put(("post_execution", None))
+            if getattr(self, "_execution_id", 0) == exec_id:
+                self.is_processing = False
+                self.is_recording = False
+                self.msg_queue.put(("post_execution", None))
 
     def _trigger_fast(self, action: str, params: Optional[dict] = None):
         params = params or {}

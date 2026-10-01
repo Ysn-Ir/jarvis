@@ -20,6 +20,7 @@ class LayaDecisionEngine:
     def __init__(self):
         self._router = None
         self._initialized = False
+        self._ready = False
         self._questions = {
             "action": {
                 "type": "choice",
@@ -56,15 +57,18 @@ class LayaDecisionEngine:
             from laya.vendor.laya_classifier import Router
             self._router = Router()
             self._initialized = True
-            print("[LayaEngine] Successfully initialized official Convai ModernBERT decision engine from vendored package.")
+            print("[LayaEngine] Initializing official Convai ModernBERT decision engine in background...")
 
             # Warmup prediction asynchronously in background daemon thread
             import threading
             def _warmup():
                 try:
                     self._router.predict({"command": "raise the sound"}, self._questions)
-                except Exception:
-                    pass
+                    self._ready = True
+                    print("[LayaEngine] Convai ModernBERT decision engine ready (<40ms latency).")
+                except Exception as ex:
+                    print(f"[LayaEngine] Warmup notice: {ex}")
+                    self._ready = True
             threading.Thread(target=_warmup, daemon=True, name="LayaModernBertWarmup").start()
 
         except Exception as e:
@@ -75,7 +79,7 @@ class LayaDecisionEngine:
         Evaluate utterance using official Laya ModernBERT neural router.
         Returns a RouteDecision if high-confidence desktop action, or None if reasoning/open-ended.
         """
-        if not self._initialized or self._router is None:
+        if not self._initialized or not self._ready or self._router is None:
             return None
 
         # Clean text

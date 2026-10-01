@@ -450,8 +450,9 @@ class WakeWordDetector:
                 if tts:
                     tts.stop()
 
-                from laya.tools.interrupt_manager import reset_interrupt
-                reset_interrupt()
+                request_interrupt(f"Preempted by new trigger: '{text}'")
+                if self.on_interrupt:
+                    self.on_interrupt()
 
                 raw_cmd = text[match.end():].strip().lstrip(",.!? ").strip()
                 clean_cmd = self._clean_command(raw_cmd)
