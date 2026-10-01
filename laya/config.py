@@ -30,9 +30,9 @@ if legacy_db.exists() and not MEMORY_DB_PATH.exists():
 
 # LLM Providers (Dual-Backend: Cloud Ultra-Fast Groq + Local Private Ollama)
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-# Default to ultra-fast Groq 20B (openai/gpt-oss-20b) with gpt-oss-120b fallback
-GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-20b")
-GROQ_FALLBACK_MODEL = os.getenv("GROQ_FALLBACK_MODEL", "openai/gpt-oss-120b")
+# Default to ultra-capable Groq 120B with 20B fallback
+GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
+GROQ_FALLBACK_MODEL = os.getenv("GROQ_FALLBACK_MODEL", "openai/gpt-oss-20b")
 GROQ_TIMEOUT_SEC = 12.0
 
 # Optional OpenRouter Provider fallback
@@ -71,8 +71,8 @@ TTS_VOLUME = 1.0
 # Latency Budgets (ms)
 FAST_PATH_BUDGET_MS = 300.0
 
-# Wake Word & Trigger Phrases (Flexible: "call", "assistant", "hey", "computer", "jarvis", "clanker", or custom)
-WAKE_PHRASES = [p.strip().lower() for p in os.getenv("WAKE_PHRASES", "call,assistant,hey,computer,jarvis,system,yo,listen,clanker").split(",") if p.strip()]
+# Wake Word & Trigger Phrases (Strict: "jarvis", "laya", "clanker", "clanka", "computer", "assistant", "call")
+WAKE_PHRASES = [p.strip().lower() for p in os.getenv("WAKE_PHRASES", "jarvis,laya,clanker,clanka,computer,assistant,call").split(",") if p.strip()]
 
 # UI Display Mode: "call_only" (hidden until called), or "always_on"
 UI_VISIBILITY_MODE = os.getenv("UI_VISIBILITY_MODE", "call_only")

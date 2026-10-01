@@ -1276,7 +1276,7 @@ TOOLS_SCHEMA: List[Dict[str, Any]] = [
                 "type": "object",
                 "properties": {
                     "text": {"type": "string", "description": "Text to type or paste into Notepad"},
-                    "filename": {"type": "string", "description": "Optional .txt filename to save to (e.g. 'ideas.txt'); if omitted, types directly into open Notepad"}
+                    "filename": {"type": ["string", "null"], "description": "Optional .txt filename to save to (e.g. 'ideas.txt'); if omitted or null, types directly into open Notepad"}
                 },
                 "required": ["text"]
             }
@@ -1649,5 +1649,35 @@ CORE_TOOLS_SCHEMA.append({
         }
     }
 })
+
+
+def make_schema_nullable(schema_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Ensure every optional tool parameter allows null.
+    Prevents Groq/OpenAI HTTP 400 schema validation errors when models emit 'param': null.
+    """
+    import copy
+    result = copy.deepcopy(schema_list)
+    for tool in result:
+        fn = tool.get("function", {})
+        params = fn.get("parameters", {})
+        props = params.get("properties", {})
+        req = set(params.get("required", []))
+        for p_name, p_val in props.items():
+            if p_name not in req:
+                t = p_val.get("type")
+                if isinstance(t, str):
+                    p_val["type"] = [t, "null"]
+                elif isinstance(t, list) and "null" not in t:
+                    p_val["type"] = t + ["null"]
+                elif "anyOf" in p_val:
+                    if not any(x.get("type") == "null" for x in p_val["anyOf"]):
+                        p_val["anyOf"].append({"type": "null"})
+    return result
+
+
+TOOLS_SCHEMA = make_schema_nullable(TOOLS_SCHEMA)
+CORE_TOOLS_SCHEMA = make_schema_nullable(CORE_TOOLS_SCHEMA)
+
 
 

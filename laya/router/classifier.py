@@ -15,6 +15,19 @@ from typing import Optional, Tuple, Dict, Any, List
 from laya.router.taxonomy import ExecutionPath, RouteDecision
 from laya.config import APP_REGISTRY, FOLDER_ALIASES, GROQ_API_KEY, GROQ_MODEL
 
+GENERATIVE_INTENT_PATTERN = re.compile(
+    r"\b(?:an?\s+(?:essay|poem|story|article|letter|email|summary|script|code|paragraph|report|analysis|speech|review|draft|post|guide|tutorial|song|joke|overview|dialogue|plan)|"
+    r"code\s+(?:for|to|that)|script\s+(?:for|to|that)|function\s+(?:for|to|that)|program\s+(?:for|to|that)|"
+    r"how\s+to|about\b|explaining|describing)\b",
+    re.I
+)
+
+def is_generative_intent(content: str) -> bool:
+    """Detect if requested text is a generative prompt (essay, poem, script, code, etc.) rather than literal text."""
+    if not content:
+        return False
+    return bool(GENERATIVE_INTENT_PATTERN.search(content.strip()))
+
 
 class IntentRouter:
     _instance: Optional["IntentRouter"] = None
@@ -202,6 +215,10 @@ class IntentRouter:
         if len(parts) < 2:
             return None
 
+        # If any part of compound command contains generative intent, delegate entirely to reasoning path
+        if any(is_generative_intent(p) for p in parts):
+            return None
+
         decisions: List[RouteDecision] = []
         for i, part in enumerate(parts):
             # Pronoun resolution for compound actions: "create folder X and open it" or "create file X and open it"
@@ -240,6 +257,8 @@ class IntentRouter:
                     content = w_match.group(1).strip()
                     content = re.sub(r"^(?:in|to|into)\s+(?:it|notepad|the\s+notepad)\s*(?::\s*|\s+)?", "", content, flags=re.I).strip()
                     content = re.sub(r"\s+(?:in|to|into)\s+(?:it|notepad|the\s+notepad)$", "", content, flags=re.I).strip()
+                    if is_generative_intent(content):
+                        return None
                     decisions.append(RouteDecision(
                         path=ExecutionPath.FAST_PATH,
                         action="write_to_notepad",
@@ -339,6 +358,7 @@ class IntentRouter:
     # Single Deterministic Fast-Path Matcher
     # -------------------------------------------------------------
     def _route_single_deterministic(self, text: str, original: str) -> Optional[RouteDecision]:
+        utterance = original
         # 0. Interruption, Abort & UI Visibility (<0.0ms)
         if re.search(r"\b(?:stop|cancel|shut\s*up|abort|freeze|halt)\b", text) and len(text.split()) <= 3:
             if not re.search(r"\b(?:timer|timers|reminder|reminders|recording|download|downloads)\b", text, re.I):
@@ -924,6 +944,8 @@ class IntentRouter:
             if not fname.lower().endswith(".docx"):
                 fname += ".docx"
             content = (word_doc_m.group(2) or "").strip()
+            if is_generative_intent(content):
+                return RouteDecision(path=ExecutionPath.REASONING_PATH, action="plan_and_execute", params={"raw_query": utterance})
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="create_word_document", params={"filename": fname, "content": content, "open_after": True})
 
         # 7_np_named. Notepad (.txt) File Fast Path:
@@ -938,6 +960,8 @@ class IntentRouter:
             if not fname.lower().endswith(".txt"):
                 fname += ".txt"
             content = (notepad_file_m.group(2) or "").strip()
+            if is_generative_intent(content):
+                return RouteDecision(path=ExecutionPath.REASONING_PATH, action="plan_and_execute", params={"raw_query": utterance})
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="write_to_notepad", params={"filename": fname, "text": content})
 
         # 7_word_or_notepad. "open a word or notepad file with name X and write Y in it"
@@ -949,6 +973,8 @@ class IntentRouter:
         if word_or_notepad_m:
             fname = word_or_notepad_m.group(1).strip()
             content = (word_or_notepad_m.group(2) or "").strip()
+            if is_generative_intent(content):
+                return RouteDecision(path=ExecutionPath.REASONING_PATH, action="plan_and_execute", params={"raw_query": utterance})
             if fname.lower().endswith(".docx"):
                 return RouteDecision(path=ExecutionPath.FAST_PATH, action="create_word_document", params={"filename": fname, "content": content, "open_after": True})
             if not fname.lower().endswith(".txt"):
@@ -970,6 +996,8 @@ class IntentRouter:
                 fname += ext_map[lang]
             content = (code_file_m.group(3) or "").strip()
             should_open = bool(re.search(r"\bopen\s+(?:it|the\s+file|that\s+file|open\s+it)\b", text, re.I))
+            if is_generative_intent(content):
+                return RouteDecision(path=ExecutionPath.REASONING_PATH, action="plan_and_execute", params={"raw_query": utterance})
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="create_file", params={"filename": fname, "content": content, "open_after": should_open})
 
         # 7a_loc_first. Location-first file creation:
@@ -1136,6 +1164,8 @@ class IntentRouter:
         if np_prefix_match:
             raw_c = np_prefix_match.group(1).strip()
             if raw_c:
+                if is_generative_intent(raw_c):
+                    return RouteDecision(path=ExecutionPath.REASONING_PATH, action="plan_and_execute", params={"raw_query": utterance})
                 return RouteDecision(path=ExecutionPath.FAST_PATH, action="write_to_notepad", params={"text": raw_c})
 
         # Suffix notepad: "write <text> in/to/into notepad", "type <text> in/into notepad"
@@ -1147,6 +1177,8 @@ class IntentRouter:
         if np_suffix_match:
             raw_c = np_suffix_match.group(1).strip()
             if raw_c:
+                if is_generative_intent(raw_c):
+                    return RouteDecision(path=ExecutionPath.REASONING_PATH, action="plan_and_execute", params={"raw_query": utterance})
                 return RouteDecision(path=ExecutionPath.FAST_PATH, action="write_to_notepad", params={"text": raw_c})
 
         # 7d_first. Write/Append with target filename FIRST:
@@ -1160,6 +1192,8 @@ class IntentRouter:
             verb = write_target_first.group(1).strip().lower()
             target_f = write_target_first.group(2).strip()
             content = write_target_first.group(3).strip()
+            if is_generative_intent(content):
+                return RouteDecision(path=ExecutionPath.REASONING_PATH, action="plan_and_execute", params={"raw_query": utterance})
             if target_f.lower() in ["notepad", "bloc-notes"]:
                 return RouteDecision(path=ExecutionPath.FAST_PATH, action="write_to_notepad", params={"text": content})
             if target_f.lower() not in ["sleep", "lock", "screen", "display", "mute", "sound", "volume"]:
@@ -1180,6 +1214,8 @@ class IntentRouter:
             verb = write_ext_first.group(1).strip().lower()
             target_f = write_ext_first.group(2).strip()
             content = write_ext_first.group(3).strip()
+            if is_generative_intent(content):
+                return RouteDecision(path=ExecutionPath.REASONING_PATH, action="plan_and_execute", params={"raw_query": utterance})
             act = "append_to_file" if verb in ["append", "add"] else "write_to_file"
             return RouteDecision(
                 path=ExecutionPath.FAST_PATH,
@@ -1197,6 +1233,8 @@ class IntentRouter:
             target_f = in_file_write.group(1).strip()
             verb = in_file_write.group(2).strip().lower()
             content = in_file_write.group(3).strip()
+            if is_generative_intent(content):
+                return RouteDecision(path=ExecutionPath.REASONING_PATH, action="plan_and_execute", params={"raw_query": utterance})
             if target_f.lower() in ["notepad", "bloc-notes"]:
                 return RouteDecision(path=ExecutionPath.FAST_PATH, action="write_to_notepad", params={"text": content})
             act = "append_to_file" if verb in ["append", "add"] else "write_to_file"
@@ -1216,6 +1254,8 @@ class IntentRouter:
             verb = bare_ext_write.group(1).strip().lower()
             target_f = bare_ext_write.group(2).strip()
             content = bare_ext_write.group(3).strip()
+            if is_generative_intent(content):
+                return RouteDecision(path=ExecutionPath.REASONING_PATH, action="plan_and_execute", params={"raw_query": utterance})
             act = "append_to_file" if verb in ["append", "add"] else "write_to_file"
             return RouteDecision(
                 path=ExecutionPath.FAST_PATH,
@@ -1227,22 +1267,30 @@ class IntentRouter:
         write_to_it = re.search(r"^(?:write|overwrite)\s+(?:to\s+(?:it|the\s+file|that\s+file)\s*(?::\s*|\s+)?|into\s+(?:it|the\s+file|that\s+file)\s*(?::\s*|\s+)?|in\s+(?:it|the\s+file|that\s+file)\s*(?::\s*|\s+)?)(.+)$", text, re.I)
         if write_to_it:
             content = write_to_it.group(1).strip()
+            if is_generative_intent(content):
+                return RouteDecision(path=ExecutionPath.REASONING_PATH, action="plan_and_execute", params={"raw_query": utterance})
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="write_to_file", params={"filename": "it", "content": content})
 
         write_suffix_it = re.search(r"^(?:write|overwrite)\s+(.+?)\s+(?:to|into|in)\s+(?:it|the\s+file|that\s+file)$", text, re.I)
         if write_suffix_it:
             content = write_suffix_it.group(1).strip()
+            if is_generative_intent(content):
+                return RouteDecision(path=ExecutionPath.REASONING_PATH, action="plan_and_execute", params={"raw_query": utterance})
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="write_to_file", params={"filename": "it", "content": content})
 
         # 7e. Append to file / Append to it:
         append_to_it = re.search(r"^(?:append|add)\s+(?:to\s+(?:it|the\s+file|that\s+file)\s*(?::\s*|\s+)?|into\s+(?:it|the\s+file|that\s+file)\s*(?::\s*|\s+)?|in\s+(?:it|the\s+file|that\s+file)\s*(?::\s*|\s+)?)(.+)$", text, re.I)
         if append_to_it:
             content = append_to_it.group(1).strip()
+            if is_generative_intent(content):
+                return RouteDecision(path=ExecutionPath.REASONING_PATH, action="plan_and_execute", params={"raw_query": utterance})
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="append_to_file", params={"filename_or_path": "it", "content": content})
 
         append_suffix_it = re.search(r"^(?:append|add)\s+(.+?)\s+(?:to|into|in)\s+(?:it|the\s+file|that\s+file)$", text, re.I)
         if append_suffix_it:
             content = append_suffix_it.group(1).strip()
+            if is_generative_intent(content):
+                return RouteDecision(path=ExecutionPath.REASONING_PATH, action="plan_and_execute", params={"raw_query": utterance})
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="append_to_file", params={"filename_or_path": "it", "content": content})
 
         # Standard write with explicit target filename:
@@ -1250,6 +1298,8 @@ class IntentRouter:
         if write_file_match:
             content = write_file_match.group(1).strip()
             target_f = (write_file_match.group(2) or write_file_match.group(3) or "").strip()
+            if is_generative_intent(content):
+                return RouteDecision(path=ExecutionPath.REASONING_PATH, action="plan_and_execute", params={"raw_query": utterance})
             if target_f.lower() in ["notepad", "bloc-notes"]:
                 return RouteDecision(path=ExecutionPath.FAST_PATH, action="write_to_notepad", params={"text": content})
             if target_f and target_f.lower() not in ["sleep", "lock", "screen", "display", "mute", "sound", "volume"]:
@@ -1637,11 +1687,14 @@ class IntentRouter:
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="save_user_fact", params={"fact": fact_val}, confidence=1.0, reasoning="Instant fact memory.")
 
         # 14. Telemetry & Diagnostics (<0.0ms)
+        if re.search(r"\b(?:list|show|view|get|display)\s+(?:the\s+)?(?:top\s+)?(?:running\s+)?processes\b", text, re.I):
+            sort = "cpu" if "cpu" in text else "memory"
+            return RouteDecision(path=ExecutionPath.REASONING_PATH, action="list_processes", params={"sort_by": sort})
         if "battery" in text and not any(w in text for w in ["buy", "order", "replace"]):
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="check_battery")
-        if any(w in text for w in ["check ram", "ram usage", "how much ram", "memory usage"]):
+        if "process" not in text and any(w in text for w in ["check ram", "ram usage", "how much ram", "memory usage"]):
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="check_ram")
-        if any(w in text for w in ["check cpu", "cpu usage", "how much cpu"]):
+        if "process" not in text and any(w in text for w in ["check cpu", "cpu usage", "how much cpu"]):
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="check_cpu")
         if any(w in text for w in ["check ip", "what is my ip", "my ip address"]):
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="check_ip")

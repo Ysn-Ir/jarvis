@@ -43,10 +43,10 @@ def compile_wake_patterns() -> Tuple[re.Pattern, Set[str]]:
     raw_env = os.getenv("WAKE_PHRASES", "").split(",")
     for p in raw_env:
         p_clean = p.strip().lower()
-        if p_clean and p_clean not in all_phrases:
+        if p_clean and p_clean not in all_phrases and p_clean not in ["system", "hey", "yo", "listen"]:
             all_phrases.append(p_clean)
 
-    for p in ["metalhead","scrapbox","clanka","clanker","call", "assistant", "computer", "jarvis", "system", "hey", "yo"]:
+    for p in ["metalhead", "scrapbox", "clanka", "clanker", "call", "assistant", "computer", "jarvis", "laya"]:
         if p not in all_phrases:
             all_phrases.append(p)
 
@@ -168,16 +168,17 @@ class WakeWordDetector:
                 cls._instance.on_interrupt = on_interrupt
         return cls._instance
 
-    def open_follow_up(self, duration_sec: float = 7.0, prompt_text: str = ""):
+    def open_follow_up(self, duration_sec: float = 5.0, prompt_text: str = ""):
         """Open a conversational follow-up window where speech is accepted without wake phrases."""
         now = time.time()
-        self.follow_up_settle_until = now + 0.45  # 450ms acoustic reverberation settling delay
-        self.follow_up_until = now + duration_sec
+        self.follow_up_settle_until = now + 0.60  # 600ms acoustic reverberation settling delay
+        follow_dur = min(duration_sec, 5.0)
+        self.follow_up_until = now + follow_dur
         self._flush_buffer_flag = True
         if prompt_text:
             self.last_assistant_speech = prompt_text.strip()
         self.resume()
-        print(f"[WakeWord] Follow-up listening window open for {duration_sec}s (acoustic guard: 450ms).")
+        print(f"[WakeWord] Follow-up listening window open for {follow_dur}s (acoustic guard: 600ms).")
 
     def is_in_follow_up(self) -> bool:
         """Check if currently within the conversational follow-up window."""
@@ -338,14 +339,20 @@ class WakeWordDetector:
                     self.on_interrupt()
                 return
 
-            # 2. Wake Word Detection (Matches 'call', 'assistant', 'computer', 'jarvis', etc.)
+            # 2. Wake Word Detection (Matches 'call', 'assistant', 'computer', 'jarvis', 'laya', etc.)
             match = self.wake_pattern.search(text_lower)
             if match:
                 self.follow_up_until = 0.0
                 print(f"[WakeWord] Trigger heard: '{text}'")
-                request_interrupt("New wake trigger")
-                if self.on_interrupt:
-                    self.on_interrupt()
+
+                # Cleanly stop any ongoing assistant speech without cancelling incoming command
+                tts = self._get_tts()
+                if tts and tts.is_speaking():
+                    tts.stop()
+
+                # Ensure abort flag is reset for the new command
+                from laya.tools.interrupt_manager import reset_interrupt
+                reset_interrupt()
 
                 # Extract subsequent command from the same utterance
                 raw_cmd = text[match.end():].strip().lstrip(",.!? ").strip()
@@ -378,15 +385,27 @@ class WakeWordDetector:
                     print(f"[WakeWord] Rejected acoustic self-echo from assistant speech: '{clean_cmd}'")
                     return
 
-                # Rejection 2: Conversational acknowledgments / noise words
-                if clean_cmd.lower() in [
+                # Rejection 2: User dismissals ("no", "stop", "nevermind", "we are not going to do that")
+                clean_low = clean_cmd.lower().strip()
+                dismiss_phrases = [
+                    "no", "nope", "nevermind", "never mind", "cancel", "stop", "nothing",
+                    "forget it", "leave it", "don't do that", "dont do that",
+                    "we are not going to do that", "not that", "not now", "ignore", "shut up"
+                ]
+                if any(clean_low == dp or clean_low.startswith(dp + " ") or clean_low.startswith(dp + ",") for dp in dismiss_phrases):
+                    print(f"[WakeWord] Follow-up dismissed: '{clean_cmd}'")
+                    self.follow_up_until = 0.0
+                    return
+
+                # Rejection 3: Conversational acknowledgments / noise words
+                if clean_low in [
                     "yeah", "yes", "yep", "uh", "um", "ah", "okay", "ok", "so", "and", "the", "a",
-                    "thanks", "thank you", "cool", "nice", "alright", "got it", "sure", "yup", "no", "nope"
+                    "thanks", "thank you", "cool", "nice", "alright", "got it", "sure", "yup"
                 ]:
                     print(f"[WakeWord] Ignored conversational acknowledgment in follow-up: '{clean_cmd}'")
                     return
 
-                is_real_command = bool(clean_cmd and clean_cmd.lower() not in self.non_command_words and len(clean_cmd) >= 3)
+                is_real_command = bool(clean_cmd and clean_low not in self.non_command_words and len(clean_cmd) >= 3)
                 if is_real_command:
                     print(f"[WakeWord] Follow-up command heard without wake word: '{clean_cmd}'")
                     self.follow_up_until = 0.0
@@ -427,9 +446,12 @@ class WakeWordDetector:
             match = self.wake_pattern.search(text_lower)
             if match:
                 print(f"\n⚡ [WakeWord] Preempting active task with new trigger: '{text}'")
-                request_interrupt(f"Preempting with new trigger: '{text}'")
-                if self.on_interrupt:
-                    self.on_interrupt()
+                tts = self._get_tts()
+                if tts:
+                    tts.stop()
+
+                from laya.tools.interrupt_manager import reset_interrupt
+                reset_interrupt()
 
                 raw_cmd = text[match.end():].strip().lstrip(",.!? ").strip()
                 clean_cmd = self._clean_command(raw_cmd)

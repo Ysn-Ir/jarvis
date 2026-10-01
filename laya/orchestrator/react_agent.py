@@ -308,8 +308,9 @@ class ReActAgent:
         candidate_models = list(dict.fromkeys([
             GROQ_MODEL,
             GROQ_FALLBACK_MODEL,
-            "qwen/qwen3.8-27b",
             "openai/gpt-oss-120b",
+            "openai/gpt-oss-20b",
+            "qwen/qwen3.8-27b",
         ]))
 
         active_idx = 0
@@ -346,6 +347,8 @@ class ReActAgent:
                     active_idx += 1
 
             if response is None:
+                if executed_observations:
+                    return str(executed_observations[-1]), provider
                 raise last_err or RuntimeError("All Groq candidate models failed.")
 
             provider = f"Groq ({active_model})"
@@ -377,6 +380,10 @@ class ReActAgent:
                     except Exception:
                         args = {}
 
+                    # Strip null values from arguments dictionary
+                    if isinstance(args, dict):
+                        args = {k: v for k, v in args.items() if v is not None}
+
                     try:
                         print(f"  -> [ReAct Step {step_count}] Tool Call: '{func_name}' with args {args}")
                     except Exception:
@@ -386,6 +393,17 @@ class ReActAgent:
 
                     obs = tool_dispatcher(func_name, args)
                     executed_observations.append(obs)
+
+                    # Immediate zero-latency return for terminal single-turn tools — no redundant second LLM hop
+                    if func_name == "answer_question":
+                        return str(obs).strip(), provider
+
+                    if func_name in [
+                        "write_to_notepad", "create_file", "write_to_file",
+                        "create_word_document", "create_notebook", "write_notebook_cell",
+                        "set_reminder", "cancel_reminders", "play_youtube"
+                    ]:
+                        return str(obs).strip(), provider
 
                     # Check for stop/interrupt after EACH tool call so we halt mid-sequence
                     if is_interrupt_requested():

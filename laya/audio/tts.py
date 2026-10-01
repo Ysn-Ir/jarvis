@@ -106,7 +106,7 @@ class TTSEngine:
             unique_id = uuid.uuid4().hex[:12]
             cache_file = CACHE_DIR / f"speech_{unique_id}.mp3"
 
-            synthesis_timeout = 5.0 if len(speech_text) > 250 else 3.0
+            synthesis_timeout = 10.0 if len(speech_text) > 250 else 6.0
             async def _synthesize():
                 comm = edge_tts.Communicate(speech_text, self.voice)
                 await asyncio.wait_for(comm.save(str(cache_file)), timeout=synthesis_timeout)
