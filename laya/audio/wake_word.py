@@ -67,6 +67,51 @@ _compiled_pat, NON_COMMAND_WORDS = compile_wake_patterns()
 WAKE_KEYWORDS_REGEX = _compiled_pat.pattern
 
 
+def is_echo_of_assistant(user_text: str, assistant_text: str = "") -> bool:
+    """Detect if transcribed text matches the assistant's own spoken response or known assistant output patterns."""
+    if not user_text:
+        return False
+    u_low = user_text.lower().strip()
+    u_clean = re.sub(r"[^\w\s]", "", u_low).strip()
+    if not u_clean:
+        return False
+
+    # 1. Signature prefixes and phrases spoken exclusively by the assistant
+    assistant_signatures = [
+        "created folder", "created file", "the file is located", "the folder is located",
+        "reminder set for", "timer set for", "from our history", "active contact set to",
+        "listening for voice", "listening follow-up", "action blocked by safety",
+        "fast path execution", "fast-path action", "could not find or open",
+        "assistant is online", "dispatched whatsapp", "dispatched telegram",
+        "cannot open", "unhandled path", "playing youtube", "opened application",
+        "volume set to", "volume increased", "volume decreased", "audio muted",
+        "task completed", "saved contact", "weather in", "it is currently",
+        "battery is at", "cpu usage is", "ram usage is", "ip address is",
+        "i have set a reminder", "i have created", "here is what i remember"
+    ]
+    for sig in assistant_signatures:
+        if u_clean.startswith(sig) or sig in u_clean:
+            return True
+
+    # 2. Direct comparison with assistant's last spoken text
+    if assistant_text:
+        a_low = assistant_text.lower().strip()
+        a_clean = re.sub(r"[^\w\s]", "", a_low).strip()
+        if a_clean:
+            # Substring containment
+            if u_clean in a_clean or a_clean in u_clean:
+                return True
+            u_words = set(u_clean.split())
+            a_words = set(a_clean.split())
+            if u_words and a_words:
+                overlap = len(u_words & a_words)
+                # If 40% or more of user words overlap with assistant's speech
+                if overlap / len(u_words) >= 0.4:
+                    return True
+
+    return False
+
+
 class WakeWordDetector:
     _instance: Optional["WakeWordDetector"] = None
 
@@ -82,6 +127,10 @@ class WakeWordDetector:
         self.is_running = False
         self.is_listening_active = False  # True during active execution/speech
         self.follow_up_until: float = 0.0  # Conversational follow-up window
+        self.follow_up_settle_until: float = 0.0  # Acoustic settling blanking window
+        self.last_assistant_speech: str = ""
+        self._flush_buffer_flag: bool = False
+        self._tts_engine = None
         self._thread: Optional[threading.Thread] = None
 
         self.wake_pattern, self.non_command_words = compile_wake_patterns()
@@ -91,6 +140,15 @@ class WakeWordDetector:
             self._fast_stt = WhisperModel("tiny.en", device=WHISPER_DEVICE, compute_type=WHISPER_COMPUTE_TYPE)
         except Exception:
             self._fast_stt = WhisperModel("tiny.en", device="cpu", compute_type="int8")
+
+    def _get_tts(self):
+        if self._tts_engine is None:
+            try:
+                from laya.audio.tts import get_tts_engine
+                self._tts_engine = get_tts_engine()
+            except Exception:
+                pass
+        return self._tts_engine
 
     @classmethod
     def get_instance(
@@ -110,11 +168,16 @@ class WakeWordDetector:
                 cls._instance.on_interrupt = on_interrupt
         return cls._instance
 
-    def open_follow_up(self, duration_sec: float = 7.0):
+    def open_follow_up(self, duration_sec: float = 7.0, prompt_text: str = ""):
         """Open a conversational follow-up window where speech is accepted without wake phrases."""
-        self.follow_up_until = time.time() + duration_sec
+        now = time.time()
+        self.follow_up_settle_until = now + 0.45  # 450ms acoustic reverberation settling delay
+        self.follow_up_until = now + duration_sec
+        self._flush_buffer_flag = True
+        if prompt_text:
+            self.last_assistant_speech = prompt_text.strip()
         self.resume()
-        print(f"[WakeWord] Follow-up listening window open for {duration_sec}s (no wake word needed).")
+        print(f"[WakeWord] Follow-up listening window open for {duration_sec}s (acoustic guard: 450ms).")
 
     def is_in_follow_up(self) -> bool:
         """Check if currently within the conversational follow-up window."""
@@ -169,8 +232,42 @@ class WakeWordDetector:
                             time.sleep(0.05)
                             continue
 
+                        if self._flush_buffer_flag:
+                            speech_buffer = []
+                            is_in_speech = False
+                            silence_count = 0
+                            self._flush_buffer_flag = False
+
                         audio_chunk = data.flatten()
                         energy = float(np.sqrt(np.mean(audio_chunk**2)))
+
+                        # Check if assistant is currently speaking or in acoustic settling guard
+                        tts = self._get_tts()
+                        tts_active = bool(tts and tts.is_speaking())
+                        now = time.time()
+
+                        if tts_active:
+                            # Assistant is actively speaking through the speakers.
+                            # Drop speech_buffer so Laya's output NEVER accumulates as a user command.
+                            speech_buffer = []
+                            is_in_speech = False
+                            silence_count = 0
+
+                            # Detect vocal barge-in ONLY if energy is loud enough to pierce through playback
+                            if energy > (VAD_ENERGY_THRESHOLD * 2.2):
+                                speech_buffer.append(audio_chunk)
+                                if len(speech_buffer) >= 12:
+                                    self._process_interruption(speech_buffer)
+                                    speech_buffer = []
+                            continue
+
+                        if now < self.follow_up_settle_until:
+                            # Acoustic reverberation guard right after assistant speech stops:
+                            # Discard speaker room-echo and soundcard latency
+                            speech_buffer = []
+                            is_in_speech = False
+                            silence_count = 0
+                            continue
 
                         if energy > VAD_ENERGY_THRESHOLD:
                             is_in_speech = True
@@ -257,6 +354,10 @@ class WakeWordDetector:
                 is_real_command = bool(clean_cmd and clean_cmd.lower() not in self.non_command_words and len(clean_cmd) >= 3)
 
                 if is_real_command:
+                    # Echo check even with wake word (in case assistant quoted a wake phrase)
+                    if is_echo_of_assistant(clean_cmd, self.last_assistant_speech):
+                        print(f"[WakeWord] Rejected wake-phrase self-echo from assistant speech: '{clean_cmd}'")
+                        return
                     print(f"[WakeWord] Single-pass command executing: '{clean_cmd}'")
                     self.pause()
                     if self.on_command:
@@ -271,6 +372,20 @@ class WakeWordDetector:
             # 3. Conversational Follow-Up Mode: accept natural follow-ups without repeating wake word
             if time.time() < self.follow_up_until:
                 clean_cmd = self._clean_command(text)
+
+                # Rejection 1: Acoustic self-echo of assistant's own speech
+                if is_echo_of_assistant(clean_cmd, self.last_assistant_speech):
+                    print(f"[WakeWord] Rejected acoustic self-echo from assistant speech: '{clean_cmd}'")
+                    return
+
+                # Rejection 2: Conversational acknowledgments / noise words
+                if clean_cmd.lower() in [
+                    "yeah", "yes", "yep", "uh", "um", "ah", "okay", "ok", "so", "and", "the", "a",
+                    "thanks", "thank you", "cool", "nice", "alright", "got it", "sure", "yup", "no", "nope"
+                ]:
+                    print(f"[WakeWord] Ignored conversational acknowledgment in follow-up: '{clean_cmd}'")
+                    return
+
                 is_real_command = bool(clean_cmd and clean_cmd.lower() not in self.non_command_words and len(clean_cmd) >= 3)
                 if is_real_command:
                     print(f"[WakeWord] Follow-up command heard without wake word: '{clean_cmd}'")

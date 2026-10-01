@@ -62,11 +62,36 @@ def test_wake_word_parsing():
         assert re.search(INTERRUPT_KEYWORDS_REGEX, phrase, re.IGNORECASE) is not None, f"Failed on: {phrase}"
 
 
+def test_follow_up_echo_rejection():
+    from laya.audio.wake_word import is_echo_of_assistant
+
+    assistant_spoken = "Created folder 'projectx' at 'C:\\Users\\khali\\OneDrive\\Bureau\\projectx'."
+    
+    # 1. Exact or partial echo of assistant output must be rejected
+    assert is_echo_of_assistant("created folder projectx", assistant_spoken) is True
+    assert is_echo_of_assistant("at c users bureau projectx", assistant_spoken) is True
+    assert is_echo_of_assistant("Created folder 'projectx' at 'C:\\Users\\khali\\OneDrive\\Bureau\\projectx'.", assistant_spoken) is True
+
+    # 2. Known assistant output signature prefixes must be rejected even without prompt text
+    assert is_echo_of_assistant("reminder set for 6pm") is True
+    assert is_echo_of_assistant("the file is located at desktop") is True
+    assert is_echo_of_assistant("from our history you are yasin") is True
+    assert is_echo_of_assistant("active contact set to ysn") is True
+    assert is_echo_of_assistant("could not find or open whatsapp") is True
+
+    # 3. Real user follow-up commands must NOT be rejected
+    assert is_echo_of_assistant("open spotify and play synthwave", assistant_spoken) is False
+    assert is_echo_of_assistant("close this window", assistant_spoken) is False
+    assert is_echo_of_assistant("in this folder create a python file named main.py", assistant_spoken) is False
+    assert is_echo_of_assistant("what is my name", assistant_spoken) is False
+    assert is_echo_of_assistant("send him a message via whatsapp saying hello", assistant_spoken) is False
+
 
 if __name__ == "__main__":
     import tempfile
     with tempfile.TemporaryDirectory() as td:
         test_notebook_tools_crud(Path(td))
     test_wake_word_parsing()
+    test_follow_up_echo_rejection()
     print("SUCCESS: ALL NOTEBOOK AND WAKE WORD TESTS PASSED 100%!")
 

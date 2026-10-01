@@ -36,6 +36,9 @@ class TTSEngine:
         self._running = True
         self._queue: queue.Queue[str] = queue.Queue()
         self._stop_event = threading.Event()
+        self.last_spoken_text: str = ""
+        self.last_spoken_time: float = 0.0
+        self._is_currently_playing: bool = False
 
         # Initialize audio playback mixer
         try:
@@ -181,23 +184,29 @@ class TTSEngine:
 
             if text:
                 success = False
-                # User preference: exclusively use the startup voice (Edge-TTS ChristopherNeural)
-                if not self._stop_event.is_set():
-                    success = self._speak_neural(text)
+                self._is_currently_playing = True
+                self.last_spoken_text = text
+                try:
+                    # User preference: exclusively use the startup voice (Edge-TTS ChristopherNeural)
+                    if not self._stop_event.is_set():
+                        success = self._speak_neural(text)
 
-                if not success and not self._stop_event.is_set():
-                    # Only attempt SAPI5 if edge-tts completely failed
-                    self._speak_sapi5(text)
+                    if not success and not self._stop_event.is_set():
+                        # Only attempt SAPI5 if edge-tts completely failed
+                        self._speak_sapi5(text)
+                finally:
+                    self._is_currently_playing = False
+                    self.last_spoken_time = time.time()
 
             self._queue.task_done()
 
-            # Conversational Follow-Up: open a 7-second active listening window after Laya finishes speaking
+            # Conversational Follow-Up: open an active listening window after Laya finishes speaking
             if self._queue.empty() and not self._stop_event.is_set():
                 try:
                     from laya.audio.wake_word import WakeWordDetector
                     ww = getattr(WakeWordDetector, "_instance", None)
                     if ww:
-                        ww.open_follow_up(duration_sec=7.0)
+                        ww.open_follow_up(duration_sec=7.0, prompt_text=self.last_spoken_text)
                 except Exception:
                     pass
 
@@ -235,6 +244,8 @@ class TTSEngine:
 
     def is_speaking(self) -> bool:
         """Check if speech is currently outputting or queued."""
+        if self._is_currently_playing:
+            return True
         try:
             if pygame.mixer.get_init() and pygame.mixer.music.get_busy():
                 return True

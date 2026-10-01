@@ -893,8 +893,7 @@ class LayaHUD(ctk.CTk):
                 elif kind == "post_execution":
                     if self.current_state != "STOPPED" and not is_interrupt_requested():
                         self.current_state = "SPEAKING"
-                    if self.wake_detector:
-                        self.wake_detector.resume()
+                    # Wake detector remains in active/pause mode while assistant speaks to prevent hearing self
 
         except queue.Empty:
             pass
@@ -905,6 +904,8 @@ class LayaHUD(ctk.CTk):
         try:
             if self.current_state == "SPEAKING" and not self.tts.is_speaking():
                 self.current_state = "IDLE"
+                if self.wake_detector:
+                    self.wake_detector.resume()
                 if self.wake_detector and getattr(self.wake_detector, "is_in_follow_up", lambda: False)():
                     self.query_text.configure(
                         text="Listening... (Follow-up active: speak without wake word)",
