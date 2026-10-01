@@ -127,35 +127,45 @@ class Tier2OSAutomationTools:
     # -------------------------------------------------------------
     def _resolve_base_dir(self, location_hint: Optional[str] = None) -> Path:
         """Resolve location hint ('desktop', 'downloads', 'documents', custom path) to real directory."""
-        if not location_hint or location_hint.strip() in ["", "here", "current", "this"]:
+        if not location_hint or location_hint.strip().lower() in ["", "here", "current", "this", "it", "this folder", "that folder", "the folder", "folder"]:
             if self.last_created_dir and Path(self.last_created_dir).exists():
                 return Path(self.last_created_dir)
             return Path.home() / "Desktop"
 
         loc = location_hint.strip()
+
+        # 1. Existing absolute or relative path check FIRST
+        try:
+            check_direct = Path(loc)
+            if check_direct.exists():
+                return check_direct
+        except Exception:
+            pass
+
         loc_lower = loc.lower().replace("\\", "/")
         
         # Check sub-paths under desktop/documents/downloads
         if loc_lower.startswith("desktop/"):
             sub = loc[len("desktop/"):]
             return (Path.home() / "Desktop" / sub)
-        elif loc_lower == "desktop":
-            return Path.home() / "Desktop"
+        elif loc_lower in ["desktop", "the desktop"]:
+            from laya.config import REAL_DESKTOP_DIR
+            return REAL_DESKTOP_DIR
 
         if loc_lower.startswith("downloads/"):
             sub = loc[len("downloads/"):]
             return (Path.home() / "Downloads" / sub)
-        elif "download" in loc_lower:
+        elif loc_lower in ["download", "downloads", "the downloads"]:
             return Path.home() / "Downloads"
 
         if loc_lower.startswith("documents/") or loc_lower.startswith("docs/"):
             prefix = "documents/" if loc_lower.startswith("documents/") else "docs/"
             sub = loc[len(prefix):]
             return (DOCS_DIR / sub)
-        elif "document" in loc_lower or "docs" in loc_lower:
+        elif loc_lower in ["document", "documents", "docs", "the documents"]:
             return DOCS_DIR
 
-        if "bureau" in loc_lower or "desktop" in loc_lower:
+        if loc_lower in ["bureau", "le bureau", "mon bureau"]:
             from laya.config import REAL_DESKTOP_DIR
             return REAL_DESKTOP_DIR
 
@@ -165,13 +175,10 @@ class Tier2OSAutomationTools:
         if check_desktop.exists():
             return check_desktop
 
-        check_last = Path(self.last_created_dir) / loc
-        if check_last.exists():
-            return check_last
-
-        check_direct = Path(loc)
-        if check_direct.exists():
-            return check_direct
+        if self.last_created_dir:
+            check_last = Path(self.last_created_dir) / loc
+            if check_last.exists():
+                return check_last
 
         # If it's a valid folder name, create it under Desktop
         if not any(c in loc for c in r'<>:"/\|?*'):

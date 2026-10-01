@@ -240,28 +240,55 @@ class WindowGeometryManager:
         if not points:
             return "No points generated for shape."
 
-        # 1. Click inside canvas area to ensure focus and select pencil tool if in Paint
-        pyautogui.click(cx, cy)
-        time.sleep(0.08)
+        # 1. Focus canvas and ensure Pencil tool is selected if in Paint
         if is_paint:
-            pyautogui.press('p')  # P = Pencil in Paint
-            time.sleep(0.05)
+            # Click the Pencil tool on the Paint toolbar ribbon (~left + 225, top + 75)
+            ribbon_pencil_x = left + min(225, int(width * 0.22))
+            ribbon_pencil_y = top + 75
+            pyautogui.click(ribbon_pencil_x, ribbon_pencil_y)
+            time.sleep(0.06)
 
-        # 2. Move to initial coordinate
-        start_x, start_y = points[0]
-        pyautogui.moveTo(start_x, start_y)
+        # Click inside canvas area to ensure focus
+        pyautogui.click(cx, cy)
+        time.sleep(0.06)
+
+        # 2. Dense stroke interpolation for smooth inking without broken line segments
+        def _get_interpolated_stroke(pts: List[Tuple[int, int]], step_px: int = 4) -> List[Tuple[int, int]]:
+            res = [pts[0]]
+            for i in range(len(pts) - 1):
+                p1 = pts[i]
+                p2 = pts[i + 1]
+                dx = p2[0] - p1[0]
+                dy = p2[1] - p1[1]
+                dist = (dx * dx + dy * dy) ** 0.5
+                if dist < step_px:
+                    res.append(p2)
+                else:
+                    n_steps = max(1, int(dist // step_px))
+                    for s in range(1, n_steps + 1):
+                        res.append((int(p1[0] + dx * s / n_steps), int(p1[1] + dy * s / n_steps)))
+            return res
+
+        stroke_points = _get_interpolated_stroke(points, step_px=4)
+
+        # 3. Move to initial coordinate
+        start_x, start_y = stroke_points[0]
+        win32api.SetCursorPos((start_x, start_y))
         time.sleep(0.04)
 
-        # 3. Real mouse down with left button to start inking
+        # 4. Real mouse down with left button to start inking
+        win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
         pyautogui.mouseDown(button="left")
         time.sleep(0.03)
 
-        # 4. Smooth continuous drag across all parametric path points
+        # 5. Smooth continuous inking drag across all parametric path points via Win32 MOUSEEVENTF_MOVE
         try:
-            for pt in points[1:]:
-                pyautogui.moveTo(pt[0], pt[1])
-                time.sleep(0.01)
+            for pt in stroke_points[1:]:
+                win32api.SetCursorPos((pt[0], pt[1]))
+                win32api.mouse_event(win32con.MOUSEEVENTF_MOVE, 0, 0, 0, 0)
+                time.sleep(0.003)
         finally:
+            win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
             pyautogui.mouseUp(button="left")
 
         time.sleep(0.04)

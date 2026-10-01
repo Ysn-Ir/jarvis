@@ -32,6 +32,7 @@ class FastPathExecutor:
     def __init__(self):
         self.last_created_folder: Optional[str] = None
         self.last_created_file: Optional[str] = None
+        self.last_contact: Optional[str] = None
         self._screen_recorder_thread: Optional[threading.Thread] = None
         self._screen_recorder_stop = threading.Event()
         self._screen_recorder_file: Optional[Path] = None
@@ -791,6 +792,7 @@ class FastPathExecutor:
         from laya.tools.interrupt_manager import is_interrupt_requested
         results = []
         last_target_folder = None
+        last_target_file = None
         for act in actions:
             if is_interrupt_requested():
                 return "Stopped."
@@ -798,10 +800,20 @@ class FastPathExecutor:
             params = dict(act.get("params", {}))
 
             # Propagate target folder from create_folder to subsequent open_folder
-            if action_name == "open_folder":
-                fol = params.get("folder_name", "")
-                if fol in ["it", "them", "that", "the folder", ""] and last_target_folder:
-                    params["folder_name"] = last_target_folder
+            if action_name in ["open_folder", "create_file"]:
+                fol = params.get("folder_name", "") or params.get("location", "")
+                if fol in ["it", "them", "that", "the folder", "that folder", ""] and last_target_folder:
+                    if "folder_name" in params:
+                        params["folder_name"] = last_target_folder
+                    elif "location" in params:
+                        params["location"] = last_target_folder
+
+            # Propagate target file from create_file to subsequent open_file / write_to_file / append_to_file
+            if action_name in ["open_file", "write_to_file", "append_to_file", "delete_file"]:
+                fn_key = "filename" if "filename" in params else "filename_or_path"
+                fn = params.get(fn_key, "")
+                if fn in ["it", "the file", "that file", "this file", ""] and last_target_file:
+                    params[fn_key] = last_target_file
 
             handler = getattr(self, action_name, None)
             if handler:
@@ -810,6 +822,10 @@ class FastPathExecutor:
                     results.append(str(res))
                     if action_name in ["create_folder", "create_and_open_folder"]:
                         last_target_folder = params.get("folder_name")
+                    if action_name in ["create_file"]:
+                        last_target_file = params.get("filename")
+                    if self.last_created_file:
+                        last_target_file = self.last_created_file
                 except Exception as e:
                     results.append(f"Error in {action_name}: {e}")
             else:
@@ -822,6 +838,9 @@ class FastPathExecutor:
     def create_file(self, filename: str, content: str = "", location: str = "desktop", open_after: bool = False) -> str:
         """Create a new file with optional content instantly on Desktop or in specified folder."""
         from laya.tools.tier2_os_mcp import get_tier2_tools
+        if location and location.lower().strip() in ["this folder", "that folder", "the folder", "it", "this", "here", "current"]:
+            if self.last_created_folder:
+                location = self.last_created_folder
         res = get_tier2_tools().create_file(filename=filename, content=content, location=location)
         self.last_created_file = get_tier2_tools().last_created_file
         if open_after and self.last_created_file and Path(self.last_created_file).exists():
@@ -831,6 +850,20 @@ class FastPathExecutor:
             except Exception:
                 pass
         return res
+
+    def get_file_info(self, query: str = "") -> str:
+        """Return the location and absolute path of the last created or referenced file or folder."""
+        from laya.tools.tier2_os_mcp import get_tier2_tools
+        if "folder" in query.lower() and self.last_created_folder:
+            return f"The folder is located at '{self.last_created_folder}'."
+        if self.last_created_file and Path(self.last_created_file).exists():
+            return f"The file '{Path(self.last_created_file).name}' is located at '{self.last_created_file}'."
+        tier2_info = get_tier2_tools().get_file_info(query)
+        if tier2_info:
+            return tier2_info
+        if self.last_created_folder:
+            return f"The folder is located at '{self.last_created_folder}'."
+        return "No recent file or folder path recorded in this session."
 
     def create_and_open_folder(self, folder_name: str = "New Folder", location: str = "desktop") -> str:
         """Create a new folder instantly on Desktop, Bureau, or specified directory and reveal it in Windows Explorer."""
@@ -909,11 +942,19 @@ class FastPathExecutor:
                 target_name = self.last_created_file
             elif get_tier2_tools().last_created_file and Path(get_tier2_tools().last_created_file).exists():
                 target_name = get_tier2_tools().last_created_file
+            else:
+                target_name = str(REAL_DESKTOP_DIR / "notes.txt")
         target = get_filesystem_pro()._resolve_path(target_name)
+
+        # Clean content of pronoun artifacts e.g. "write hello to it" -> content should be "hello"
+        clean_content = (content or "").strip()
+        clean_content = re.sub(r"^(?:to|into|in)\s+(?:it|the\s+file|that\s+file)\s*(?::\s*|\s+)?", "", clean_content, flags=re.I).strip()
+        clean_content = re.sub(r"\s+(?:to|into|in)\s+(?:it|the\s+file|that\s+file)$", "", clean_content, flags=re.I).strip()
+
         try:
             target.parent.mkdir(parents=True, exist_ok=True)
             with open(target, "w", encoding="utf-8") as f:
-                f.write(content + "\n")
+                f.write(clean_content + "\n")
             self.last_created_file = str(target.resolve())
             get_tier2_tools().last_created_file = str(target.resolve())
             return f"Wrote to '{target.name}' successfully."
@@ -930,6 +971,8 @@ class FastPathExecutor:
                 target_name = self.last_created_file
             elif get_tier2_tools().last_created_file and Path(get_tier2_tools().last_created_file).exists():
                 target_name = get_tier2_tools().last_created_file
+            else:
+                target_name = str(REAL_DESKTOP_DIR / "notes.txt")
 
         if location and location.strip() and not Path(target_name).is_absolute():
             base = get_tier2_tools()._resolve_base_dir(location)
@@ -937,10 +980,14 @@ class FastPathExecutor:
         else:
             target = get_filesystem_pro()._resolve_path(target_name)
 
+        clean_content = (content or "").strip()
+        clean_content = re.sub(r"^(?:to|into|in)\s+(?:it|the\s+file|that\s+file)\s*(?::\s*|\s+)?", "", clean_content, flags=re.I).strip()
+        clean_content = re.sub(r"\s+(?:to|into|in)\s+(?:it|the\s+file|that\s+file)$", "", clean_content, flags=re.I).strip()
+
         try:
             target.parent.mkdir(parents=True, exist_ok=True)
             with open(target, "a", encoding="utf-8") as f:
-                f.write(content + "\n")
+                f.write(clean_content + "\n")
             self.last_created_file = str(target.resolve())
             get_tier2_tools().last_created_file = str(target.resolve())
             return f"Appended text to '{target.name}' successfully."
@@ -1046,32 +1093,76 @@ class FastPathExecutor:
         return get_browser_automator().open_url(url)
 
     def write_to_notepad(self, text: str, filename: Optional[str] = None) -> str:
-        """Write text to Notepad — opens Notepad if not running, then types or pastes the text."""
+        """Write text to Notepad — opens Notepad if not running, brings to front, and types/pastes text."""
         import threading
-        from laya.tools.win32_utils import find_window_by_query, robust_bring_to_front
+        from laya.tools.win32_utils import find_window_by_query, robust_bring_to_front, get_open_windows
+        from laya.fast_path.app_locator import get_app_locator
+
+        clean_text = (text or "").strip()
+        # Clean common wrapper quotes
+        if (clean_text.startswith('"') and clean_text.endswith('"')) or (clean_text.startswith("'") and clean_text.endswith("'")):
+            clean_text = clean_text[1:-1].strip()
+
         if filename:
             # Write to a named file and open it in Notepad
-            target = Path.home() / "Documents" / "LayaDocs" / (filename if filename.endswith(".txt") else f"{filename}.txt")
+            from laya.tools.filesystem_pro import get_filesystem_pro
+            target = get_filesystem_pro()._resolve_path(filename)
             try:
                 target.parent.mkdir(parents=True, exist_ok=True)
                 with open(target, "w", encoding="utf-8") as f:
-                    f.write(text + "\n")
+                    f.write(clean_text + "\n")
                 os.startfile(str(target))
-                return f"Written '{filename}' and opened in Notepad."
+                self.last_created_file = str(target.resolve())
+                return f"Written '{target.name}' and opened in Notepad."
             except Exception as e:
                 return f"Failed to write Notepad file: {e}"
-        # Otherwise type directly into active/open Notepad window
+
+        # 1. Look for already open Notepad window (supporting French 'Bloc-notes' and tabs)
         win = find_window_by_query("notepad")
         if not win:
-            os.startfile("notepad.exe")
-            time.sleep(0.7)
-            win = find_window_by_query("notepad")
+            for w in get_open_windows(min_size=(0, 0)):
+                t = (w.get("title") or "").lower()
+                if any(k in t for k in ["notepad", "bloc-notes", "sans titre", "untitled - notepad"]):
+                    win = w
+                    break
+
+        # 2. If not running, launch Notepad
+        if not win:
+            get_app_locator().launch("notepad")
+            # Poll up to 2.5s for the window to appear
+            for _ in range(12):
+                time.sleep(0.2)
+                win = find_window_by_query("notepad")
+                if not win:
+                    for w in get_open_windows(min_size=(0, 0)):
+                        t = (w.get("title") or "").lower()
+                        if any(k in t for k in ["notepad", "bloc-notes", "sans titre", "untitled - notepad"]):
+                            win = w
+                            break
+                if win and win.get("hwnd"):
+                    break
+
         if win and win.get("hwnd"):
-            robust_bring_to_front(win["hwnd"])
-            time.sleep(0.15)
-            pyperclip.copy(text)
+            hwnd = win["hwnd"]
+            robust_bring_to_front(hwnd)
+            time.sleep(0.2)
+            try:
+                # Ensure client area has keyboard focus
+                rect = win.get("rect")
+                if rect and rect[2] > rect[0] and rect[3] > rect[1]:
+                    cx = (rect[0] + rect[2]) // 2
+                    cy = (rect[1] + rect[3]) // 2
+                    pyautogui.click(cx, cy)
+                    time.sleep(0.08)
+            except Exception:
+                pass
+
+            pyperclip.copy(clean_text)
+            time.sleep(0.05)
             pyautogui.hotkey("ctrl", "v")
-            return f"Typed text into Notepad: '{text[:50]}{'...' if len(text) > 50 else ''}'."
+            display_snippet = clean_text[:40] + ("..." if len(clean_text) > 40 else "")
+            return f"Typed into Notepad: '{display_snippet}'."
+
         return "Could not find or open Notepad."
 
 
@@ -1101,6 +1192,8 @@ class FastPathExecutor:
     def whatsapp_call(self, contact: str, call_type: str = "voice") -> str:
         """Call a contact on WhatsApp instantly (voice or video) with zero LLM delay."""
         contact = contact.strip()
+        if contact.lower() in ["him", "her", "them", "the contact", "that contact", "this contact"] and self.last_contact:
+            contact = self.last_contact
         from laya.tools.win32_utils import ensure_desktop_access, robust_bring_to_front, find_window_by_query
         ensure_desktop_access()
 
@@ -1142,6 +1235,8 @@ class FastPathExecutor:
     def send_message(self, recipient: str, message: str = "", platform: str = "auto") -> str:
         """Intelligently dispatch a message to a recipient via Telegram or WhatsApp with zero LLM delay."""
         recipient = recipient.strip()
+        if recipient.lower() in ["him", "her", "them", "the contact", "that contact", "this contact"] and self.last_contact:
+            recipient = self.last_contact
         message = message.strip() or "Hello from Laya!"
 
         from laya.tools.contacts_store import get_contacts_store
@@ -1170,6 +1265,8 @@ class FastPathExecutor:
     def telegram_call(self, contact: str = "", recipient: str = "", call_type: str = "voice") -> str:
         """Call a contact on Telegram instantly with zero LLM delay."""
         target_name = (contact or recipient or "").strip()
+        if target_name.lower() in ["him", "her", "them", "the contact", "that contact", "this contact"] and self.last_contact:
+            target_name = self.last_contact
         from laya.tools.contacts_store import get_contacts_store
         c_record = get_contacts_store().get_contact(target_name)
         target = (c_record.get("telegram") if c_record else None) or target_name.lstrip("@")
@@ -1254,6 +1351,12 @@ class FastPathExecutor:
             return f"Removed contact '{name}'."
         return f"Contact '{name}' not found."
 
+    def set_active_contact(self, contact: str) -> str:
+        """Set the active contact for multi-turn conversational pronoun resolution."""
+        clean = contact.strip().strip("'\"")
+        self.last_contact = clean
+        return f"Active contact set to '{clean}'."
+
     # -------------------------------------------------------------
     # Instant Messaging (Telegram & WhatsApp Fast Path)
     # -------------------------------------------------------------
@@ -1264,7 +1367,9 @@ class FastPathExecutor:
     def telegram_message(self, recipient: str = "", contact: str = "", message: str = "") -> str:
         """Send message to a contact or active conversation on Telegram."""
         from laya.tools.telegram_client import TelegramManager
-        target = recipient or contact or ""
+        target = (recipient or contact or "").strip()
+        if target.lower() in ["him", "her", "them", "the contact", "that contact", "this contact"] and self.last_contact:
+            target = self.last_contact
         return TelegramManager.get_instance().send_message(recipient=target, message=message)
 
     def send_telegram(self, recipient: str = "", contact: str = "", message: str = "") -> str:
@@ -1276,6 +1381,9 @@ class FastPathExecutor:
         import urllib.parse
         target_name = (contact or recipient or "").strip()
         msg_body = (message or "").strip()
+
+        if target_name.lower() in ["him", "her", "them", "the contact", "that contact", "this contact"] and self.last_contact:
+            target_name = self.last_contact
 
         is_latest = target_name.lower() in [
             "latest", "recent", "current", "latest conversation", "last conversation",
@@ -1774,3 +1882,6 @@ class FastPathExecutor:
 
 def get_fast_path_executor() -> FastPathExecutor:
     return FastPathExecutor.get_instance()
+
+
+get_executor = get_fast_path_executor

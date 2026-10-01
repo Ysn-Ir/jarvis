@@ -232,32 +232,67 @@ class ReActAgent:
 
         messages.append({"role": "user", "content": query})
 
+        # Zero-LLM Fast Intercept for any timer/reminder queries that slipped into ReAct
+        try:
+            from laya.router.classifier import IntentRouter
+            fast_d = IntentRouter.get_instance().route(query)
+            if fast_d and fast_d.action in ["set_reminder", "list_reminders", "cancel_reminders", "clarify"]:
+                if fast_d.action == "clarify":
+                    return fast_d.clarification_prompt, "System"
+                res = tool_dispatcher(fast_d.action, fast_d.params)
+                return str(res), "FastPath"
+        except Exception:
+            pass
+
         # Check network availability before attempting cloud APIs to prevent hanging
         net_ok = self._is_network_available()
 
         # 1. Try Groq LPUs first for lightning speed (sub-second turns)
         if net_ok and self.groq_client:
             try:
-                return self._run_groq_loop(messages, tool_dispatcher, max_steps, step_callback=step_callback)
+                ans, prov = self._run_groq_loop(messages, tool_dispatcher, max_steps, step_callback=step_callback)
+                return self._sanitize_response(ans, query, tool_dispatcher), prov
             except Exception as e:
                 print(f"[ReActAgent] Groq attempt failed ({e})...")
 
         # 2. Try OpenRouter (Llama 3.3 70B) only if valid key is set
         if net_ok and self.openrouter_client and OPENROUTER_API_KEY and len(OPENROUTER_API_KEY) > 10:
             try:
-                return self._run_openrouter_loop(messages, tool_dispatcher, max_steps, step_callback=step_callback)
+                ans, prov = self._run_openrouter_loop(messages, tool_dispatcher, max_steps, step_callback=step_callback)
+                return self._sanitize_response(ans, query, tool_dispatcher), prov
             except Exception as e:
                 print(f"[ReActAgent] OpenRouter fallback failed ({e})...")
 
         # 3. Try Local GPU Ollama if running (no 40s freeze if port is closed)
         if self._is_ollama_online():
             try:
-                return self._run_ollama_loop(messages, tool_dispatcher, max_steps, step_callback=step_callback)
+                ans, prov = self._run_ollama_loop(messages, tool_dispatcher, max_steps, step_callback=step_callback)
+                return self._sanitize_response(ans, query, tool_dispatcher), prov
             except Exception as e:
                 print(f"[ReActAgent] Local Ollama failed: {e}")
 
         # If network is offline and Ollama is offline, provide a clear and truthful message
         return "I apologize, my reasoning engine is currently unavailable. All deterministic system controls (apps, volume, windows, files, Telegram, Gmail) are operational.", "System"
+
+    def _sanitize_response(self, final_text: str, query: str, tool_dispatcher: Any) -> str:
+        """Prevent generic chat LLM refusals regarding timers, alarms, and OS automation."""
+        low = final_text.lower()
+        if any(phrase in low for phrase in [
+            "can't set a timer", "cannot set a timer", "unable to set a timer",
+            "don't have the ability to set a timer", "not able to set a timer",
+            "open a timer app", "suggest a way to set one", "can't set timers",
+            "suggest an online timer", "search for an online timer"
+        ]):
+            try:
+                from laya.router.classifier import IntentRouter
+                d = IntentRouter.get_instance().route(query)
+                if d and d.action == "set_reminder":
+                    obs = tool_dispatcher("set_reminder", d.params)
+                    return f"Timer set: {obs}"
+            except Exception:
+                pass
+            return "I have native desktop timer capabilities built in. How many minutes or seconds would you like me to set the timer for?"
+        return final_text
 
 
     def _run_groq_loop(

@@ -397,6 +397,39 @@ class OrchestratorEngine:
             elif tool in ["play_youtube", "youtube_play"]:
                 return self.fast_path.play_youtube(query=args.get("query", ""))
 
+            # Timers, Alarms, Reminders & Tasks
+            elif tool in ["set_reminder", "add_reminder", "set_timer", "add_timer"]:
+                return self.fast_path.set_reminder(
+                    message=args.get("message", "Timer"),
+                    minutes=float(args.get("minutes", 0)),
+                    hours=float(args.get("hours", 0)),
+                    seconds=float(args.get("seconds", 0))
+                )
+            elif tool in ["list_reminders", "get_reminders", "list_timers"]:
+                return self.fast_path.list_reminders()
+            elif tool in ["cancel_reminders", "cancel_timer", "clear_reminders"]:
+                return self.fast_path.cancel_reminders(query=args.get("query", ""))
+            elif tool in ["add_task", "create_task"]:
+                return self.fast_path.add_task(
+                    title=args.get("title", ""),
+                    due_date=args.get("due_date", ""),
+                    priority=args.get("priority", "normal")
+                )
+            elif tool in ["list_tasks", "get_tasks"]:
+                return self.fast_path.list_tasks(status=args.get("status", "all"))
+            elif tool in ["complete_task", "finish_task"]:
+                return self.fast_path.complete_task(query=args.get("query", ""))
+            elif tool in ["delete_task", "remove_task"]:
+                return self.fast_path.delete_task(query=args.get("query", ""))
+            elif tool in ["save_user_fact", "remember_fact", "remember"]:
+                return self.fast_path.save_user_fact(fact=args.get("fact", "") or args.get("text", ""))
+            elif tool in ["update_user_profile", "set_profile"]:
+                return self.fast_path.update_user_profile(key=args.get("key", ""), value=args.get("value", ""))
+            elif tool in ["who_am_i", "get_user_profile"]:
+                return self.fast_path.who_am_i()
+            elif tool in ["clear_memory", "reset_memory"]:
+                return self.fast_path.clear_memory()
+
             # Write to file / notepad tools
             elif tool in ["write_to_file", "write_file"]:
                 return self.fast_path.write_to_file(

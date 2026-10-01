@@ -190,12 +190,15 @@ class IntentRouter:
         if "youtube and search" in text or "browser and search" in text or "google and search" in text:
             return None
 
-        # Check for split tokens
-        split_pattern = r"\b(?:and\s+then|then|after\s+that|and\s+also|and)\b"
-        if not re.search(split_pattern, text):
+        # Pre-normalize implicit chaining like 'open it write hello' -> 'open it and write hello'
+        norm_text = re.sub(r"\b(open\s+it|open\s+the\s+file|open\s+that\s+file)\s+(write|append|type)\b", r"\1 and \2", text, flags=re.I)
+
+        # Check for split tokens (and, then, commas)
+        split_pattern = r"\b(?:and\s+then|then|after\s+that|and\s+also|and)\b|,\s*"
+        if not re.search(split_pattern, norm_text):
             return None
 
-        parts = [p.strip() for p in re.split(split_pattern, text) if p.strip()]
+        parts = [p.strip() for p in re.split(split_pattern, norm_text) if p.strip()]
         if len(parts) < 2:
             return None
 
@@ -213,8 +216,8 @@ class IntentRouter:
                         confidence=1.0,
                     ))
                     continue
-                elif decisions and decisions[-1].action == "create_file":
-                    target_file = decisions[-1].params.get("filename") or "it"
+                elif decisions and decisions[-1].action in ["create_file", "write_to_file", "append_to_file"]:
+                    target_file = decisions[-1].params.get("filename") or decisions[-1].params.get("filename_or_path") or "it"
                     decisions.append(RouteDecision(
                         path=ExecutionPath.FAST_PATH,
                         action="open_file",
@@ -224,14 +227,33 @@ class IntentRouter:
                     ))
                     continue
 
+            # Target app write resolution (Notepad / Wordpad / Editor):
+            # e.g. "open notepad and write hello world" or "open notepad then write hello"
+            if i > 0 and decisions and decisions[-1].action == "open_app" and any(k in decisions[-1].params.get("app_name", "").lower() for k in ["notepad", "bloc-notes", "wordpad", "editor"]):
+                w_match = re.search(r"^(?:write(?:\s+(?:in|to|into)\s+it)?|type(?:\s+(?:in|to|into)\s+it)?)\s*(?::\s*|\s+)?(.*)$", part, re.I)
+                if w_match:
+                    content = w_match.group(1).strip()
+                    content = re.sub(r"^(?:in|to|into)\s+(?:it|notepad|the\s+notepad)\s*(?::\s*|\s+)?", "", content, flags=re.I).strip()
+                    content = re.sub(r"\s+(?:in|to|into)\s+(?:it|notepad|the\s+notepad)$", "", content, flags=re.I).strip()
+                    decisions.append(RouteDecision(
+                        path=ExecutionPath.FAST_PATH,
+                        action="write_to_notepad",
+                        params={"text": content},
+                        safety_tier="GREEN",
+                        confidence=1.0,
+                    ))
+                    continue
+
             # Pronoun resolution for write / append in compound chain:
-            if i > 0 and re.search(r"^(?:write(?:\s+to\s+it)?|append(?:\s+to\s+it)?)\s+(.+)$", part, re.I):
-                w_match = re.search(r"^(?:write(?:\s+to\s+it)?|append(?:\s+to\s+it)?)\s+(.+)$", part, re.I)
+            if i > 0 and re.search(r"^(?:write(?:\s+(?:to|in|into)\s+it)?|append(?:\s+(?:to|in|into)\s+it)?)\s*(?::\s*|\s+)?(.*)$", part, re.I):
+                w_match = re.search(r"^(?:write(?:\s+(?:to|in|into)\s+it)?|append(?:\s+(?:to|in|into)\s+it)?)\s*(?::\s*|\s+)?(.*)$", part, re.I)
                 act = "append_to_file" if "append" in part.lower() else "write_to_file"
                 content = w_match.group(1).strip() if w_match else ""
+                content = re.sub(r"^(?:to|into|in)\s+(?:it|the\s+file|that\s+file)\s*(?::\s*|\s+)?", "", content, flags=re.I).strip()
+                content = re.sub(r"\s+(?:to|into|in)\s+(?:it|the\s+file|that\s+file)$", "", content, flags=re.I).strip()
                 target_f = "it"
-                if decisions and decisions[-1].action == "create_file":
-                    target_f = decisions[-1].params.get("filename") or "it"
+                if decisions and decisions[-1].action in ["create_file", "open_file"]:
+                    target_f = decisions[-1].params.get("filename") or decisions[-1].params.get("filename_or_path") or "it"
                 decisions.append(RouteDecision(
                     path=ExecutionPath.FAST_PATH,
                     action=act,
@@ -350,6 +372,266 @@ class IntentRouter:
             rec_dur = int(screen_rec_match.group(1)) if screen_rec_match.group(1) else 0
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="record_screen", params={"duration": rec_dur})
 
+        # ---------------------------------------------------------
+        # User Profile, Facts & Durable Memory Fast Paths (<0.0ms)
+        # ---------------------------------------------------------
+        if text in [
+            "who am i", "what is my name", "whats my name", "what do you know about me",
+            "tell me about me", "what did i ask you to remember", "what do you remember",
+            "who am i?", "what is my name?", "whats my name?"
+        ]:
+            return RouteDecision(
+                path=ExecutionPath.FAST_PATH,
+                action="who_am_i",
+                confidence=1.0,
+                reasoning="Instant user identity and memory recall."
+            )
+
+        # Explicit name update fast path: "my name is Yasin", "call me Yasin"
+        name_intro = re.search(r"^(?:my\s+name\s+is|call\s+me|i\s+am\s+called)\s+([a-zA-Z\s\-]+)$", text, re.I)
+        if name_intro:
+            n_val = name_intro.group(1).strip().strip(".!?,")
+            if n_val.lower() not in ["ready", "done", "trying", "fine", "here", "sorry"]:
+                return RouteDecision(
+                    path=ExecutionPath.FAST_PATH,
+                    action="update_user_profile",
+                    params={"key": "name", "value": n_val},
+                    confidence=1.0,
+                    reasoning="Instant user name profile update."
+                )
+
+        # Explicit role update fast path: "my role is AI Engineer", "i work as a software engineer"
+        role_intro = re.search(r"^(?:my\s+(?:role|job|profession)\s+is|i\s+work\s+as\s+(?:an?|the)?)\s+([a-zA-Z\s\-]+)$", text, re.I)
+        if role_intro:
+            r_val = role_intro.group(1).strip().strip(".!?,")
+            return RouteDecision(
+                path=ExecutionPath.FAST_PATH,
+                action="update_user_profile",
+                params={"key": "role", "value": r_val},
+                confidence=1.0,
+                reasoning="Instant user role profile update."
+            )
+
+        # Contact state / pronoun setting: "the contact name is ysn", "contact is ysn", "set contact to ysn"
+        contact_set_m = re.search(r"^(?:the\s+)?contact(?:\s+name)?\s+(?:is|to|=)\s+([a-zA-Z0-9_\-\s]+)$", text, re.I)
+        if contact_set_m:
+            c_name = contact_set_m.group(1).strip()
+            return RouteDecision(
+                path=ExecutionPath.FAST_PATH,
+                action="set_active_contact",
+                params={"contact": c_name},
+                confidence=1.0,
+                reasoning="Instant active contact setting."
+            )
+
+        # Durable fact storage: "remember that ...", "remember ..."
+        remember_match = re.search(r"^(?:please\s+)?(?:remember\s+(?:that\s+)?|note\s+(?:that\s+)?|keep\s+in\s+mind\s+(?:that\s+)?|don't\s+forget\s+(?:that\s+)?|save\s+(?:fact\s+)?)(.+)$", text, re.I)
+        if remember_match:
+            fact_body = remember_match.group(1).strip()
+            # Only redirect if it's an explicit timer or alarm command like "remember to set a timer"
+            if not re.search(r"^(?:to\s+)?(?:set|start)\s+(?:a\s+)?(?:timer|alarm)\b", fact_body, re.I):
+                return RouteDecision(
+                    path=ExecutionPath.FAST_PATH,
+                    action="save_user_fact",
+                    params={"fact": fact_body},
+                    confidence=1.0,
+                    reasoning="Instant memory fact storage."
+                )
+
+        # ---------------------------------------------------------
+        # Timers, Reminders & Tasks (<0.0ms Fast Path)
+        # ---------------------------------------------------------
+        WORD_NUMS = {
+            "one": 1.0, "two": 2.0, "three": 3.0, "four": 4.0, "five": 5.0, "six": 6.0, "seven": 7.0,
+            "eight": 8.0, "nine": 9.0, "ten": 10.0, "eleven": 11.0, "twelve": 12.0, "fifteen": 15.0,
+            "twenty": 20.0, "twenty five": 25.0, "thirty": 30.0, "forty": 40.0, "forty five": 45.0,
+            "fifty": 50.0, "sixty": 60.0, "half an": 0.5, "half a": 0.5, "half": 0.5, "an": 1.0, "a": 1.0
+        }
+        def _to_num(v: str) -> float:
+            v_clean = (v or "").lower().strip()
+            if v_clean in WORD_NUMS:
+                return WORD_NUMS[v_clean]
+            try:
+                return float(v_clean)
+            except ValueError:
+                return 0.0
+
+        # 1. Timer / Reminder cancellation
+        if re.search(r"\b(?:cancel|stop|clear|delete|remove)\s+(?:all\s+)?(?:the\s+)?(?:timers?|reminders?|alarms?)\b", text, re.I) or text in [
+            "cancel timer", "cancel timers", "stop timer", "stop the timer", "clear timers", "cancel all timers",
+            "cancel reminder", "cancel reminders", "stop reminder", "clear reminders", "cancel all reminders"
+        ]:
+            cancel_match = re.search(r"\b(?:cancel|stop|clear|delete|remove)\s+(?:the\s+)?(?:timer|reminder|alarm)\s+(?:for\s+|called\s+|about\s+)?(.+)$", text, re.I)
+            query_filter = cancel_match.group(1).strip() if cancel_match else ""
+            if query_filter.lower() in ["all", "everything", "all timers", "all reminders", "all alarms"]:
+                query_filter = "all"
+            return RouteDecision(
+                path=ExecutionPath.FAST_PATH,
+                action="cancel_reminders",
+                params={"query": query_filter},
+                confidence=1.0,
+                reasoning="Instant timer/reminder cancellation."
+            )
+
+        # 2. List Timers / Reminders
+        if (
+            re.search(r"^(?:list|show|view|get|check|what\s+are)(?:\s+(?:all|my|active|pending))?\s+(?:timers?|reminders?|alarms?)$", text, re.I)
+            or text in ["timers", "my timers", "reminders", "my reminders", "what are my reminders", "what are my timers", "active timers", "active reminders"]
+        ):
+            return RouteDecision(
+                path=ExecutionPath.FAST_PATH,
+                action="list_reminders",
+                confidence=1.0,
+                reasoning="Instant timer/reminder listing."
+            )
+
+        # 3. Explicit Clock / Timer App Launch
+        if re.search(r"\b(?:open|launch|start)\s+(?:the\s+)?(?:clock|timer\s+app|alarm\s+app|clock\s+app)\b", text, re.I):
+            return RouteDecision(
+                path=ExecutionPath.FAST_PATH,
+                action="open_app",
+                params={"app_name": "clock"},
+                confidence=1.0,
+                reasoning="Instant clock/timer app launch."
+            )
+
+        # 4. Universal Duration Parser for Timers and Alarms
+        if any(w in text for w in ["timer", "timers", "alarm", "alarms", "wake me"]):
+            t_hrs = 0.0
+            t_mins = 0.0
+            t_secs = 0.0
+
+            working = text
+            if "half an hour" in working or "half a hour" in working:
+                t_mins += 30.0
+                working = working.replace("half an hour", "").replace("half a hour", "")
+            if "quarter of an hour" in working or "quarter an hour" in working or "a quarter hour" in working:
+                t_mins += 15.0
+                working = working.replace("quarter of an hour", "").replace("quarter an hour", "").replace("a quarter hour", "")
+
+            hr_m = re.search(r"\b(\d+(?:\.\d+)?|one|two|three|four|five|six|seven|eight|nine|ten|twelve|twenty|an|a)\s*(?:hours?|hrs?|h)\b", working, re.I)
+            if hr_m:
+                t_hrs += _to_num(hr_m.group(1))
+
+            min_m = re.search(r"\b(\d+(?:\.\d+)?|one|two|three|four|five|six|seven|eight|nine|ten|fifteen|twenty|thirty|forty|fifty|an|a)\s*(?:minutes?|mins?|m)\b", working, re.I)
+            if min_m:
+                t_mins += _to_num(min_m.group(1))
+
+            sec_m = re.search(r"\b(\d+(?:\.\d+)?|one|two|three|four|five|six|seven|eight|nine|ten|fifteen|twenty|thirty|forty|fifty)\s*(?:seconds?|secs?|s)\b", working, re.I)
+            if sec_m:
+                t_secs += _to_num(sec_m.group(1))
+
+            if t_hrs == 0.0 and t_mins == 0.0 and t_secs == 0.0:
+                bare_num_m = re.search(r"\b(?:timer|alarm|wake\s+me\s+up\s+in)\s+(?:for|in|of|to)?\s*(\d{1,3})\b", text, re.I)
+                if bare_num_m:
+                    t_mins = float(bare_num_m.group(1))
+
+            total_t_secs = t_hrs * 3600 + t_mins * 60 + t_secs
+            if total_t_secs > 0:
+                t_label = "timer"
+                label_m = re.search(r"\b(?:for|to|called|named|about|on)\s+([a-zA-Z0-9\s_\-]+)$", text, re.I)
+                if label_m:
+                    cand = label_m.group(1).strip()
+                    if not any(u in cand for u in ["minute", "second", "hour", "min", "sec", "hr"]):
+                        t_label = cand
+                return RouteDecision(
+                    path=ExecutionPath.FAST_PATH,
+                    action="set_reminder",
+                    params={"message": f"Timer: {t_label}", "seconds": t_secs, "minutes": t_mins, "hours": t_hrs},
+                    confidence=1.0,
+                    reasoning=f"Universal timer scheduled ({int(total_t_secs)}s)."
+                )
+
+            # Bare timer request or query without duration: Clarification reflex (NEVER fail or suggest external app)
+            return RouteDecision(
+                path=ExecutionPath.CLARIFY,
+                action="clarify",
+                clarification_prompt="How many minutes or seconds should I set the timer for?",
+                confidence=1.0,
+                reasoning="Clarifying timer duration."
+            )
+
+        # 5. Natural Language Reminders: "remind me in 5 minutes to check the oven", "in 10 minutes remind me to call mom"
+        r_time_first = re.search(
+            r"^(?:can\s+you\s+|please\s+)?(?:remind\s+(?:me\s+)?in|in)\s+(\d+(?:\.\d+)?|one|two|three|four|five|six|seven|eight|nine|ten|fifteen|twenty|thirty)\s*(seconds?|secs?|minutes?|mins?|hours?|hrs?)\s+(?:remind\s+me\s+)?(?:to\s+|about\s+)(.+)$",
+            text,
+            re.I
+        )
+        if r_time_first:
+            n_val = _to_num(r_time_first.group(1))
+            unit = r_time_first.group(2).lower()
+            msg = r_time_first.group(3).strip()
+            secs = n_val if "sec" in unit else 0.0
+            mins = n_val if "min" in unit else 0.0
+            hrs = n_val if "hour" in unit or "hr" in unit else 0.0
+            return RouteDecision(
+                path=ExecutionPath.FAST_PATH,
+                action="set_reminder",
+                params={"message": msg, "seconds": secs, "minutes": mins, "hours": hrs},
+                confidence=1.0,
+                reasoning="Instant time-first reminder."
+            )
+
+        r_std_match = re.search(
+            r"^(?:can\s+you\s+|please\s+)?(?:remind\s+(?:me\s+)?(?:to\s+|about\s+)?|set\s+(?:a\s+)?reminder\s+(?:to\s+|for\s+)?)(.+?)\s+(?:in|after)\s+(\d+(?:\.\d+)?|one|two|three|four|five|six|seven|eight|nine|ten|fifteen|twenty|thirty)\s*(seconds?|secs?|minutes?|mins?|hours?|hrs?)$",
+            text,
+            re.I
+        )
+        if r_std_match:
+            rem_msg = r_std_match.group(1).strip()
+            num_val = _to_num(r_std_match.group(2))
+            unit = r_std_match.group(3).lower()
+            secs = num_val if "sec" in unit else 0.0
+            mins = num_val if "min" in unit else 0.0
+            hrs = num_val if "hour" in unit or "hr" in unit else 0.0
+            return RouteDecision(
+                path=ExecutionPath.FAST_PATH,
+                action="set_reminder",
+                params={"message": rem_msg, "seconds": secs, "minutes": mins, "hours": hrs},
+                confidence=1.0,
+                reasoning="Instant timed reminder scheduling."
+            )
+
+        # 6. Natural date/time reminders: "remind me tomorrow at 3pm to call mom"
+        r_natural_match = re.search(
+            r"^(?:can\s+you\s+|please\s+)?(?:remind\s+me|set\s+(?:a\s+)?reminder)\s+(?:to\s+|about\s+)?(.+)$",
+            text,
+            re.I
+        )
+        if r_natural_match:
+            rem_body = r_natural_match.group(1).strip()
+            if re.search(r"\b(?:tomorrow|today|tonight|at\s+\d+|in\s+\d+|am\b|pm\b|o'clock)\b", rem_body, re.I):
+                return RouteDecision(
+                    path=ExecutionPath.FAST_PATH,
+                    action="set_reminder",
+                    params={"message": rem_body, "seconds": 0, "minutes": 0, "hours": 0},
+                    confidence=1.0,
+                    reasoning="Instant natural-language reminder scheduling."
+                )
+
+        # 7. Task & Todo Management (<0.0ms)
+        if text.strip().lower() in ["my tasks", "list tasks", "show tasks", "tasks", "what are my tasks", "view tasks", "pending tasks", "get tasks"]:
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="list_tasks", params={"status": "all"})
+
+        complete_task_match = re.search(r"\b(?:complete|finish|done|check\s+off|mark)\s+(?:the\s+)?task\s+(?:called\s+|named\s+)?(.+?)(?:\s+(?:as\s+)?(?:done|completed))?$", text, re.I)
+        if complete_task_match:
+            query = complete_task_match.group(1).strip()
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="complete_task", params={"query": query})
+
+        add_task_match = re.search(r"\b(?:add|create|new|schedule)\s+(?:a\s+)?task\s+(?:to\s+|called\s+|for\s+)?(.+)$", text, re.I)
+        if add_task_match:
+            t_title = add_task_match.group(1).strip()
+            due_date = ""
+            due_match = re.search(r"\s+(?:due\s+|by\s+)(tomorrow|today|next\s+week|monday|tuesday|wednesday|thursday|friday|saturday|sunday)$", t_title, re.I)
+            if due_match:
+                due_date = due_match.group(1).strip()
+                t_title = t_title[:due_match.start()].strip()
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="add_task", params={"title": t_title, "due_date": due_date})
+
+        # 8. Memory Wipe & Reset
+        if text.strip().lower() in ["clear memory", "reset memory", "wipe memory", "forget everything", "clear my memory", "reset my memory"]:
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="clear_memory", params={})
+
         # 3. Media & Song Controls (<0.0ms)
         if text in ["play music", "pause music", "resume music", "toggle media", "pause", "play", "stop music"]:
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="play_media")
@@ -372,7 +654,7 @@ class IntentRouter:
 
         # 4. YouTube Direct Play & Search (<0.0ms)
         yt_play_match = re.match(
-            r"^(?:can\s+you\s+|could\s+you\s+|please\s+)?(?:play|start|watch|listen\s+to|open\s+video(?:\s+of)?|launch\s+video(?:\s+of)?)\s+(.+?)(?:\s+(?:on|from|in)\s+youtube)?$",
+            r"^(?:can\s+you\s+|could\s+you\s+|please\s+)?(?:play|watch|listen\s+to|start\s+playing|start\s+watching|open\s+video(?:\s+of)?|launch\s+video(?:\s+of)?)\s+(.+?)(?:\s+(?:on|from|in)\s+youtube)?$",
             text,
             flags=re.IGNORECASE
         )
@@ -380,9 +662,17 @@ class IntentRouter:
             raw_query = yt_play_match.group(1).strip()
             raw_query = re.sub(r"\s+(?:on|from|in)\s+youtube\b", "", raw_query, flags=re.IGNORECASE).strip()
             raw_query = re.sub(r"^(?:like|some|uh|um)\s+", "", raw_query, flags=re.IGNORECASE).strip()
-            if not raw_query or raw_query in ["songs", "some songs", "music", "some music", "a song", "video", "a video", "videos"]:
-                raw_query = "synthwave lofi chillhop mix"
-            return RouteDecision(path=ExecutionPath.FAST_PATH, action="play_youtube", params={"query": raw_query})
+            # Guard against hijacking non-media commands (apps, timers, tools, system controls)
+            if any(w in raw_query.lower() for w in [
+                "timer", "timers", "alarm", "alarms", "stopwatch", "recording", "record",
+                "notepad", "paint", "calc", "calculator", "word", "excel", "browser", "chrome",
+                "firefox", "edge", "spotify", "file", "folder", "game", "camera", "task", "tasks", "reminder"
+            ]):
+                yt_play_match = None
+            else:
+                if not raw_query or raw_query in ["songs", "some songs", "music", "some music", "a song", "video", "a video", "videos"]:
+                    raw_query = "synthwave lofi chillhop mix"
+                return RouteDecision(path=ExecutionPath.FAST_PATH, action="play_youtube", params={"query": raw_query})
 
         yt_search_match = re.search(
             r"(?:open\s+youtube\s+(?:and\s+search\s+for|to\s+search|to\s+look\s+for|and\s+search)|search\s+(?:on\s+)?youtube\s+for|search\s+for\s+(.+?)\s+on\s+youtube)\s*(.+)?",
@@ -458,31 +748,59 @@ class IntentRouter:
                 return RouteDecision(path=ExecutionPath.FAST_PATH, action="browser_search", params={"query": query, "engine": "google"})
 
         # 7. Filesystem: Create, Open, Write, Append, Search, Delete (<0.0ms)
-        # 7a. Create file in folder: "create a file in (folder) called (name) [and open it] [with content ...]"
+        # 7a_loc_first. Location-first file creation:
+        # e.g. "In this folder create a python file named main.py", "In that folder create a file called test.py"
+        create_file_loc_first = re.search(
+            r"^(?:can\s+you\s+|please\s+)?(?:in|inside|under|on)\s+(?:(?:(?:this|that|the|a)\s+)?folder\s*(?:called\s+|named\s+)?\s*([a-zA-Z0-9_\-\.\:\/\\]+)|(this\s+folder|that\s+folder|the\s+folder|it))\s*(?:,\s*)?(?:create|make)\s+(?:a\s+)?(?:new\s+)?(?:[a-zA-Z0-9_\-]+\s+)?file\s+(?:called\s+|named\s+)?([a-zA-Z0-9_\-\.]+)(?:\s+(?:with|containing)\s+(.+?))?(?:\s+(?:and\s+)?(?:open\s+it|open))?$",
+            text,
+            re.I
+        )
+        if create_file_loc_first:
+            cand_loc = (create_file_loc_first.group(1) or create_file_loc_first.group(2) or "this folder").strip()
+            fname = create_file_loc_first.group(3).strip()
+            fcontent = (create_file_loc_first.group(4) or "").strip()
+            should_open = bool(re.search(r"\bopen\s+(?:it|the\s+file|that\s+file|open\s+it)\b", text, re.I))
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="create_file", params={"filename": fname, "content": fcontent, "location": cand_loc, "open_after": should_open})
+
+        # 7a. Create file in folder: "create a file in (folder) [called] (name) [and open it] [with content ...]"
         create_file_in_fol = re.search(
-            r"\b(?:create|make)\s+(?:a\s+)?(?:new\s+)?file\s+(?:in|inside|under)\s+(?:(?:(?:a|the)\s+)?folder\s+(?:called\s+|named\s+)?\s*)?([a-zA-Z0-9_\-\.\:\/\\]+?)\s+(?:called|named)\s+([a-zA-Z0-9_\-\.]+)(?:\s+(?:with|containing)\s+(.+?))?(?:\s+(?:and\s+)?(?:open\s+it|open))?$",
+            r"\b(?:create|make)\s+(?:a\s+)?(?:new\s+)?file\s+(?:in|inside|under)\s+(?:(?:(?:a|the)\s+)?folder\s+(?:called\s+|named\s+)?\s*)?([a-zA-Z0-9_\-\.\:\/\\]+?)\s+(?:called\s+|named\s+)?([a-zA-Z0-9_\-\.]+)(?:\s+(?:with|containing)\s+(.+?))?(?:\s+(?:and\s+)?(?:open\s+it|open))?$",
             text,
             re.I
         )
         if create_file_in_fol:
             target_loc = create_file_in_fol.group(1).strip()
             fname = create_file_in_fol.group(2).strip()
-            fcontent = (create_file_in_fol.group(3) or "").strip()
-            should_open = bool(re.search(r"\bopen\s+(?:it|the\s+file|that\s+file|open\s+it)\b", text, re.I))
-            return RouteDecision(path=ExecutionPath.FAST_PATH, action="create_file", params={"filename": fname, "content": fcontent, "location": target_loc, "open_after": should_open})
+            if target_loc.lower() not in ["a", "the", "some", "my"] and fname.lower() not in ["folder", "directory"]:
+                fcontent = (create_file_in_fol.group(3) or "").strip()
+                should_open = bool(re.search(r"\bopen\s+(?:it|the\s+file|that\s+file|open\s+it)\b", text, re.I))
+                return RouteDecision(path=ExecutionPath.FAST_PATH, action="create_file", params={"filename": fname, "content": fcontent, "location": target_loc, "open_after": should_open})
 
-        # 7b. Create file called (name) in folder: "create a file called (name) in (folder) [and open it] [with content ...]"
+        # 7b. Create file called (name) in folder: "create a file [called] (name) in (folder) [and open it] [with content ...]"
         create_file_fol_after = re.search(
-            r"\b(?:create|make)\s+(?:a\s+)?(?:new\s+)?file\s+(?:called|named)\s+([a-zA-Z0-9_\-\.]+)\s+(?:in|inside|under)\s+(?:(?:(?:a|the)\s+)?folder\s+(?:called\s+|named\s+)?\s*)?([a-zA-Z0-9_\-\.\:\/\\]+)(?:\s+(?:with|containing)\s+(.+?))?(?:\s+(?:and\s+)?(?:open\s+it|open))?$",
+            r"\b(?:create|make)\s+(?:a\s+)?(?:new\s+)?file\s+(?:called\s+|named\s+)?([a-zA-Z0-9_\-\.]+)\s+(?:in|inside|under)\s+(?:(?:(?:a|the)\s+)?folder\s+(?:called\s+|named\s+)?\s*)?([a-zA-Z0-9_\-\.\:\/\\]+)(?:\s+(?:with|containing)\s+(.+?))?(?:\s+(?:and\s+)?(?:open\s+it|open))?$",
             text,
             re.I
         )
         if create_file_fol_after:
             fname = create_file_fol_after.group(1).strip()
             target_loc = create_file_fol_after.group(2).strip()
-            fcontent = (create_file_fol_after.group(3) or "").strip()
+            if fname.lower() not in ["folder", "directory"] and target_loc.lower() not in ["folder", "directory", "a folder", "the folder"]:
+                fcontent = (create_file_fol_after.group(3) or "").strip()
+                should_open = bool(re.search(r"\bopen\s+(?:it|the\s+file|that\s+file|open\s+it)\b", text, re.I))
+                return RouteDecision(path=ExecutionPath.FAST_PATH, action="create_file", params={"filename": fname, "content": fcontent, "location": target_loc, "open_after": should_open})
+
+        # 7b_unnamed. Generic file in folder: "create a file in a folder [and open it]"
+        create_file_generic = re.search(
+            r"\b(?:create|make)\s+(?:a\s+)?(?:new\s+)?file(?:\s+(?:in|inside|under)\s+(?:(?:a|the)\s+)?folder(?:\s*(?:called\s+|named\s+)?\s*([a-zA-Z0-9_\-\.\:\/\\]+))?)?(?:\s+(?:and\s+)?(?:open\s+it|open))?$",
+            text,
+            re.I
+        )
+        if create_file_generic:
+            cand_loc = (create_file_generic.group(1) or "").strip()
+            target_loc = "desktop" if not cand_loc or cand_loc.lower() in ["a", "the", "a folder", "the folder", "folder", "it", "them", "this", "that"] else cand_loc
             should_open = bool(re.search(r"\bopen\s+(?:it|the\s+file|that\s+file|open\s+it)\b", text, re.I))
-            return RouteDecision(path=ExecutionPath.FAST_PATH, action="create_file", params={"filename": fname, "content": fcontent, "location": target_loc, "open_after": should_open})
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="create_file", params={"filename": "untitled.txt", "content": "", "location": target_loc, "open_after": should_open})
 
         # 7c. Standard create file: "create a file called notes.txt [with content ...]"
         create_file_match = re.search(
@@ -578,8 +896,111 @@ class IntentRouter:
             if f_name not in ["this", "it", "that", "them", "an app", "app"]:
                 return RouteDecision(path=ExecutionPath.FAST_PATH, action="open_folder", params={"folder_name": f_name})
 
+        # File/Folder location and path queries (<0.0ms Fast Path):
+        # e.g. "where is that file located and what is its path?", "where is that file", "what is its path", "where is the file located"
+        if re.search(r"\b(?:where\s+is\s+(?:that|the|this|my)\s+(?:file|folder)|what\s+is\s+(?:its|the)\s+path|where\s+is\s+it\s+located)\b", text, re.I):
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="get_file_info", params={"query": text}, confidence=1.0, reasoning="Instant file/folder path query resolution.")
+
+
+        # 7d_np. Notepad & Text Editor Writing (<0.0ms):
+        # Prefix notepad: "write in notepad <text>", "write to notepad <text>", "in notepad write <text>", "type in notepad <text>"
+        np_prefix_match = re.search(
+            r"^(?:can\s+you\s+|please\s+)?(?:(?:write|type|paste|enter)\s+(?:in|into|to|inside)\s+(?:the\s+)?(?:notepad|bloc-notes|text\s+editor)|(?:in|inside)\s+(?:the\s+)?(?:notepad|bloc-notes|text\s+editor)\s*(?:,\s*)?(?:write|type|paste|enter)?)\s*(?::\s*|\s+)?(.+)$",
+            text,
+            re.I
+        )
+        if np_prefix_match:
+            raw_c = np_prefix_match.group(1).strip()
+            if raw_c:
+                return RouteDecision(path=ExecutionPath.FAST_PATH, action="write_to_notepad", params={"text": raw_c})
+
+        # Suffix notepad: "write <text> in/to/into notepad", "type <text> in/into notepad"
+        np_suffix_match = re.search(
+            r"^(?:can\s+you\s+|please\s+)?(?:write|type|paste|enter)\s+(.+?)\s+(?:in|into|to|inside)\s+(?:the\s+)?(?:notepad|bloc-notes|text\s+editor)$",
+            text,
+            re.I
+        )
+        if np_suffix_match:
+            raw_c = np_suffix_match.group(1).strip()
+            if raw_c:
+                return RouteDecision(path=ExecutionPath.FAST_PATH, action="write_to_notepad", params={"text": raw_c})
+
+        # 7d_first. Write/Append with target filename FIRST:
+        # e.g. "write to file <target> <content>", "write in file <target> <content>", "append to file <target> <content>"
+        write_target_first = re.search(
+            r"\b(write|overwrite|append|add)\s+(?:to\s+|into\s+|in\s+)?(?:the\s+)?file\s+([a-zA-Z0-9_\-\.\/\\]+)\s*(?::\s*|\s+)(.+)$",
+            text,
+            re.I
+        )
+        if write_target_first:
+            verb = write_target_first.group(1).strip().lower()
+            target_f = write_target_first.group(2).strip()
+            content = write_target_first.group(3).strip()
+            if target_f.lower() in ["notepad", "bloc-notes"]:
+                return RouteDecision(path=ExecutionPath.FAST_PATH, action="write_to_notepad", params={"text": content})
+            if target_f.lower() not in ["sleep", "lock", "screen", "display", "mute", "sound", "volume"]:
+                act = "append_to_file" if verb in ["append", "add"] else "write_to_file"
+                return RouteDecision(
+                    path=ExecutionPath.FAST_PATH,
+                    action=act,
+                    params={"filename": target_f, "content": content} if act == "write_to_file" else {"filename_or_path": target_f, "content": content}
+                )
+
+        # "write to <target.ext> <content>", "append to <target.ext> <content>"
+        write_ext_first = re.search(
+            r"\b(write|overwrite|append|add)\s+(?:to|into|in)\s+([a-zA-Z0-9_\-\.\/\\]+\.[a-zA-Z0-9]{1,5})\s*(?::\s*|\s+)(.+)$",
+            text,
+            re.I
+        )
+        if write_ext_first:
+            verb = write_ext_first.group(1).strip().lower()
+            target_f = write_ext_first.group(2).strip()
+            content = write_ext_first.group(3).strip()
+            act = "append_to_file" if verb in ["append", "add"] else "write_to_file"
+            return RouteDecision(
+                path=ExecutionPath.FAST_PATH,
+                action=act,
+                params={"filename": target_f, "content": content} if act == "write_to_file" else {"filename_or_path": target_f, "content": content}
+            )
+
+        # "in file <target> write/append <content>", "inside file <target> write/append <content>"
+        in_file_write = re.search(
+            r"\b(?:in|inside)\s+(?:the\s+)?file\s+([a-zA-Z0-9_\-\.\/\\]+)\s*(?:,\s*)?(write|overwrite|append|add|put)\s*(?::\s*|\s+)?(.+)$",
+            text,
+            re.I
+        )
+        if in_file_write:
+            target_f = in_file_write.group(1).strip()
+            verb = in_file_write.group(2).strip().lower()
+            content = in_file_write.group(3).strip()
+            if target_f.lower() in ["notepad", "bloc-notes"]:
+                return RouteDecision(path=ExecutionPath.FAST_PATH, action="write_to_notepad", params={"text": content})
+            act = "append_to_file" if verb in ["append", "add"] else "write_to_file"
+            return RouteDecision(
+                path=ExecutionPath.FAST_PATH,
+                action=act,
+                params={"filename": target_f, "content": content} if act == "write_to_file" else {"filename_or_path": target_f, "content": content}
+            )
+
+        # "write <target.ext> <content>" (e.g. "write test.txt hello world")
+        bare_ext_write = re.search(
+            r"^(?:can\s+you\s+|please\s+)?(write|overwrite|append|add)\s+([a-zA-Z0-9_\-\.\/\\]+\.[a-zA-Z0-9]{1,5})\s*(?::\s*|\s+)(.+)$",
+            text,
+            re.I
+        )
+        if bare_ext_write:
+            verb = bare_ext_write.group(1).strip().lower()
+            target_f = bare_ext_write.group(2).strip()
+            content = bare_ext_write.group(3).strip()
+            act = "append_to_file" if verb in ["append", "add"] else "write_to_file"
+            return RouteDecision(
+                path=ExecutionPath.FAST_PATH,
+                action=act,
+                params={"filename": target_f, "content": content} if act == "write_to_file" else {"filename_or_path": target_f, "content": content}
+            )
+
         # 7d. Write to file / Write to it:
-        write_to_it = re.search(r"^(?:write|overwrite)\s+(?:to\s+(?:it|the\s+file|that\s+file)\s*(?::\s*|\s+)?|into\s+(?:it|the\s+file|that\s+file)\s*(?::\s*|\s+)?)(.+)$", text, re.I)
+        write_to_it = re.search(r"^(?:write|overwrite)\s+(?:to\s+(?:it|the\s+file|that\s+file)\s*(?::\s*|\s+)?|into\s+(?:it|the\s+file|that\s+file)\s*(?::\s*|\s+)?|in\s+(?:it|the\s+file|that\s+file)\s*(?::\s*|\s+)?)(.+)$", text, re.I)
         if write_to_it:
             content = write_to_it.group(1).strip()
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="write_to_file", params={"filename": "it", "content": content})
@@ -590,7 +1011,7 @@ class IntentRouter:
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="write_to_file", params={"filename": "it", "content": content})
 
         # 7e. Append to file / Append to it:
-        append_to_it = re.search(r"^(?:append|add)\s+(?:to\s+(?:it|the\s+file|that\s+file)\s*(?::\s*|\s+)?|into\s+(?:it|the\s+file|that\s+file)\s*(?::\s*|\s+)?)(.+)$", text, re.I)
+        append_to_it = re.search(r"^(?:append|add)\s+(?:to\s+(?:it|the\s+file|that\s+file)\s*(?::\s*|\s+)?|into\s+(?:it|the\s+file|that\s+file)\s*(?::\s*|\s+)?|in\s+(?:it|the\s+file|that\s+file)\s*(?::\s*|\s+)?)(.+)$", text, re.I)
         if append_to_it:
             content = append_to_it.group(1).strip()
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="append_to_file", params={"filename_or_path": "it", "content": content})
@@ -605,6 +1026,8 @@ class IntentRouter:
         if write_file_match:
             content = write_file_match.group(1).strip()
             target_f = (write_file_match.group(2) or write_file_match.group(3) or "").strip()
+            if target_f.lower() in ["notepad", "bloc-notes"]:
+                return RouteDecision(path=ExecutionPath.FAST_PATH, action="write_to_notepad", params={"text": content})
             if target_f and target_f.lower() not in ["sleep", "lock", "screen", "display", "mute", "sound", "volume"]:
                 act = "append_to_file" if "append" in text.lower() else "write_to_file"
                 return RouteDecision(path=ExecutionPath.FAST_PATH, action=act, params={"filename": target_f, "content": content} if act == "write_to_file" else {"filename_or_path": target_f, "content": content})
@@ -720,6 +1143,7 @@ class IntentRouter:
             re.search(r"\b(?:send\s+(?:a\s+)?whatsapp(?:\s+message|\s+text)?\s+to\s+)([a-zA-Z0-9_@\+\s]+?)(?:\s*(?:saying|that|with|:)\s*|\s*:\s*|\s+)(.+)$", text, re.I)
             or re.search(r"\b(?:send\s+(?:a\s+)?(?:message|text)\s+(?:on|via|in|through)\s+whatsapp\s+to\s+)([a-zA-Z0-9_@\+\s]+?)(?:\s*(?:saying|that|with|:)\s*|\s*:\s*|\s+)(.+)$", text, re.I)
             or re.search(r"\b(?:send\s+(?:a\s+)?(?:message|text)\s+to\s+)([a-zA-Z0-9_@\+\s]+?)\s+(?:on|via|in|through)\s+whatsapp(?:\s*(?:saying|that|with|:)\s*|\s*:\s*|\s+)(.+)$", text, re.I)
+            or re.search(r"\b(?:send\s+)([a-zA-Z0-9_@\+\s]+?)\s+(?:a\s+)?(?:message|text)\s+(?:on|via|in|through)\s+whatsapp(?:\s*(?:saying|that|with|:)\s*|\s*:\s*|\s+)(.+)$", text, re.I)
             or re.search(r"\b(?:message|text|tell)\s+([a-zA-Z0-9_@\+\s]+?)\s+(?:on|via|in|through)\s+whatsapp(?:\s*(?:saying|that|with|:)\s*|\s*:\s*|\s+)(.+)$", text, re.I)
             or re.search(r"\b(?:send\s+(?:a\s+)?whatsapp(?:\s+message|\s+text)?\s+to\s+)([a-zA-Z0-9_@\+\s]+)$", text, re.I)
             or re.search(r"\bwhatsapp\s+(?!call|video|voice|web)([a-zA-Z0-9_@\+\s]+?)(?:\s*(?:saying|that|with|:)\s*|\s*:\s*|\s+)(.+)$", text, re.I)
@@ -740,6 +1164,7 @@ class IntentRouter:
             re.search(r"\b(?:send\s+(?:a\s+)?telegram(?:\s+message|\s+text)?\s+to\s+)([a-zA-Z0-9_@\+\s]+?)(?:\s*(?:saying|that|with|:)\s*|\s*:\s*|\s+)(.+)$", text, re.I)
             or re.search(r"\b(?:send\s+(?:a\s+)?(?:message|text)\s+(?:on|via|in|through)\s+telegram\s+to\s+)([a-zA-Z0-9_@\+\s]+?)(?:\s*(?:saying|that|with|:)\s*|\s*:\s*|\s+)(.+)$", text, re.I)
             or re.search(r"\b(?:send\s+(?:a\s+)?(?:message|text)\s+to\s+)([a-zA-Z0-9_@\+\s]+?)\s+(?:on|via|in|through)\s+telegram(?:\s*(?:saying|that|with|:)\s*|\s*:\s*|\s+)(.+)$", text, re.I)
+            or re.search(r"\b(?:send\s+)([a-zA-Z0-9_@\+\s]+?)\s+(?:a\s+)?(?:message|text)\s+(?:on|via|in|through)\s+telegram(?:\s*(?:saying|that|with|:)\s*|\s*:\s*|\s+)(.+)$", text, re.I)
             or re.search(r"\b(?:message|text|tell)\s+([a-zA-Z0-9_@\+\s]+?)\s+(?:on|via|in|through)\s+telegram(?:\s*(?:saying|that|with|:)\s*|\s*:\s*|\s+)(.+)$", text, re.I)
             or re.search(r"\b(?:send\s+(?:a\s+)?telegram(?:\s+message|\s+text)?\s+to\s+)([a-zA-Z0-9_@\+\s]+)$", text, re.I)
             or re.search(r"\btelegram\s+(?!call|video|voice|for|messages?|contacts?|search)([a-zA-Z0-9_@\+\s]+?)(?:\s*(?:saying|that|with|:)\s*|\s*:\s*|\s+)(.+)$", text, re.I)
@@ -774,188 +1199,6 @@ class IntentRouter:
                 confidence=1.0,
                 reasoning="Instant clarification for underspecified messaging request."
             )
-
-        # ---------------------------------------------------------
-        # Timers, Reminders & Tasks (<0.0ms Fast Path)
-        # ---------------------------------------------------------
-        # Word numbers converter for speech
-        WORD_NUMS = {
-            "one": 1.0, "two": 2.0, "three": 3.0, "four": 4.0, "five": 5.0, "six": 6.0, "seven": 7.0,
-            "eight": 8.0, "nine": 9.0, "ten": 10.0, "eleven": 11.0, "twelve": 12.0, "fifteen": 15.0,
-            "twenty": 20.0, "twenty five": 25.0, "thirty": 30.0, "forty": 40.0, "forty five": 45.0,
-            "fifty": 50.0, "sixty": 60.0, "half an": 0.5, "half a": 0.5, "half": 0.5, "an": 1.0, "a": 1.0
-        }
-        def _to_num(v: str) -> float:
-            v_clean = (v or "").lower().strip()
-            if v_clean in WORD_NUMS:
-                return WORD_NUMS[v_clean]
-            try:
-                return float(v_clean)
-            except ValueError:
-                return 0.0
-
-        # 1. Timer / Reminder cancellation
-        if re.search(r"\b(?:cancel|stop|clear|delete|remove)\s+(?:all\s+)?(?:the\s+)?(?:timers?|reminders?)\b", text, re.I) or text in [
-            "cancel timer", "cancel timers", "stop timer", "stop the timer", "clear timers", "cancel all timers",
-            "cancel reminder", "cancel reminders", "stop reminder", "clear reminders", "cancel all reminders"
-        ]:
-            cancel_match = re.search(r"\b(?:cancel|stop|clear|delete|remove)\s+(?:the\s+)?(?:timer|reminder)\s+(?:for\s+|called\s+|about\s+)?(.+)$", text, re.I)
-            query_filter = cancel_match.group(1).strip() if cancel_match else ""
-            if query_filter.lower() in ["all", "everything", "all timers", "all reminders"]:
-                query_filter = "all"
-            return RouteDecision(
-                path=ExecutionPath.FAST_PATH,
-                action="cancel_reminders",
-                params={"query": query_filter},
-                confidence=1.0,
-                reasoning="Instant timer/reminder cancellation."
-            )
-
-        # 2. List Timers / Reminders
-        if (
-            re.search(r"^(?:list|show|view|get|check|what\s+are)(?:\s+(?:all|my|active|pending))?\s+(?:timers?|reminders?)$", text, re.I)
-            or text in ["timers", "my timers", "reminders", "my reminders", "what are my reminders", "what are my timers", "active timers", "active reminders"]
-        ):
-            return RouteDecision(
-                path=ExecutionPath.FAST_PATH,
-                action="list_reminders",
-                confidence=1.0,
-                reasoning="Instant timer/reminder listing."
-            )
-
-        # 3. Bare timer without duration (Clarification reflex: NEVER fail or suggest external app)
-        if re.search(r"^(?:(?:can|could|would)\s+you\s+(?:please\s+)?|please\s+)?(?:set(?:\s+me|\s+us)?|start|create|make|put(?:\s+on)?|give\s+me)?\s*(?:a\s+)?timer$", text, re.I) or text.strip().lower() in ["set a timer", "start a timer", "timer", "set timer", "make a timer", "put a timer", "set me a timer"]:
-            return RouteDecision(
-                path=ExecutionPath.CLARIFY,
-                action="clarify",
-                clarification_prompt="How many minutes or seconds should I set the timer for?",
-                confidence=1.0,
-                reasoning="Clarifying timer duration."
-            )
-
-        # 4. Time-first timer: "set a 5 minute timer [for pasta]", "start a 10 min timer", "5 minute timer", "10 min timer"
-        t_first_match = re.search(
-            r"^(?:(?:can|could|would)\s+you\s+(?:please\s+)?|please\s+)?(?:set(?:\s+me|\s+us)?|start|create|make|put(?:\s+on)?|give\s+me)?\s*(?:a\s+)?(\d+(?:\.\d+)?|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty|thirty|forty|fifty|half\s+an|half\s+a|half|an|a)\s*(seconds?|secs?|minutes?|mins?|hours?|hrs?)\s+timer(?:\s+(?:for|to|called|named|about)\s+(.+))?$",
-            text,
-            re.I
-        )
-        if t_first_match:
-            n_val = _to_num(t_first_match.group(1))
-            unit = t_first_match.group(2).lower()
-            label = (t_first_match.group(3) or "timer").strip()
-            secs = n_val if "sec" in unit else 0.0
-            mins = n_val if "min" in unit else 0.0
-            hrs = n_val if "hour" in unit or "hr" in unit else 0.0
-            return RouteDecision(
-                path=ExecutionPath.FAST_PATH,
-                action="set_reminder",
-                params={"message": f"Timer: {label}", "seconds": secs, "minutes": mins, "hours": hrs},
-                confidence=1.0,
-                reasoning="Instant time-first timer."
-            )
-
-        # 5. Standard timer: "set a timer for 5 minutes", "set me a timer for 10 minutes", "put a timer for 5 minutes", "timer for 10 minutes", "timer 5 mins"
-        t_std_match = re.search(
-            r"^(?:(?:can|could|would)\s+you\s+(?:please\s+)?|please\s+)?(?:set(?:\s+me|\s+us)?|start|create|make|put(?:\s+on)?|give\s+me|timer)(?:\s+(?:a\s+)?timer)?(?:\s+(?:for|of|at|to|in))?\s+(\d+(?:\.\d+)?|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty|thirty|forty|fifty|half\s+an|half\s+a|half|an|a)\s*(seconds?|secs?|minutes?|mins?|hours?|hrs?)(?:\s+(?:for|to|called|named|about)\s+(.+))?$",
-            text,
-            re.I
-        )
-        if t_std_match:
-            n_val = _to_num(t_std_match.group(1))
-            unit = t_std_match.group(2).lower()
-            label = (t_std_match.group(3) or "timer").strip()
-            secs = n_val if "sec" in unit else 0.0
-            mins = n_val if "min" in unit else 0.0
-            hrs = n_val if "hour" in unit or "hr" in unit else 0.0
-            return RouteDecision(
-                path=ExecutionPath.FAST_PATH,
-                action="set_reminder",
-                params={"message": f"Timer: {label}", "seconds": secs, "minutes": mins, "hours": hrs},
-                confidence=1.0,
-                reasoning="Instant standard timer scheduling."
-            )
-
-        # 6. Natural Language Reminders: "remind me in 5 minutes to check the oven", "in 10 minutes remind me to call mom", "remind me tomorrow at 3pm to call the doctor"
-        r_time_first = re.search(
-            r"^(?:can\s+you\s+|please\s+)?(?:remind\s+(?:me\s+)?in|in)\s+(\d+(?:\.\d+)?|one|two|three|four|five|six|seven|eight|nine|ten|fifteen|twenty|thirty)\s*(seconds?|secs?|minutes?|mins?|hours?|hrs?)\s+(?:remind\s+me\s+)?(?:to\s+|about\s+)(.+)$",
-            text,
-            re.I
-        )
-        if r_time_first:
-            n_val = _to_num(r_time_first.group(1))
-            unit = r_time_first.group(2).lower()
-            msg = r_time_first.group(3).strip()
-            secs = n_val if "sec" in unit else 0.0
-            mins = n_val if "min" in unit else 0.0
-            hrs = n_val if "hour" in unit or "hr" in unit else 0.0
-            return RouteDecision(
-                path=ExecutionPath.FAST_PATH,
-                action="set_reminder",
-                params={"message": msg, "seconds": secs, "minutes": mins, "hours": hrs},
-                confidence=1.0,
-                reasoning="Instant time-first reminder."
-            )
-
-        r_std_match = re.search(
-            r"^(?:can\s+you\s+|please\s+)?(?:remind\s+(?:me\s+)?(?:to\s+|about\s+)?|set\s+(?:a\s+)?reminder\s+(?:to\s+|for\s+)?)(.+?)\s+(?:in|after)\s+(\d+(?:\.\d+)?|one|two|three|four|five|six|seven|eight|nine|ten|fifteen|twenty|thirty)\s*(seconds?|secs?|minutes?|mins?|hours?|hrs?)$",
-            text,
-            re.I
-        )
-        if r_std_match:
-            rem_msg = r_std_match.group(1).strip()
-            num_val = _to_num(r_std_match.group(2))
-            unit = r_std_match.group(3).lower()
-            secs = num_val if "sec" in unit else 0.0
-            mins = num_val if "min" in unit else 0.0
-            hrs = num_val if "hour" in unit or "hr" in unit else 0.0
-            return RouteDecision(
-                path=ExecutionPath.FAST_PATH,
-                action="set_reminder",
-                params={"message": rem_msg, "seconds": secs, "minutes": mins, "hours": hrs},
-                confidence=1.0,
-                reasoning="Instant timed reminder scheduling."
-            )
-
-        # 7. Natural date/time reminders: "remind me tomorrow at 3pm to call mom", "remind me to call Marcus at 6pm"
-        r_natural_match = re.search(
-            r"^(?:can\s+you\s+|please\s+)?(?:remind\s+me|set\s+(?:a\s+)?reminder)\s+(?:to\s+|about\s+)?(.+)$",
-            text,
-            re.I
-        )
-        if r_natural_match:
-            rem_body = r_natural_match.group(1).strip()
-            # If it mentions time keywords (tomorrow, today, tonight, at, pm, am, o'clock)
-            if re.search(r"\b(?:tomorrow|today|tonight|at\s+\d+|in\s+\d+|am\b|pm\b|o'clock)\b", rem_body, re.I):
-                return RouteDecision(
-                    path=ExecutionPath.FAST_PATH,
-                    action="set_reminder",
-                    params={"message": rem_body, "seconds": 0, "minutes": 0, "hours": 0},
-                    confidence=1.0,
-                    reasoning="Instant natural-language reminder scheduling."
-                )
-
-        # 8. Task & Todo Management (<0.0ms)
-        if text.strip().lower() in ["my tasks", "list tasks", "show tasks", "tasks", "what are my tasks", "view tasks", "pending tasks", "get tasks"]:
-            return RouteDecision(path=ExecutionPath.FAST_PATH, action="list_tasks", params={"status": "all"})
-
-        complete_task_match = re.search(r"\b(?:complete|finish|done|check\s+off|mark)\s+(?:the\s+)?task\s+(?:called\s+|named\s+)?(.+?)(?:\s+(?:as\s+)?(?:done|completed))?$", text, re.I)
-        if complete_task_match:
-            query = complete_task_match.group(1).strip()
-            return RouteDecision(path=ExecutionPath.FAST_PATH, action="complete_task", params={"query": query})
-
-        add_task_match = re.search(r"\b(?:add|create|new|schedule)\s+(?:a\s+)?task\s+(?:to\s+|called\s+|for\s+)?(.+)$", text, re.I)
-        if add_task_match:
-            t_title = add_task_match.group(1).strip()
-            due_date = ""
-            due_match = re.search(r"\s+(?:due\s+|by\s+)(tomorrow|today|next\s+week|monday|tuesday|wednesday|thursday|friday|saturday|sunday)$", t_title, re.I)
-            if due_match:
-                due_date = due_match.group(1).strip()
-                t_title = t_title[:due_match.start()].strip()
-            return RouteDecision(path=ExecutionPath.FAST_PATH, action="add_task", params={"title": t_title, "due_date": due_date})
-
-        # 9. Memory Wipe & Reset
-        if text.strip().lower() in ["clear memory", "reset memory", "wipe memory", "forget everything", "clear my memory", "reset my memory"]:
-            return RouteDecision(path=ExecutionPath.FAST_PATH, action="clear_memory", params={})
 
         # Universal Cross-Platform Messaging (Telegram / WhatsApp) (<0.0ms)
         gen_msg_match = re.search(
@@ -1101,7 +1344,8 @@ class IntentRouter:
         if type_match:
             raw_text = type_match.group(1).strip()
             if not any(raw_text.startswith(w) for w in ["an email", "email", "a letter", "code", "a script", "a story", "an essay", "notebook", "a post", "a document", "to file", "into file"]):
-                return RouteDecision(path=ExecutionPath.FAST_PATH, action="type_text", params={"text": raw_text})
+                if not any(w in raw_text.lower() for w in ["notepad", "bloc-notes", "to file", "in file", "into file"]):
+                    return RouteDecision(path=ExecutionPath.FAST_PATH, action="type_text", params={"text": raw_text})
 
         key_match = re.match(r"^(?:press|hit)\s+(?:the\s+)?(enter|return|space|tab|escape|esc|backspace|delete)$", text)
         if key_match:
@@ -1443,6 +1687,9 @@ class IntentRouter:
                 "- {\"action\": \"send_message\", \"recipient\": \"<name>\", \"message\": \"<text>\"}\n"
                 "- {\"action\": \"telegram_send_message\", \"recipient\": \"<name>\", \"message\": \"<text>\"}\n"
                 "- {\"action\": \"whatsapp_message\", \"contact\": \"<name>\", \"message\": \"<text>\"}\n"
+                "- {\"action\": \"set_timer\", \"minutes\": <number>, \"label\": \"<optional_name>\"}\n"
+                "- {\"action\": \"list_timers\"}\n"
+                "- {\"action\": \"cancel_timer\", \"query\": \"<optional_name_or_all>\"}\n"
                 "- {\"action\": \"clarify\", \"prompt\": \"<question>\"}\n"
                 "- {\"action\": \"volume_up\"} or {\"action\": \"volume_down\"} or {\"action\": \"set_volume\", \"level\": 50} or {\"action\": \"mute\"}\n"
                 "- {\"action\": \"organize_windows\", \"layout\": \"grid\"|\"split\"|\"columns\"|\"focus\"}\n"
@@ -1507,6 +1754,14 @@ class IntentRouter:
                 return RouteDecision(path=ExecutionPath.FAST_PATH, action="telegram_send_message", params={"recipient": data.get("recipient", ""), "message": data.get("message", "Hello!")})
             elif act == "whatsapp_message":
                 return RouteDecision(path=ExecutionPath.FAST_PATH, action="whatsapp_message", params={"contact": data.get("contact", "") or data.get("recipient", ""), "message": data.get("message", "Hello!")})
+            elif act == "set_timer" or act == "set_reminder":
+                mins = float(data.get("minutes") or 5.0)
+                lbl = data.get("label") or "timer"
+                return RouteDecision(path=ExecutionPath.FAST_PATH, action="set_reminder", params={"message": f"Timer: {lbl}", "seconds": 0.0, "minutes": mins, "hours": 0.0}, confidence=0.95, reasoning=f"Fast LLM classified set_timer ({mins}m).")
+            elif act == "list_timers":
+                return RouteDecision(path=ExecutionPath.FAST_PATH, action="list_reminders", params={}, confidence=0.95)
+            elif act == "cancel_timer":
+                return RouteDecision(path=ExecutionPath.FAST_PATH, action="cancel_reminders", params={"query": data.get("query", "all")}, confidence=0.95)
             elif act == "clarify":
                 return RouteDecision(path=ExecutionPath.CLARIFY, action="none", clarification_prompt=data.get("prompt", "Who would you like me to message, and what should I say?"))
             elif act == "draw_shape":

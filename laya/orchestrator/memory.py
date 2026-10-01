@@ -104,6 +104,8 @@ class MemoryStore:
                 cur.execute("DELETE FROM facts WHERE fact LIKE '%Thomas%' OR fact LIKE '%Khalil%' OR fact LIKE '%my name isn%'")
                 cur.execute("DELETE FROM facts WHERE LENGTH(fact) < 5")
                 cur.execute("DELETE FROM facts WHERE fact LIKE '%who are you%' OR fact LIKE '%what time%' OR fact LIKE '%you suck%'")
+                cur.execute("DELETE FROM facts WHERE fact LIKE '%hello%' OR fact LIKE '%thank you%' OR fact LIKE '%how are you%' OR fact LIKE '%testing%'")
+                cur.execute("DELETE FROM facts WHERE fact LIKE '%can you%' OR fact LIKE '%could you%' OR fact LIKE '%please%'")
 
                 # 3. Add clean fact for Yasin
                 cur.execute("INSERT OR IGNORE INTO facts (fact, category) VALUES ('User\\'s name is Yasin', 'general')")
@@ -122,17 +124,39 @@ class MemoryStore:
         if not clean_fact or len(clean_fact) < 4:
             return "Cannot store empty or trivial memory."
 
+        # Strip preamble like "remember that", "note that", "don't forget that"
+        clean_fact = re.sub(
+            r"^(?:please\s+)?(?:remember\s+(?:that\s+)?|note\s+(?:that\s+)?|keep\s+in\s+mind\s+(?:that\s+)?|don't\s+forget\s+(?:that\s+)?|save\s+(?:that\s+)?)\s*",
+            "",
+            clean_fact,
+            flags=re.I
+        ).strip()
+
         low = clean_fact.lower()
 
-        # Guardrails: filter out conversational debris, questions, and system commands
+        # Guardrails: filter out conversational small talk and greetings
+        if any(g in low for g in [
+            "hello", "good morning", "good evening", "good afternoon",
+            "thank you", "thanks", "how are you", "what's up", "whats up",
+            "are you there", "can you hear me", "one two three"
+        ]) or low in ["hi", "hey", "ok", "okay", "sure", "yes", "no", "got it", "understood", "testing", "test"]:
+            return "Filtered out conversational small talk."
+
+        # Guardrails: filter out questions, system commands, and user requests
         if any(low.startswith(p) for p in [
-            "who are you", "what is", "how do", "can you", "could you", "please",
+            "who are you", "what is", "what are", "how do", "how is", "can you", "could you", "please",
             "open ", "close ", "scroll ", "turn off", "stop ", "launch ", "click ",
-            "type ", "search "
+            "type ", "search ", "i want you to", "i need you to", "help me", "tell me"
         ]):
-            return "Ignored command as durable memory."
+            return "Ignored command or request as durable memory."
+
         if any(w in low for w in ["you suck", "shut up", "idiot", "dumb", "trash", "useless", "lol", "lmao", "test test", "foid"]):
             return "Filtered out banter from memory."
+
+        # Redirection: If utterance is a task ("to buy groceries", "buy milk", "clean the desk")
+        if re.match(r"^(?:to\s+[a-zA-Z]+|[a-zA-Z]+ing\s+[a-zA-Z]+)\b", low) and not re.search(r"\b(?:is|are|was|were|prefers?|likes?|dislikes?|lives?|works?)\b", low):
+            clean_task = re.sub(r"^to\s+", "", clean_fact, flags=re.I).strip()
+            return self.add_task(clean_task)
 
         # Semantic parsing: User Name
         name_m = re.search(r"\b(?:my\s+name\s+is|i\s+am\s+called|call\s+me)\s+([a-zA-Z\s\-]+)", clean_fact, re.I)
@@ -553,6 +577,12 @@ class MemoryStore:
 
             cursor.execute("SELECT key, value FROM user_profile")
             profile_rows = cursor.fetchall()
+
+            cursor.execute("SELECT message, fire_at FROM reminders WHERE fired = 0 ORDER BY fire_at ASC LIMIT 5")
+            reminder_rows = cursor.fetchall()
+
+            cursor.execute("SELECT title FROM tasks WHERE status = 'pending' ORDER BY id DESC LIMIT 5")
+            task_rows = cursor.fetchall()
             conn.close()
 
             parts = []
@@ -561,6 +591,10 @@ class MemoryStore:
                 parts.append(f"User Profile: [{p_str}]")
             if rows:
                 parts.append("Facts: " + "; ".join(r[0] for r in rows))
+            if reminder_rows:
+                parts.append("Reminders: " + "; ".join(f"{r[0]} ({r[1]})" for r in reminder_rows))
+            if task_rows:
+                parts.append("Tasks: " + "; ".join(r[0] for r in task_rows))
 
             return " | ".join(parts) if parts else "No memories recorded yet."
         except Exception as e:

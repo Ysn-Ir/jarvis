@@ -58,11 +58,14 @@ class LayaDecisionEngine:
             self._initialized = True
             print("[LayaEngine] Successfully initialized official Convai ModernBERT decision engine from vendored package.")
 
-            # Warmup prediction in background
-            try:
-                self._router.predict({"command": "raise the sound"}, self._questions)
-            except Exception as we:
-                print(f"[LayaEngine] Warmup note: {we}")
+            # Warmup prediction asynchronously in background daemon thread
+            import threading
+            def _warmup():
+                try:
+                    self._router.predict({"command": "raise the sound"}, self._questions)
+                except Exception:
+                    pass
+            threading.Thread(target=_warmup, daemon=True, name="LayaModernBertWarmup").start()
 
         except Exception as e:
             print(f"[LayaEngine] Initialization error: {e}")

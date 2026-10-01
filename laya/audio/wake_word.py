@@ -34,7 +34,7 @@ from laya.config import (
 )
 from laya.tools.interrupt_manager import request_interrupt, is_interrupt_requested
 
-INTERRUPT_KEYWORDS_REGEX = r"^(?:please\s+)?(?:stop(?:\s+(?:talking|it|that|now|please))?|shut\s*up|be\s+quiet|quiet|cancel(?:\s+it)?|silence|halt|abort|freeze)$"
+INTERRUPT_KEYWORDS_REGEX = r"^(?:(?:hey|hi|ok|please)\s+)?(?:stop(?:\s+(?:talking|it|that|now|please))?|shut\s*up|be\s+quiet|quiet|cancel(?:\s+(?:it|that))?|silence|halt|abort|freeze)$"
 
 
 def compile_wake_patterns() -> Tuple[re.Pattern, Set[str]]:
@@ -61,6 +61,10 @@ def compile_wake_patterns() -> Tuple[re.Pattern, Set[str]]:
     }
     non_cmd = set(all_phrases) | filler_words
     return pattern, non_cmd
+
+
+_compiled_pat, NON_COMMAND_WORDS = compile_wake_patterns()
+WAKE_KEYWORDS_REGEX = _compiled_pat.pattern
 
 
 class WakeWordDetector:

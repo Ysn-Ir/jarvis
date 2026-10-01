@@ -21,28 +21,18 @@ class UFOController:
 
     def list_open_windows(self) -> str:
         """List all visible application windows currently open on the desktop."""
-        windows = []
-
-        def enum_handler(hwnd, extra):
-            if win32gui.IsWindowVisible(hwnd):
-                title = win32gui.GetWindowText(hwnd).strip()
-                if title and not title in ["Default IME", "MSCTFIME UI", "Program Manager"]:
-                    rect = win32gui.GetWindowRect(hwnd)
-                    width = rect[2] - rect[0]
-                    height = rect[3] - rect[1]
-                    if width > 100 and height > 100:
-                        windows.append(f"• '{title}' (HWND: {hwnd})")
-            return True
+        from laya.tools.win32_utils import ensure_desktop_access, get_open_windows
+        ensure_desktop_access()
 
         try:
-            win32gui.EnumWindows(enum_handler, None)
-        except Exception as e:
-            return f"Error enumerating windows: {e}"
+            open_wins = get_open_windows(min_size=(100, 100))
+            if not open_wins:
+                return "No active visible desktop application windows found."
 
-        if not windows:
+            windows = [f"• '{w['title']}' (HWND: {w['hwnd']})" for w in open_wins]
+            return f"Currently active application windows ({len(windows)} found):\n" + "\n".join(windows[:12])
+        except Exception:
             return "No active visible desktop application windows found."
-
-        return f"Currently active application windows ({len(windows)} found):\n" + "\n".join(windows[:12])
 
     def focus_window(self, title_query: str) -> str:
         """Bring a specific application window to the foreground."""
@@ -57,6 +47,8 @@ class UFOController:
         Inspect the UI Automation control tree of the active foreground window.
         Returns all interactive buttons, inputs, tabs, and menu items.
         """
+        from laya.tools.win32_utils import ensure_desktop_access
+        ensure_desktop_access()
         try:
             fg = uia.GetForegroundControl()
             if not fg:
