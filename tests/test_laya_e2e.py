@@ -27,6 +27,8 @@ def run_comprehensive_tests():
     print("=" * 70)
 
     assistant = LayaAssistant()
+    # Warm up neural classifier before measuring steady-state routing latency
+    assistant.router.route("raise the volume")
 
     # 1. Fast Path Benchmark
     fast_path_queries = [

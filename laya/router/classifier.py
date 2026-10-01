@@ -151,14 +151,8 @@ class IntentRouter:
         if compound_decision:
             return compound_decision
 
-        # 4. Primary: Deterministic OS Fast-Path Patterns (<1ms)
-        # Rock-solid zero-LLM dispatch covering all hardware, apps, filesystem, timers, power & telemetry
-        single_decision = self._route_single_deterministic(text, utterance)
-        if single_decision:
-            return single_decision
-
-        # 5. Local Neural Intent Classifier: Official Laya ModernBERT (<40ms Local)
-        # Evaluates natural colloquial speech without brittle regexes
+        # 4. Local Neural Intent Classifier: Official Laya ModernBERT (<40ms Local)
+        # Evaluates natural colloquial speech FIRST via non-autoregressive decision model
         try:
             from laya.router.laya_engine import get_laya_engine
             laya_decision = get_laya_engine().predict_intent(text, utterance)
@@ -166,6 +160,12 @@ class IntentRouter:
                 return laya_decision
         except Exception as e:
             pass
+
+        # 5. Deterministic OS Fast-Path Patterns (<1ms)
+        # Rock-solid zero-LLM dispatch evaluated right afterwards to guarantee full coverage and precision
+        single_decision = self._route_single_deterministic(text, utterance)
+        if single_decision:
+            return single_decision
 
         # 6. Ultra-Fast LLM Intent Classifier Layer (<250ms on Groq)
         llm_decision = self._classify_with_fast_llm(utterance)
@@ -1053,7 +1053,7 @@ class IntentRouter:
             )
 
         scroll_match = re.search(
-            r"\b(?:scroll|page)\s+(down|up|left|right|top|bottom|beginning|end|to\s+the\s+top|to\s+the\s+bottom)(?:\s+(?:by|for)?\s*(\d+))?(?:\s+(?:in|on|inside)\s+(?:the\s+)?([a-zA-Z0-9\s_\-\.]+?))?(?:\s+(?:a\s+bit|a\s+little|more|please|now))?$",
+            r"\b(?:scroll|page)\s+(down|up|left|right|top|bottom|beginning|end|to\s+the\s+top|to\s+the\s+bottom)(?:\s+(?:by|for)?\s*(\d+)\s*(?:times|notches|clicks|steps)?)?(?:\s+(?:in|on|inside)\s+(?:the\s+)?([a-zA-Z0-9\s_\-\.]+?))?(?:\s+(?:a\s+bit|a\s+little|more|please|now))?$",
             text,
             flags=re.IGNORECASE
         )

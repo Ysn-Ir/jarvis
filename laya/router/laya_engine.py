@@ -49,48 +49,18 @@ class LayaDecisionEngine:
         return cls._instance
 
     def _init_router(self):
-        """Cleanly import official laya package from site-packages without shadowing local modules."""
+        """Cleanly import official laya ModernBERT router from vendored package without shadowing local modules."""
         if self._initialized:
             return
         try:
-            import site
-            site_packages = site.getusersitepackages()
-            site_laya = os.path.join(site_packages, "laya")
-
-            if not os.path.exists(site_laya):
-                # Search sys.path for installed site-packages directory
-                for p in sys.path:
-                    candidate = os.path.join(p, "laya")
-                    if os.path.exists(candidate) and os.path.exists(os.path.join(candidate, "router.py")):
-                        if "projects\\jev" not in os.path.abspath(candidate).lower():
-                            site_laya = candidate
-                            break
-
-            if not os.path.exists(site_laya):
-                print("[LayaEngine] Official laya package directory not found in site-packages.")
-                return
-
-            spec = importlib.util.spec_from_file_location(
-                "official_laya",
-                os.path.join(site_laya, "__init__.py"),
-                submodule_search_locations=[site_laya]
-            )
-            if not spec or not spec.loader:
-                print("[LayaEngine] Could not create module spec for official_laya.")
-                return
-
-            mod = importlib.util.module_from_spec(spec)
-            sys.modules["official_laya"] = mod
-            spec.loader.exec_module(mod)
-
-            # Instantiate official laya.Router
-            self._router = mod.Router()
+            from laya.vendor.laya_classifier import Router
+            self._router = Router()
             self._initialized = True
-            print("[LayaEngine] Successfully initialized official Convai ModernBERT decision engine.")
+            print("[LayaEngine] Successfully initialized official Convai ModernBERT decision engine from vendored package.")
 
             # Warmup prediction in background
             try:
-                self._router.predict("raise the sound", self._questions)
+                self._router.predict({"command": "raise the sound"}, self._questions)
             except Exception as we:
                 print(f"[LayaEngine] Warmup note: {we}")
 
@@ -124,7 +94,7 @@ class LayaDecisionEngine:
 
         try:
             t0 = time.perf_counter()
-            res = self._router.predict(clean, self._questions)
+            res = self._router.predict({"command": clean}, self._questions)
             dt = (time.perf_counter() - t0) * 1000
 
             action_res = res.get("answers", {}).get("action", {})
@@ -140,6 +110,8 @@ class LayaDecisionEngine:
 
             # 1. Volume Up
             if choice == "volume_up":
+                if any(w in clean for w in ["set volume to", "volume to", "set sound to", "set audio to", "mute", "unmute"]):
+                    return None
                 if not any(w in clean for w in ["volume", "sound", "audio", "louder", "boost", "turn up", "raise", "higher", "make it louder"]):
                     return None
                 num_m = re.search(r"\b(?:by\s+)?(\d{1,2})\s*(?:percent|%|steps?)?\b", clean)
@@ -154,6 +126,8 @@ class LayaDecisionEngine:
 
             # 2. Volume Down
             if choice == "volume_down":
+                if any(w in clean for w in ["set volume to", "volume to", "set sound to", "set audio to", "mute", "unmute"]):
+                    return None
                 if not any(w in clean for w in ["volume", "sound", "audio", "quieter", "softer", "turn down", "lower", "decrease", "reduce"]):
                     return None
                 num_m = re.search(r"\b(?:by\s+)?(\d{1,2})\s*(?:percent|%|steps?)?\b", clean)
