@@ -205,7 +205,7 @@ class IntentRouter:
         decisions: List[RouteDecision] = []
         for i, part in enumerate(parts):
             # Pronoun resolution for compound actions: "create folder X and open it" or "create file X and open it"
-            if i > 0 and re.match(r"^(?:open\s+(?:it|them|that|the\s+folder|that\s+folder|the\s+file|that\s+file)|open\s+it|open)$", part, re.I):
+            if i > 0 and re.match(r"^(?:open\s+(?:it|them|that|the\s+folder|that\s+folder|the\s+file|that\s+file|the\s+notebook|the\s+document)|open\s+it|open)$", part, re.I):
                 if decisions and decisions[-1].action in ["create_folder", "create_and_open_folder"]:
                     target_fol = decisions[-1].params.get("folder_name") or "desktop"
                     decisions.append(RouteDecision(
@@ -216,8 +216,13 @@ class IntentRouter:
                         confidence=1.0,
                     ))
                     continue
-                elif decisions and decisions[-1].action in ["create_file", "write_to_file", "append_to_file"]:
-                    target_file = decisions[-1].params.get("filename") or decisions[-1].params.get("filename_or_path") or "it"
+                elif decisions and decisions[-1].action in ["create_file", "write_to_file", "append_to_file", "create_word_document", "create_notebook", "write_to_notepad"]:
+                    target_file = (
+                        decisions[-1].params.get("filename")
+                        or decisions[-1].params.get("notebook_name")
+                        or decisions[-1].params.get("filename_or_path")
+                        or "it"
+                    )
                     decisions.append(RouteDecision(
                         path=ExecutionPath.FAST_PATH,
                         action="open_file",
@@ -244,16 +249,68 @@ class IntentRouter:
                     ))
                     continue
 
+            # Notebook cell creation in compound chain: e.g. "make notebook test.ipynb and write a new cell with import math"
+            cell_compound_m = re.search(
+                r"^(?:write|append|add|insert)\s+(?:a\s+)?(?:new\s+)?(?:(code|markdown)\s+)?cell(?:\s+(?:in|into|to|with)\s+it)?\s*(?:with|containing|:)?\s*(.+)$",
+                part,
+                re.I
+            )
+            if i > 0 and cell_compound_m:
+                ctype = cell_compound_m.group(1) or "code"
+                code_snippet = cell_compound_m.group(2).strip()
+                target_nb = decisions[-1].params.get("notebook_name") or decisions[-1].params.get("filename") or "" if decisions else ""
+                decisions.append(RouteDecision(
+                    path=ExecutionPath.FAST_PATH,
+                    action="write_notebook_cell",
+                    params={"notebook_name": target_nb, "code": code_snippet, "cell_type": ctype},
+                    safety_tier="GREEN",
+                    confidence=1.0,
+                ))
+                continue
+
             # Pronoun resolution for write / append in compound chain:
             if i > 0 and re.search(r"^(?:write(?:\s+(?:to|in|into)\s+it)?|append(?:\s+(?:to|in|into)\s+it)?)\s*(?::\s*|\s+)?(.*)$", part, re.I):
                 w_match = re.search(r"^(?:write(?:\s+(?:to|in|into)\s+it)?|append(?:\s+(?:to|in|into)\s+it)?)\s*(?::\s*|\s+)?(.*)$", part, re.I)
-                act = "append_to_file" if "append" in part.lower() else "write_to_file"
                 content = w_match.group(1).strip() if w_match else ""
-                content = re.sub(r"^(?:to|into|in)\s+(?:it|the\s+file|that\s+file)\s*(?::\s*|\s+)?", "", content, flags=re.I).strip()
-                content = re.sub(r"\s+(?:to|into|in)\s+(?:it|the\s+file|that\s+file)$", "", content, flags=re.I).strip()
+                content = re.sub(r"^(?:to|into|in)\s+(?:it|the\s+file|that\s+file|the\s+notebook)\s*(?::\s*|\s+)?", "", content, flags=re.I).strip()
+                content = re.sub(r"\s+(?:to|into|in)\s+(?:it|the\s+file|that\s+file|the\s+notebook)$", "", content, flags=re.I).strip()
+
+                if decisions and decisions[-1].action == "create_notebook":
+                    target_nb = decisions[-1].params.get("notebook_name") or "Notebook.ipynb"
+                    decisions.append(RouteDecision(
+                        path=ExecutionPath.FAST_PATH,
+                        action="write_notebook_cell",
+                        params={"notebook_name": target_nb, "code": content, "cell_type": "code"},
+                        safety_tier="GREEN",
+                        confidence=1.0,
+                    ))
+                    continue
+
+                if decisions and decisions[-1].action == "write_to_notepad":
+                    target_f = decisions[-1].params.get("filename") or "it"
+                    if target_f and target_f != "it":
+                        decisions.append(RouteDecision(
+                            path=ExecutionPath.FAST_PATH,
+                            action="write_to_file",
+                            params={"filename": target_f, "content": content},
+                            safety_tier="GREEN",
+                            confidence=1.0,
+                        ))
+                    else:
+                        decisions.append(RouteDecision(
+                            path=ExecutionPath.FAST_PATH,
+                            action="write_to_notepad",
+                            params={"text": content},
+                            safety_tier="GREEN",
+                            confidence=1.0,
+                        ))
+                    continue
+
                 target_f = "it"
-                if decisions and decisions[-1].action in ["create_file", "open_file"]:
+                if decisions and decisions[-1].action in ["create_file", "open_file", "create_word_document"]:
                     target_f = decisions[-1].params.get("filename") or decisions[-1].params.get("filename_or_path") or "it"
+
+                act = "append_to_file" if "append" in part.lower() else "write_to_file"
                 decisions.append(RouteDecision(
                     path=ExecutionPath.FAST_PATH,
                     action=act,
@@ -748,6 +805,173 @@ class IntentRouter:
                 return RouteDecision(path=ExecutionPath.FAST_PATH, action="browser_search", params={"query": query, "engine": "google"})
 
         # 7. Filesystem: Create, Open, Write, Append, Search, Delete (<0.0ms)
+        # 7_nb. Jupyter Notebook (.ipynb) Autonomous Fast Path (<0.0ms):
+        # A. Create notebook
+        nb_create_m = re.search(
+            r"^(?:can\s+you\s+|please\s+)?(?:create|make|open)\s+(?:a\s+)?(?:new\s+)?(?:jupyter\s+)?notebook\s+(?:called\s+|named\s+|with\s+name\s+)?([a-zA-Z0-9_\-\.]+)(?:\s+(?:with\s+(?:cell\s+)?|and\s+write\s+(?:a\s+)?(?:new\s+)?cell(?:\s+with)?)\s*(.+))?$",
+            text,
+            re.I
+        )
+        if nb_create_m:
+            nb_name = nb_create_m.group(1).strip()
+            if not nb_name.lower().endswith(".ipynb"):
+                nb_name += ".ipynb"
+            cell_code = (nb_create_m.group(2) or "").strip()
+            should_open = bool(re.search(r"\bopen\s+(?:it|the\s+notebook|open\s+it)\b", text, re.I))
+            if cell_code:
+                return RouteDecision(
+                    path=ExecutionPath.FAST_PATH,
+                    action="execute_compound",
+                    params={
+                        "actions": [
+                            {"action": "create_notebook", "params": {"notebook_name": nb_name, "open_after": should_open}},
+                            {"action": "write_notebook_cell", "params": {"notebook_name": nb_name, "code": cell_code, "cell_type": "code"}}
+                        ]
+                    }
+                )
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="create_notebook", params={"notebook_name": nb_name, "open_after": should_open})
+
+        # B. Cell deletion: "delete cell 2 in notebook.ipynb", "delete cell 3"
+        nb_delete_cell_m = re.search(
+            r"^(?:can\s+you\s+|please\s+)?(?:in\s+([a-zA-Z0-9_\-\.\/\\]+\.ipynb)\s*(?:,\s*)?)?(?:delete|remove)\s+cell\s+(\d+)(?:\s+(?:in|from|of)\s+(?:(?:the\s+)?notebook|([a-zA-Z0-9_\-\.\/\\]+\.ipynb)))?$",
+            text,
+            re.I
+        )
+        if nb_delete_cell_m:
+            target_nb = (nb_delete_cell_m.group(1) or nb_delete_cell_m.group(3) or "").strip()
+            c_idx = int(nb_delete_cell_m.group(2))
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="delete_notebook_cell", params={"notebook_name": target_nb, "cell_index": c_idx})
+
+        # C. Cell update: "update cell 2 in notebook.ipynb with <code/text>", "update cell 1 with <code>"
+        nb_update_cell_m = re.search(
+            r"^(?:can\s+you\s+|please\s+)?(?:in\s+([a-zA-Z0-9_\-\.\/\\]+\.ipynb)\s*(?:,\s*)?)?(?:update|modify|replace|overwrite)\s+cell\s+(\d+)(?:\s+(?:in|of)\s+(?:(?:the\s+)?notebook|([a-zA-Z0-9_\-\.\/\\]+\.ipynb)))?\s*(?:with|to|containing|:)\s*(.+)$",
+            text,
+            re.I
+        )
+        if nb_update_cell_m:
+            target_nb = (nb_update_cell_m.group(1) or nb_update_cell_m.group(3) or "").strip()
+            c_idx = int(nb_update_cell_m.group(2))
+            code_text = nb_update_cell_m.group(4).strip()
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="update_notebook_cell", params={"notebook_name": target_nb, "cell_index": c_idx, "code": code_text})
+
+        # D. Cell write / append: "in notebook.ipynb write a new cell with <code>", "write a new cell with <code>", "append cell with <code>"
+        nb_write_cell_m = re.search(
+            r"^(?:can\s+you\s+|please\s+)?(?:in\s+([a-zA-Z0-9_\-\.\/\\]+\.ipynb)\s*(?:,\s*)?)?(?:write|append|add|insert)\s+(?:a\s+)?(?:new\s+)?(?:(code|markdown)\s+)?cell(?:\s+(?:in|into|to|inside)\s+(?:(?:the\s+)?notebook|([a-zA-Z0-9_\-\.\/\\]+\.ipynb)))?\s*(?:with|containing|:)?\s*(.+)$",
+            text,
+            re.I
+        )
+        if nb_write_cell_m:
+            target_nb = (nb_write_cell_m.group(1) or nb_write_cell_m.group(3) or "").strip()
+            ctype = (nb_write_cell_m.group(2) or "code").lower()
+            code_text = nb_write_cell_m.group(4).strip()
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="write_notebook_cell", params={"notebook_name": target_nb, "code": code_text, "cell_type": ctype})
+
+        # E. Read notebook cells: "read notebook cells in test.ipynb", "read the notebook cells"
+        nb_read_cell_m = re.search(
+            r"^(?:can\s+you\s+|please\s+)?(?:read|show|view|display|summarize)\s+(?:the\s+)?(?:(?:jupyter\s+)?notebook\s+cells|cells|notebook)(?:\s+(?:in|of|from)\s+([a-zA-Z0-9_\-\.\/\\]+\.ipynb)|\s+([a-zA-Z0-9_\-\.\/\\]+\.ipynb))?$",
+            text,
+            re.I
+        )
+        if nb_read_cell_m:
+            target_nb = (nb_read_cell_m.group(1) or nb_read_cell_m.group(2) or "").strip()
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="read_notebook_cells", params={"notebook_name": target_nb})
+
+        # 7_line. Line-Level Writing & Editing (<0.0ms):
+        # Replace line: "replace line 3 in main.py with y = 20", "in main.py replace line 3 with y = 20", "replace line 3 with y = 20"
+        replace_line_m = re.search(
+            r"^(?:can\s+you\s+|please\s+)?(?:in\s+(?:(?:the\s+)?file\s+)?([a-zA-Z0-9_\-\.\/\\]+\.[a-zA-Z0-9]{1,5}|[a-zA-Z0-9_\-\.]+)\s*(?:,\s*)?)?(?:replace|overwrite)\s+line\s+(\d+)(?:\s+(?:in|of)\s+(?:(?:the\s+)?file\s+)?([a-zA-Z0-9_\-\.\/\\]+\.[a-zA-Z0-9]{1,5}|[a-zA-Z0-9_\-\.]+))?\s+(?:with|by|to)\s*(?::\s*|\s+)?(.+)$",
+            text,
+            re.I
+        )
+        if replace_line_m:
+            target_f = (replace_line_m.group(1) or replace_line_m.group(3) or "it").strip()
+            line_idx = int(replace_line_m.group(2))
+            line_content = replace_line_m.group(4).strip()
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="replace_file_line", params={"filename_or_path": target_f, "line_number": line_idx, "content": line_content})
+
+        # Delete line: "delete line 4 in main.py", "in main.py delete line 4", "delete line 4"
+        delete_line_m = re.search(
+            r"^(?:can\s+you\s+|please\s+)?(?:in\s+(?:(?:the\s+)?file\s+)?([a-zA-Z0-9_\-\.\/\\]+\.[a-zA-Z0-9]{1,5}|[a-zA-Z0-9_\-\.]+)\s*(?:,\s*)?)?(?:delete|remove)\s+line\s+(\d+)(?:\s+(?:in|from|of)\s+(?:(?:the\s+)?file\s+)?([a-zA-Z0-9_\-\.\/\\]+\.[a-zA-Z0-9]{1,5}|[a-zA-Z0-9_\-\.]+))?$",
+            text,
+            re.I
+        )
+        if delete_line_m:
+            target_f = (delete_line_m.group(1) or delete_line_m.group(3) or "it").strip()
+            line_idx = int(delete_line_m.group(2))
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="delete_file_line", params={"filename_or_path": target_f, "line_number": line_idx})
+
+        # Write on line: "in main.py write on line 5: print('hello')", "write on line 5 in main.py: print('hello')", "write on line 5: print('hello')"
+        write_line_m = re.search(
+            r"^(?:can\s+you\s+|please\s+)?(?:in\s+(?:(?:the\s+)?file\s+)?([a-zA-Z0-9_\-\.\/\\]+\.[a-zA-Z0-9]{1,5}|[a-zA-Z0-9_\-\.]+)\s*(?:,\s*)?)?(?:write|insert|put)\s+(?:on|at|in)\s+line\s+(\d+)(?:\s+(?:in|of)\s+(?:(?:the\s+)?file\s+)?([a-zA-Z0-9_\-\.\/\\]+\.[a-zA-Z0-9]{1,5}|[a-zA-Z0-9_\-\.]+))?\s*(?::\s*|\s+)?(.+)$",
+            text,
+            re.I
+        )
+        if write_line_m:
+            target_f = (write_line_m.group(1) or write_line_m.group(3) or "it").strip()
+            line_idx = int(write_line_m.group(2))
+            line_content = write_line_m.group(4).strip()
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="write_to_file_line", params={"filename_or_path": target_f, "line_number": line_idx, "content": line_content, "mode": "replace"})
+
+        # 7_word. Microsoft Word (.docx) Document Fast Path:
+        # e.g. "open a word file named report.docx and write hello in it", "create a word file called meeting with notes"
+        word_doc_m = re.search(
+            r"^(?:can\s+you\s+|please\s+)?(?:create|make|open)\s+(?:a\s+)?(?:new\s+)?(?:word|microsoft\s+word)(?:\s+(?:file|document))?(?:\s+(?:called|named|with\s+name)\s+([a-zA-Z0-9_\-\.]+))?(?:\s+(?:with|containing|and\s+write(?:\s+(?:in|into)\s+it)?)\s+(.+?))?(?:\s+(?:and\s+)?(?:open\s+it|open))?$",
+            text,
+            re.I
+        )
+        if word_doc_m:
+            fname = (word_doc_m.group(1) or "Document.docx").strip()
+            if not fname.lower().endswith(".docx"):
+                fname += ".docx"
+            content = (word_doc_m.group(2) or "").strip()
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="create_word_document", params={"filename": fname, "content": content, "open_after": True})
+
+        # 7_np_named. Notepad (.txt) File Fast Path:
+        # e.g. "open a notepad file named notes.txt and write hello world in it", "open notepad file notes.txt"
+        notepad_file_m = re.search(
+            r"^(?:can\s+you\s+|please\s+)?(?:create|make|open)\s+(?:a\s+)?(?:new\s+)?(?:notepad|bloc-notes|text|txt)(?:\s+(?:file|note|document))?\s+(?:called\s+|named\s+|with\s+name\s+)?([a-zA-Z0-9_\-\.]+)(?:\s+(?:with|containing|and\s+write(?:\s+(?:in|into)\s+it)?)\s+(.+?))?(?:\s+(?:and\s+)?(?:open\s+it|open))?$",
+            text,
+            re.I
+        )
+        if notepad_file_m:
+            fname = notepad_file_m.group(1).strip()
+            if not fname.lower().endswith(".txt"):
+                fname += ".txt"
+            content = (notepad_file_m.group(2) or "").strip()
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="write_to_notepad", params={"filename": fname, "text": content})
+
+        # 7_word_or_notepad. "open a word or notepad file with name X and write Y in it"
+        word_or_notepad_m = re.search(
+            r"^(?:can\s+you\s+|please\s+)?(?:create|make|open)\s+(?:a\s+)?(?:new\s+)?(?:word\s+or\s+notepad|notepad\s+or\s+word)\s+(?:file|document|note)?\s*(?:called\s+|named\s+|with\s+name\s+)?([a-zA-Z0-9_\-\.]+)(?:\s+(?:with|containing|and\s+write(?:\s+(?:in|into)\s+it)?)\s+(.+?))?(?:\s+(?:and\s+)?(?:open\s+it|open))?$",
+            text,
+            re.I
+        )
+        if word_or_notepad_m:
+            fname = word_or_notepad_m.group(1).strip()
+            content = (word_or_notepad_m.group(2) or "").strip()
+            if fname.lower().endswith(".docx"):
+                return RouteDecision(path=ExecutionPath.FAST_PATH, action="create_word_document", params={"filename": fname, "content": content, "open_after": True})
+            if not fname.lower().endswith(".txt"):
+                fname += ".txt"
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="write_to_notepad", params={"filename": fname, "text": content})
+
+        # 7_lang. Python & Programming Language File Creation:
+        # e.g. "make a python file named app.py and write print('hello') in it", "create a python file called test.py"
+        code_file_m = re.search(
+            r"^(?:can\s+you\s+|please\s+)?(?:create|make|open)\s+(?:a\s+)?(?:new\s+)?(python|code|script|markdown|html|css|javascript|json|csv)\s+file\s+(?:called\s+|named\s+|with\s+name\s+)?([a-zA-Z0-9_\-\.]+)(?:\s+(?:with|containing|and\s+write(?:\s+(?:in|into)\s+it)?)\s+(.+?))?(?:\s+(?:and\s+)?(?:open\s+it|open))?$",
+            text,
+            re.I
+        )
+        if code_file_m:
+            lang = code_file_m.group(1).lower()
+            fname = code_file_m.group(2).strip()
+            ext_map = {"python": ".py", "code": ".py", "script": ".py", "markdown": ".md", "html": ".html", "css": ".css", "javascript": ".js", "json": ".json", "csv": ".csv"}
+            if "." not in fname and lang in ext_map:
+                fname += ext_map[lang]
+            content = (code_file_m.group(3) or "").strip()
+            should_open = bool(re.search(r"\bopen\s+(?:it|the\s+file|that\s+file|open\s+it)\b", text, re.I))
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="create_file", params={"filename": fname, "content": content, "open_after": should_open})
+
         # 7a_loc_first. Location-first file creation:
         # e.g. "In this folder create a python file named main.py", "In that folder create a file called test.py"
         create_file_loc_first = re.search(
@@ -804,7 +1028,7 @@ class IntentRouter:
 
         # 7c. Standard create file: "create a file called notes.txt [with content ...]"
         create_file_match = re.search(
-            r"\b(?:create|make|new)\s+(?:a\s+)?(?:new\s+)?file\s+(?:called\s+|named\s+)?([a-zA-Z0-9_\-\.]+)(?:\s+(?:with|containing)\s+(.+?))?(?:\s+(?:and\s+)?(?:open\s+it|open))?$",
+            r"\b(?:create|make|new|open)\s+(?:a\s+)?(?:new\s+)?file\s+(?:called\s+|named\s+|with\s+name\s+)?([a-zA-Z0-9_\-\.]+)(?:\s+(?:with|containing|and\s+write(?:\s+(?:in|into)\s+it)?)\s+(.+?))?(?:\s+(?:and\s+)?(?:open\s+it|open))?$",
             text,
             re.I
         )

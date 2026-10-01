@@ -119,3 +119,126 @@ def test_compound_file_and_notepad_chains(router):
     assert actions5[0]["action"] == "create_file"
     assert actions5[1]["action"] == "open_file"
     assert actions5[2]["action"] == "write_to_file"
+
+    # Open notepad file named notes.txt and write hello world in it
+    c6 = router.route("open a notepad file named notes.txt and write hello world in it")
+    assert c6.action == "execute_compound"
+    actions6 = c6.params.get("actions", [])
+    assert actions6[0]["action"] == "write_to_notepad"
+    assert actions6[0]["params"]["filename"] == "notes.txt"
+    assert actions6[1]["action"] == "write_to_file"
+    assert actions6[1]["params"]["filename"] == "notes.txt"
+    assert actions6[1]["params"]["content"] == "hello world"
+
+    # Make a python file named app.py and write print('hello') in it
+    c7 = router.route("make a python file named app.py and write print('hello') in it")
+    assert c7.action == "execute_compound"
+    actions7 = c7.params.get("actions", [])
+    assert actions7[0]["action"] == "create_file"
+    assert actions7[0]["params"]["filename"] == "app.py"
+    assert actions7[1]["action"] == "write_to_file"
+    assert actions7[1]["params"]["filename"] == "app.py"
+    assert actions7[1]["params"]["content"] == "print('hello')"
+
+
+def test_word_and_notepad_named_files(router):
+    # Word file creation / opening
+    w1 = router.route("open a word file named report.docx and write hello in it")
+    assert w1.action in ["create_word_document", "execute_compound"]
+    if w1.action == "create_word_document":
+        assert w1.params.get("filename") == "report.docx"
+        assert w1.params.get("content") == "hello"
+
+    w2 = router.route("open a word document named report.docx")
+    assert w2.action == "create_word_document"
+    assert w2.params.get("filename") == "report.docx"
+
+    w3 = router.route("create a word file named summary.docx with executive overview")
+    assert w3.action == "create_word_document"
+    assert w3.params.get("filename") == "summary.docx"
+    assert w3.params.get("content") == "executive overview"
+
+    # Notepad file with specific name
+    n1 = router.route("open a notepad file named notes.txt and write test content in it")
+    assert n1.action in ["write_to_notepad", "execute_compound"]
+    if n1.action == "write_to_notepad":
+        assert n1.params.get("filename") == "notes.txt"
+
+    n2 = router.route("open notepad file my_notes.txt")
+    assert n2.action == "write_to_notepad"
+    assert n2.params.get("filename") == "my_notes.txt"
+
+
+def test_python_and_code_files(router):
+    p1 = router.route("make a python file named script.py and write import sys in it")
+    assert p1.action in ["create_file", "execute_compound"]
+    if p1.action == "create_file":
+        assert p1.params.get("filename") == "script.py"
+
+    p2 = router.route("create a python file called test.py with def test(): pass")
+    assert p2.action == "create_file"
+    assert p2.params.get("filename") == "test.py"
+    assert p2.params.get("content") == "def test(): pass"
+
+
+def test_line_level_writing_and_editing(router):
+    # In file write on line N
+    l1 = router.route("in main.py write on line 5: print('hello')")
+    assert l1.action == "write_to_file_line"
+    assert l1.params.get("filename_or_path") == "main.py"
+    assert l1.params.get("line_number") == 5
+    assert l1.params.get("content") == "print('hello')"
+
+    # Write on line N in file
+    l2 = router.route("write on line 10 in app.py: x = 100")
+    assert l2.action == "write_to_file_line"
+    assert l2.params.get("filename_or_path") == "app.py"
+    assert l2.params.get("line_number") == 10
+    assert l2.params.get("content") == "x = 100"
+
+    # Replace line N
+    l3 = router.route("replace line 3 in main.py with y = 20")
+    assert l3.action == "replace_file_line"
+    assert l3.params.get("filename_or_path") == "main.py"
+    assert l3.params.get("line_number") == 3
+    assert l3.params.get("content") == "y = 20"
+
+    # Delete line N
+    l4 = router.route("delete line 4 in main.py")
+    assert l4.action == "delete_file_line"
+    assert l4.params.get("filename_or_path") == "main.py"
+    assert l4.params.get("line_number") == 4
+
+
+def test_executor_line_editing_and_word(tmp_path):
+    from laya.fast_path.executor import FastPathExecutor
+    executor = FastPathExecutor.get_instance()
+
+    test_file = tmp_path / "code.py"
+    test_file.write_text("line 1\nline 2\nline 3\n", encoding="utf-8")
+
+    # 1. Replace line 2
+    res_replace = executor.replace_file_line(str(test_file), line_number=2, content="line 2 replaced")
+    assert "Replaced" in res_replace
+    lines = test_file.read_text(encoding="utf-8").splitlines()
+    assert lines[1] == "line 2 replaced"
+
+    # 2. Insert at line 1
+    res_insert = executor.insert_file_line(str(test_file), line_number=1, content="# header")
+    assert "Wrote" in res_insert
+    lines = test_file.read_text(encoding="utf-8").splitlines()
+    assert lines[0] == "# header"
+    assert lines[1] == "line 1"
+
+    # 3. Delete line 1
+    res_delete = executor.delete_file_line(str(test_file), line_number=1)
+    assert "Deleted line 1" in res_delete
+    lines = test_file.read_text(encoding="utf-8").splitlines()
+    assert lines[0] == "line 1"
+
+    # 4. Create Word Document
+    doc_path = tmp_path / "test_doc.docx"
+    res_doc = executor.create_word_document(str(doc_path), content="Testing Word Document", open_after=False)
+    assert "Created Word document" in res_doc
+    assert doc_path.exists()
+

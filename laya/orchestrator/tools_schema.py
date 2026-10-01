@@ -1285,6 +1285,148 @@ TOOLS_SCHEMA: List[Dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "write_to_file_line",
+            "description": "Write, insert, or replace a specific line (1-indexed) in any file directly on disk.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filename_or_path": {"type": "string", "description": "Target filename or path (e.g. 'main.py', 'app.py')"},
+                    "line_number": {"type": "integer", "description": "1-indexed line number to write or replace"},
+                    "content": {"type": "string", "description": "Text content for the line"},
+                    "mode": {"type": "string", "enum": ["replace", "insert"], "description": "Mode: 'replace' overwrites line, 'insert' adds a new line (default: replace)"}
+                },
+                "required": ["filename_or_path", "line_number", "content"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "replace_file_line",
+            "description": "Replace the content of a specific line (1-indexed) in a file.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filename_or_path": {"type": "string", "description": "Target filename or path"},
+                    "line_number": {"type": "integer", "description": "1-indexed line number to replace"},
+                    "content": {"type": "string", "description": "New content for the line"}
+                },
+                "required": ["filename_or_path", "line_number", "content"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "delete_file_line",
+            "description": "Delete a specific line (1-indexed) from a file.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filename_or_path": {"type": "string", "description": "Target filename or path"},
+                    "line_number": {"type": "integer", "description": "1-indexed line number to delete"}
+                },
+                "required": ["filename_or_path", "line_number"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_word_document",
+            "description": "Create a Microsoft Word (.docx) document with styled headers and paragraphs, and open it in Word.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filename": {"type": "string", "description": "Target .docx filename or path (e.g. 'report.docx')"},
+                    "content": {"type": "string", "description": "Optional body content or notes for the document"},
+                    "location": {"type": "string", "description": "Location to save (desktop, documents, etc.)"},
+                    "open_after": {"type": "boolean", "description": "Whether to reveal/open in Word immediately (default: true)"}
+                },
+                "required": ["filename"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_notebook",
+            "description": "Create a new empty Jupyter notebook (.ipynb) instantly.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "notebook_name": {"type": "string", "description": "Target .ipynb filename (e.g. 'analysis.ipynb')"},
+                    "open_after": {"type": "boolean", "description": "Whether to open after creation"}
+                },
+                "required": ["notebook_name"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "write_notebook_cell",
+            "description": "Write, insert, or append a code or markdown cell to a Jupyter notebook (.ipynb).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "notebook_name": {"type": "string", "description": "Target .ipynb filename or path"},
+                    "code": {"type": "string", "description": "Code or markdown content to write into the cell"},
+                    "cell_type": {"type": "string", "enum": ["code", "markdown"], "description": "Cell type (code or markdown)"},
+                    "position": {"type": "integer", "description": "Optional 0-indexed position to insert cell"}
+                },
+                "required": ["code"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "update_notebook_cell",
+            "description": "Update / overwrite the contents of a specific cell (1-indexed) in a Jupyter notebook (.ipynb).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "notebook_name": {"type": "string", "description": "Target .ipynb filename or path"},
+                    "cell_index": {"type": "integer", "description": "1-indexed cell number to update"},
+                    "code": {"type": "string", "description": "New code or text content for the cell"},
+                    "cell_type": {"type": "string", "enum": ["code", "markdown"], "description": "Optional updated cell type"}
+                },
+                "required": ["cell_index", "code"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "delete_notebook_cell",
+            "description": "Delete a specific cell (1-indexed) from a Jupyter notebook (.ipynb).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "notebook_name": {"type": "string", "description": "Target .ipynb filename or path"},
+                    "cell_index": {"type": "integer", "description": "1-indexed cell number to delete"}
+                },
+                "required": ["cell_index"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_notebook_cells",
+            "description": "Read and summarize all cells in a Jupyter notebook (.ipynb).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "notebook_name": {"type": "string", "description": "Target .ipynb filename or path"}
+                }
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "browser_search",
             "description": "Search the web using Google or YouTube in the default browser and navigate to the results page.",
             "parameters": {
@@ -1459,6 +1601,15 @@ CORE_TOOL_NAMES = {
     "clear_memory",
     "jump_to_line",
     "append_to_file",
+    "write_to_file_line",
+    "replace_file_line",
+    "delete_file_line",
+    "create_word_document",
+    "create_notebook",
+    "write_notebook_cell",
+    "update_notebook_cell",
+    "delete_notebook_cell",
+    "read_notebook_cells",
     "turn_screen_off",
     "turn_screen_on",
     "sleep_system",

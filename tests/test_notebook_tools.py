@@ -34,6 +34,73 @@ def test_notebook_tools_crud(tmp_path):
     assert "code" in summary
     assert "Analysis Section" in summary
 
+    # 5. Update cell 1
+    res_up = nb.update_notebook_cell(nb_path, cell_index=1, code="x = 100\nprint(x)")
+    assert "Successfully updated cell #1" in res_up
+    summary2 = nb.read_notebook_cells(nb_path)
+    assert "x = 100" in summary2
+
+    # 6. Delete cell 2
+    res_del = nb.delete_notebook_cell(nb_path, cell_index=2)
+    assert "Successfully deleted" in res_del
+    with open(nb_path, "r", encoding="utf-8") as f:
+        nb_data = json.load(f)
+    assert len(nb_data["cells"]) == 1
+
+    # 7. Clear all cells
+    res_clear = nb.clear_notebook_cells(nb_path)
+    assert "Cleared all 1 cells" in res_clear
+    assert "empty" in nb.read_notebook_cells(nb_path)
+
+
+def test_notebook_router_routing():
+    from laya.router.classifier import IntentRouter
+    router = IntentRouter.get_instance()
+
+    # Create notebook
+    r1 = router.route("make a notebook named analysis.ipynb")
+    assert r1.action == "create_notebook"
+    assert r1.params.get("notebook_name") == "analysis.ipynb"
+
+    # Write cell with notebook name
+    r2 = router.route("in notebook.ipynb write a new cell with import pandas as pd")
+    assert r2.action == "write_notebook_cell"
+    assert r2.params.get("notebook_name") == "notebook.ipynb"
+    assert r2.params.get("code") == "import pandas as pd"
+
+    # Write cell implicitly
+    r3 = router.route("write a new cell with import numpy as np")
+    assert r3.action == "write_notebook_cell"
+    assert r3.params.get("code") == "import numpy as np"
+
+    # Update cell
+    r4 = router.route("update cell 2 in notebook.ipynb with x = 10")
+    assert r4.action == "update_notebook_cell"
+    assert r4.params.get("notebook_name") == "notebook.ipynb"
+    assert r4.params.get("cell_index") == 2
+    assert r4.params.get("code") == "x = 10"
+
+    # Delete cell
+    r5 = router.route("delete cell 2 in notebook.ipynb")
+    assert r5.action == "delete_notebook_cell"
+    assert r5.params.get("notebook_name") == "notebook.ipynb"
+    assert r5.params.get("cell_index") == 2
+
+    # Read cells
+    r6 = router.route("read notebook cells in test.ipynb")
+    assert r6.action == "read_notebook_cells"
+    assert r6.params.get("notebook_name") == "test.ipynb"
+
+    # Compound create and write cell
+    r7 = router.route("make a notebook named test.ipynb and write a new cell with import math")
+    assert r7.action == "execute_compound"
+    actions7 = r7.params.get("actions", [])
+    assert actions7[0]["action"] == "create_notebook"
+    assert actions7[0]["params"]["notebook_name"] == "test.ipynb"
+    assert actions7[1]["action"] == "write_notebook_cell"
+    assert actions7[1]["params"]["code"] == "import math"
+
+
 
 def test_wake_word_parsing():
     import re

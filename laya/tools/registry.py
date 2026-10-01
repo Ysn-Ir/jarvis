@@ -339,6 +339,69 @@ class ToolRegistry:
             handler=fp.append_to_file,
             parameters={"content": "string", "filename_or_path": "optional string", "location": "optional string"},
         )
+        self.register(
+            name="write_to_file_line",
+            description="Write, insert, or replace a specific line (1-indexed) in any file directly on disk.",
+            tier=1,
+            handler=fp.write_to_file_line,
+            parameters={"filename_or_path": "string", "line_number": "integer", "content": "string", "mode": "optional string"},
+        )
+        self.register(
+            name="replace_file_line",
+            description="Replace the content of a specific line (1-indexed) in a file.",
+            tier=1,
+            handler=fp.replace_file_line,
+            parameters={"filename_or_path": "string", "line_number": "integer", "content": "string"},
+        )
+        self.register(
+            name="delete_file_line",
+            description="Delete a specific line (1-indexed) from a file.",
+            tier=1,
+            handler=fp.delete_file_line,
+            parameters={"filename_or_path": "string", "line_number": "integer"},
+        )
+        self.register(
+            name="create_word_document",
+            description="Create a Microsoft Word (.docx) document with title and content, and open it in Word.",
+            tier=1,
+            handler=fp.create_word_document,
+            parameters={"filename": "string", "content": "optional string", "location": "optional string", "open_after": "optional bool"},
+        )
+        self.register(
+            name="create_notebook",
+            description="Create a new empty Jupyter notebook (.ipynb) instantly.",
+            tier=1,
+            handler=fp.create_notebook,
+            parameters={"notebook_name": "string", "open_after": "optional bool"},
+        )
+        self.register(
+            name="write_notebook_cell",
+            description="Write, insert, or append a code or markdown cell to a Jupyter notebook (.ipynb).",
+            tier=1,
+            handler=fp.write_notebook_cell,
+            parameters={"notebook_name": "string", "code": "string", "cell_type": "optional string", "position": "optional integer"},
+        )
+        self.register(
+            name="update_notebook_cell",
+            description="Update the contents of an existing cell (1-indexed) in a Jupyter notebook (.ipynb).",
+            tier=1,
+            handler=fp.update_notebook_cell,
+            parameters={"notebook_name": "string", "cell_index": "integer", "code": "string", "cell_type": "optional string"},
+        )
+        self.register(
+            name="delete_notebook_cell",
+            description="Delete an existing cell (1-indexed) from a Jupyter notebook (.ipynb).",
+            tier=1,
+            handler=fp.delete_notebook_cell,
+            parameters={"notebook_name": "string", "cell_index": "integer"},
+        )
+        self.register(
+            name="read_notebook_cells",
+            description="Read and summarize all cells in a Jupyter notebook (.ipynb).",
+            tier=1,
+            handler=fp.read_notebook_cells,
+            parameters={"notebook_name": "string"},
+        )
 
     def search_tools(self, query: str) -> List[Dict[str, Any]]:
         """Dynamic tool discovery to avoid over-tooling prompt degradation."""

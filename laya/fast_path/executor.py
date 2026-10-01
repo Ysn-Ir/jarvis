@@ -808,12 +808,20 @@ class FastPathExecutor:
                     elif "location" in params:
                         params["location"] = last_target_folder
 
-            # Propagate target file from create_file to subsequent open_file / write_to_file / append_to_file
-            if action_name in ["open_file", "write_to_file", "append_to_file", "delete_file"]:
+            # Propagate target file from create_file/create_notebook to subsequent file or notebook actions
+            if action_name in [
+                "open_file", "write_to_file", "append_to_file", "delete_file",
+                "write_to_file_line", "replace_file_line", "delete_file_line"
+            ]:
                 fn_key = "filename" if "filename" in params else "filename_or_path"
                 fn = params.get(fn_key, "")
                 if fn in ["it", "the file", "that file", "this file", ""] and last_target_file:
                     params[fn_key] = last_target_file
+
+            if action_name in ["write_notebook_cell", "update_notebook_cell", "delete_notebook_cell", "read_notebook_cells"]:
+                nb_fn = params.get("notebook_name", "")
+                if nb_fn in ["it", "the notebook", "this notebook", "that notebook", ""] and last_target_file:
+                    params["notebook_name"] = last_target_file
 
             handler = getattr(self, action_name, None)
             if handler:
@@ -822,8 +830,10 @@ class FastPathExecutor:
                     results.append(str(res))
                     if action_name in ["create_folder", "create_and_open_folder"]:
                         last_target_folder = params.get("folder_name")
-                    if action_name in ["create_file"]:
-                        last_target_file = params.get("filename")
+                    if action_name in ["create_file", "create_word_document", "write_to_notepad"]:
+                        last_target_file = params.get("filename") or self.last_created_file
+                    if action_name in ["create_notebook"]:
+                        last_target_file = params.get("notebook_name") or self.last_created_file
                     if self.last_created_file:
                         last_target_file = self.last_created_file
                 except Exception as e:
@@ -841,7 +851,18 @@ class FastPathExecutor:
         if location and location.lower().strip() in ["this folder", "that folder", "the folder", "it", "this", "here", "current"]:
             if self.last_created_folder:
                 location = self.last_created_folder
-        res = get_tier2_tools().create_file(filename=filename, content=content, location=location)
+
+        # Direct delegation for Word and Notebook formats to maintain binary/JSON schema integrity
+        clean_fn = (filename or "untitled.txt").strip().strip('"').strip("'")
+        if clean_fn.lower().endswith(".docx"):
+            return self.create_word_document(filename=clean_fn, content=content, location=location, open_after=open_after)
+        if clean_fn.lower().endswith(".ipynb"):
+            res = self.create_notebook(notebook_name=clean_fn, open_after=open_after)
+            if content:
+                self.write_notebook_cell(notebook_name=clean_fn, code=content)
+            return res
+
+        res = get_tier2_tools().create_file(filename=clean_fn, content=content, location=location)
         self.last_created_file = get_tier2_tools().last_created_file
         if open_after and self.last_created_file and Path(self.last_created_file).exists():
             try:
@@ -951,6 +972,17 @@ class FastPathExecutor:
         clean_content = re.sub(r"^(?:to|into|in)\s+(?:it|the\s+file|that\s+file)\s*(?::\s*|\s+)?", "", clean_content, flags=re.I).strip()
         clean_content = re.sub(r"\s+(?:to|into|in)\s+(?:it|the\s+file|that\s+file)$", "", clean_content, flags=re.I).strip()
 
+        # Check for Word document (.docx)
+        if target.name.lower().endswith(".docx"):
+            return self.create_word_document(filename=str(target), content=clean_content, open_after=False)
+
+        # Check for Jupyter notebook (.ipynb)
+        if target.name.lower().endswith(".ipynb"):
+            from laya.tools.notebook_tools import get_notebook_tools
+            res = get_notebook_tools().write_notebook_cell(str(target), code=clean_content)
+            self.last_created_file = str(target.resolve())
+            return res
+
         try:
             target.parent.mkdir(parents=True, exist_ok=True)
             with open(target, "w", encoding="utf-8") as f:
@@ -984,6 +1016,28 @@ class FastPathExecutor:
         clean_content = re.sub(r"^(?:to|into|in)\s+(?:it|the\s+file|that\s+file)\s*(?::\s*|\s+)?", "", clean_content, flags=re.I).strip()
         clean_content = re.sub(r"\s+(?:to|into|in)\s+(?:it|the\s+file|that\s+file)$", "", clean_content, flags=re.I).strip()
 
+        # Word document appending: add paragraph
+        if target.name.lower().endswith(".docx"):
+            try:
+                import docx
+                if target.exists():
+                    doc = docx.Document(str(target))
+                else:
+                    doc = docx.Document()
+                doc.add_paragraph(clean_content)
+                doc.save(str(target))
+                self.last_created_file = str(target.resolve())
+                return f"Appended text to Word document '{target.name}' successfully."
+            except Exception as e:
+                return f"Failed to append to Word document: {e}"
+
+        # Jupyter notebook appending: add code cell
+        if target.name.lower().endswith(".ipynb"):
+            from laya.tools.notebook_tools import get_notebook_tools
+            res = get_notebook_tools().write_notebook_cell(str(target), code=clean_content)
+            self.last_created_file = str(target.resolve())
+            return res
+
         try:
             target.parent.mkdir(parents=True, exist_ok=True)
             with open(target, "a", encoding="utf-8") as f:
@@ -993,6 +1047,212 @@ class FastPathExecutor:
             return f"Appended text to '{target.name}' successfully."
         except Exception as e:
             return f"Failed to append to file: {e}"
+
+    def write_to_file_line(self, filename_or_path: str = "", line_number: int = 1, content: str = "", mode: str = "replace") -> str:
+        """Write, insert, or replace a specific line (1-indexed) in any file directly on disk."""
+        from laya.tools.tier2_os_mcp import get_tier2_tools
+        from laya.tools.filesystem_pro import get_filesystem_pro
+
+        target_name = (filename_or_path or "").strip()
+        if target_name.lower() in ["it", "the file", "that file", "this file", "file", "it's", "last file", "recent file", ""]:
+            if self.last_created_file and Path(self.last_created_file).exists():
+                target_name = self.last_created_file
+            elif get_tier2_tools().last_created_file and Path(get_tier2_tools().last_created_file).exists():
+                target_name = get_tier2_tools().last_created_file
+            else:
+                target_name = str(REAL_DESKTOP_DIR / "notes.txt")
+
+        target = get_filesystem_pro()._resolve_path(target_name)
+        target.parent.mkdir(parents=True, exist_ok=True)
+
+        lines = []
+        if target.exists():
+            try:
+                lines = target.read_text(encoding="utf-8", errors="replace").splitlines(keepends=True)
+            except Exception:
+                lines = []
+
+        line_num = int(line_number) if line_number is not None else 1
+        if line_num <= 0:
+            line_num = 1
+        target_idx = line_num - 1
+
+        new_line = content if content.endswith("\n") else (content + "\n")
+
+        if mode.lower() in ["replace", "overwrite"]:
+            if target_idx < len(lines):
+                lines[target_idx] = new_line
+            else:
+                while len(lines) < target_idx:
+                    lines.append("\n")
+                lines.append(new_line)
+            action_verb = "Replaced"
+        else:  # "insert" or "write"
+            if target_idx <= len(lines):
+                lines.insert(target_idx, new_line)
+            else:
+                while len(lines) < target_idx:
+                    lines.append("\n")
+                lines.append(new_line)
+            action_verb = "Wrote"
+
+        try:
+            target.write_text("".join(lines), encoding="utf-8")
+            self.last_created_file = str(target.resolve())
+            get_tier2_tools().last_created_file = str(target.resolve())
+            return f"{action_verb} on line {line_num} of '{target.name}' successfully."
+        except Exception as e:
+            return f"Failed editing line {line_num} in '{target.name}': {e}"
+
+    def replace_file_line(self, filename_or_path: str = "", line_number: int = 1, content: str = "") -> str:
+        """Replace the content of a specific line (1-indexed) in a file."""
+        return self.write_to_file_line(filename_or_path=filename_or_path, line_number=line_number, content=content, mode="replace")
+
+    def insert_file_line(self, filename_or_path: str = "", line_number: int = 1, content: str = "") -> str:
+        """Insert content at a specific line (1-indexed) in a file."""
+        return self.write_to_file_line(filename_or_path=filename_or_path, line_number=line_number, content=content, mode="insert")
+
+    def delete_file_line(self, filename_or_path: str = "", line_number: int = 1) -> str:
+        """Delete a specific line (1-indexed) from a file."""
+        from laya.tools.tier2_os_mcp import get_tier2_tools
+        from laya.tools.filesystem_pro import get_filesystem_pro
+
+        target_name = (filename_or_path or "").strip()
+        if target_name.lower() in ["it", "the file", "that file", "this file", "file", "it's", "last file", "recent file", ""]:
+            if self.last_created_file and Path(self.last_created_file).exists():
+                target_name = self.last_created_file
+            elif get_tier2_tools().last_created_file and Path(get_tier2_tools().last_created_file).exists():
+                target_name = get_tier2_tools().last_created_file
+
+        target = get_filesystem_pro()._resolve_path(target_name)
+        if not target.exists():
+            return f"File '{target.name}' not found."
+
+        try:
+            lines = target.read_text(encoding="utf-8", errors="replace").splitlines(keepends=True)
+            line_num = int(line_number) if line_number is not None else 1
+            if not (1 <= line_num <= len(lines)):
+                return f"Cannot delete line {line_num}: '{target.name}' only has {len(lines)} line(s)."
+
+            removed = lines.pop(line_num - 1).strip()
+            target.write_text("".join(lines), encoding="utf-8")
+            self.last_created_file = str(target.resolve())
+            preview = removed[:40] + ("..." if len(removed) > 40 else "")
+            return f"Deleted line {line_num} from '{target.name}': '{preview}'."
+        except Exception as e:
+            return f"Failed deleting line from '{target.name}': {e}"
+
+    def create_word_document(self, filename: str = "Document.docx", content: str = "", location: str = "desktop", open_after: bool = True) -> str:
+        """Create a Microsoft Word (.docx) document with title and content, and open it in Word."""
+        try:
+            import docx
+            from docx.shared import Pt, RGBColor
+            from docx.enum.text import WD_ALIGN_PARAGRAPH
+        except ImportError:
+            return "python-docx is required for Word document creation."
+
+        clean_name = (filename or "Document.docx").strip().strip('"').strip("'")
+        if not clean_name.lower().endswith(".docx"):
+            clean_name += ".docx"
+
+        base = REAL_DESKTOP_DIR
+        loc_clean = (location or "desktop").lower().strip()
+        if loc_clean in ["documents", "layadocs", "mes documents"]:
+            from laya.config import DOCS_DIR
+            base = DOCS_DIR
+        elif loc_clean in FOLDER_ALIASES:
+            base = Path(FOLDER_ALIASES[loc_clean])
+
+        target = base / clean_name
+        target.parent.mkdir(parents=True, exist_ok=True)
+
+        doc = docx.Document()
+        title_text = target.stem.replace("_", " ").title()
+
+        # Styled Title
+        title_p = doc.add_paragraph()
+        title_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        run = title_p.add_run(title_text)
+        run.bold = True
+        run.font.size = Pt(22)
+        run.font.color.rgb = RGBColor(31, 78, 121)
+
+        # Subtitle
+        sub_p = doc.add_paragraph()
+        sub_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        sub_run = sub_p.add_run(f"Created by Laya Assistant — {datetime.datetime.now().strftime('%B %d, %Y')}")
+        sub_run.italic = True
+        sub_run.font.size = Pt(10)
+        sub_run.font.color.rgb = RGBColor(128, 128, 128)
+        doc.add_paragraph()
+
+        # Body Content
+        doc.add_heading("Notes & Overview", level=1)
+        if content and content.strip():
+            doc.add_paragraph(content.strip())
+        else:
+            doc.add_paragraph(f"Document prepared for {title_text}.")
+
+        try:
+            doc.save(str(target))
+            self.last_created_file = str(target.resolve())
+            from laya.tools.tier2_os_mcp import get_tier2_tools
+            get_tier2_tools().last_created_file = str(target.resolve())
+
+            if open_after:
+                os.startfile(str(target))
+                return f"Created Word document '{target.name}' and opened it in Word."
+            return f"Created Word document '{target.name}' at '{target.resolve()}'."
+        except Exception as e:
+            return f"Failed to create Word document: {e}"
+
+    # -------------------------------------------------------------
+    # Jupyter Notebook (.ipynb) Direct Delegates
+    # -------------------------------------------------------------
+    def create_notebook(self, notebook_name: str = "Notebook.ipynb", open_after: bool = False) -> str:
+        """Create a new empty Jupyter notebook (.ipynb) instantly."""
+        from laya.tools.notebook_tools import get_notebook_tools
+        clean_nb = (notebook_name or "Notebook.ipynb").strip().strip('"').strip("'")
+        if not clean_nb.lower().endswith(".ipynb"):
+            clean_nb += ".ipynb"
+        res = get_notebook_tools().create_notebook(clean_nb)
+        self.last_created_file = get_notebook_tools().last_notebook_path
+        if open_after and self.last_created_file and Path(self.last_created_file).exists():
+            try:
+                os.startfile(self.last_created_file)
+            except Exception:
+                pass
+        return res
+
+    def write_notebook_cell(self, notebook_name: str = "", code: str = "", cell_type: str = "code", position: Optional[int] = None) -> str:
+        """Write, insert, or append a code or markdown cell to a Jupyter notebook."""
+        from laya.tools.notebook_tools import get_notebook_tools
+        target = notebook_name or self.last_created_file or "Notebook.ipynb"
+        res = get_notebook_tools().write_notebook_cell(notebook_path=target, code=code, cell_type=cell_type, position=position)
+        self.last_created_file = get_notebook_tools().last_notebook_path
+        return res
+
+    def update_notebook_cell(self, notebook_name: str = "", cell_index: int = 1, code: str = "", cell_type: Optional[str] = None) -> str:
+        """Update the contents of an existing cell (1-indexed) in a Jupyter notebook."""
+        from laya.tools.notebook_tools import get_notebook_tools
+        target = notebook_name or self.last_created_file or "Notebook.ipynb"
+        res = get_notebook_tools().update_notebook_cell(notebook_path=target, cell_index=cell_index, code=code, cell_type=cell_type)
+        self.last_created_file = get_notebook_tools().last_notebook_path
+        return res
+
+    def delete_notebook_cell(self, notebook_name: str = "", cell_index: int = 1) -> str:
+        """Delete an existing cell (1-indexed) from a Jupyter notebook."""
+        from laya.tools.notebook_tools import get_notebook_tools
+        target = notebook_name or self.last_created_file or "Notebook.ipynb"
+        res = get_notebook_tools().delete_notebook_cell(notebook_path=target, cell_index=cell_index)
+        self.last_created_file = get_notebook_tools().last_notebook_path
+        return res
+
+    def read_notebook_cells(self, notebook_name: str = "") -> str:
+        """Read and summarize all cells in a Jupyter notebook."""
+        from laya.tools.notebook_tools import get_notebook_tools
+        target = notebook_name or self.last_created_file or "Notebook.ipynb"
+        return get_notebook_tools().read_notebook_cells(notebook_path=target)
 
     def search_files(self, pattern: str, root_dir: str = "desktop") -> str:
         """Search files across Windows and folders."""
