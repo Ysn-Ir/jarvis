@@ -1786,7 +1786,7 @@ class FastPathExecutor:
         return "🚨 FOID ALERT: Foid detected nearby! Foid, foid, go away, strike my cortisol another day!"
 
     def chud_self_destruct(self) -> str:
-        """Trigger chud take detection, display chudjak image, and initiate self-destruction."""
+        """Trigger chud take detection, display chudjak image, and initiate chud purge countdown."""
         from laya.audio.meme_audio import play_meme_audio
         play_meme_audio("chud_destruct")
         try:
@@ -1795,7 +1795,7 @@ class FastPathExecutor:
                 LayaHUD._active_instance.msg_queue.put(("extreme_mode", "chud_destruct"))
         except Exception:
             pass
-        return "💥 CHUD TAKE DETECTED: Oh, something happened! Chud take detected! Initiating self destruction sequence in 10, 9, 8, 7, 6, 5, 4, 3, 2, 1... Core meltdown complete. Goodbye."
+        return "💥 CHUD TAKE DETECTED: Chud take detected! Initiating chud purge protocol in 10, 9, 8, 7, 6, 5, 4, 3, 2, 1... Chud take neutralised. The system has survived."
 
     def extreme_lockdown_mode(self) -> str:
         """Trigger extreme lockdown mode with cyber strobe and alert."""

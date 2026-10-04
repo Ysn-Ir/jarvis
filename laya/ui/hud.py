@@ -1087,7 +1087,6 @@ class LayaHUD(ctk.CTk):
             def wnd_proc(hwnd, msg, wparam, lparam):
                 WM_DESTROY = 0x0002
                 if msg == WM_DESTROY:
-                    user32.PostQuitMessage(0)
                     return 0
                 return user32.DefWindowProcW(hwnd, msg, wparam, lparam)
 

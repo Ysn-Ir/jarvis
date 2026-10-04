@@ -28,9 +28,9 @@ SAMPLE_RATE = 44100
 
 VOICE_MEME_QUIPS = {
     "foid_alert": "Alert! Foid detected nearby! Foid, foid, go away, strike my cortisol another day!",
-    "chud_destruct": "Oh, something happened. Chud take detected! Initiating self destruction mode in 3, 2, 1...",
+    "chud_destruct": "Chud take detected! Initiating chud purge mode in 3, 2, 1...",
     "lockdown": "Extreme lockdown mode activated. Cortisol levels critical. Locking in.",
-    "chudjak": "Chud take detected! Initiating self destruction mode in 3, 2, 1...",
+    "chudjak": "Chud take detected! Initiating chud purge mode in 3, 2, 1...",
     "monkas": "MonkaS... Sweating intensely over here! ",
     "wojak": "Feels bad man. True 3 AM thoughts. ",
     "soyjak": "Mind blown! Pointing at the screen right now! ",

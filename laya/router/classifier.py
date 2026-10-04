@@ -90,7 +90,7 @@ class IntentRouter:
             r"idiot|moron|imbecile|cretin|halfwit|dimwit|nitwit|twit|numbnuts|"
             r"trash\s+(?:bot|ai|assistant)|useless\s+(?:bot|ai|assistant|piece|garbage|shit)|garbage\s+(?:bot|ai|assistant)|"
             r"chud\s+take(?:\s+detected)?|chud\s+mode|activate\s+chud|chudjak|"
-            r"nothing\s+ever\s+happens|billions\s+must|terrible\s+(?:bot|ai|assistant)|"
+            r"billions\s+must|terrible\s+(?:bot|ai|assistant)|"
             r"i\s+hate\s+(?:you|this(?:\s+bot)?)|worst\s+(?:bot|ai|assistant)|"
             r"you'?re?\s+(?:the\s+)?worst|absolute\s+(?:garbage|trash|moron|idiot)|total\s+(?:garbage|trash)"
             r")\b",
@@ -100,7 +100,7 @@ class IntentRouter:
                 path=ExecutionPath.FAST_PATH,
                 action="chud_self_destruct",
                 confidence=1.0,
-                reasoning="User insult / chud take detected: activating chud alert and initiating self destruction."
+                reasoning="User insult / chud take detected: activating chud alert and purge protocol."
             )
 
         # Extreme Mode 3: Extreme Lockdown Mode (<0.0ms)
@@ -1889,7 +1889,7 @@ class IntentRouter:
             )
 
         # 15. Memes & Archetype Triggers (<0.0ms)
-        meme_match = re.search(r"\b(based|chudjak|nothing\s+ever\s+happens|pepe|monkas|wojak|feels\s+good|feels\s+bad|galaxy\s+brain|it's\s+over|cringe)\b", text)
+        meme_match = re.search(r"\b(based|chudjak|pepe|monkas|wojak|feels\s+good|feels\s+bad|galaxy\s+brain|it's\s+over|cringe)\b", text)
         if meme_match and ("meme" in text or text.startswith(("you are", "you're", "that's", "thats", "show", "tell")) or len(text.split()) <= 4):
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="trigger_meme", params={"meme_name": meme_match.group(1).strip()})
 

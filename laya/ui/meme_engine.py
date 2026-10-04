@@ -88,7 +88,7 @@ class MemeReactionEngine:
             "trash bot", "useless bot", "garbage bot", "terrible bot",
             "worst bot", "worst ai", "i hate you", "i hate this bot",
             # Meme/chud triggers
-            "chud take", "chud mode", "chudjak", "nothing ever happens", "billions must",
+            "chud take", "chud mode", "chudjak", "billions must",
             "chud take detected",
         ]
         if any(w in text for w in chud_signals):
