@@ -418,15 +418,18 @@ class IntentRouter:
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="turn_screen_on", safety_tier="GREEN", confidence=1.0, reasoning="Instant screen turn-on.")
 
         # 2c. Screen & Camera Video Recording Controls (<0.0ms)
-        # Stop active recordings
-        if any(w in text for w in ["stop camera recording", "stop camera video", "stop recording camera", "stop camera", "stop webcam"]):
-            return RouteDecision(path=ExecutionPath.FAST_PATH, action="stop_camera_recording")
-        if any(w in text for w in ["stop screen recording", "stop recording screen", "stop screen record"]):
-            return RouteDecision(path=ExecutionPath.FAST_PATH, action="stop_screen_recording")
-        if any(w in text for w in ["stop recording", "stop video recording", "stop the recording", "stop all recordings"]):
-            return RouteDecision(path=ExecutionPath.FAST_PATH, action="stop_all_recordings")
+        # 1. Stop active recordings
+        if re.search(r"\b(?:stop|end|finish|halt|terminate|cancel)\s+(?:the\s+)?(?:screen\s+recording|screen\s+record|recording\s+screen|video\s+recording|recording|camera\s+recording|webcam\s+recording)\b", text, re.I) or text in [
+            "stop recording", "stop screen recording", "end recording", "end screen recording",
+            "finish recording", "finish screen recording", "stop the recording", "end the recording",
+            "stop screen record", "stop video recording", "stop recording screen", "cancel recording", "cancel screen recording",
+            "stop camera recording", "end camera recording", "stop webcam recording", "end webcam recording"
+        ]:
+            if any(w in text for w in ["camera", "webcam"]):
+                return RouteDecision(path=ExecutionPath.FAST_PATH, action="stop_camera_recording", confidence=1.0, reasoning="Instant stop camera recording.")
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="stop_screen_recording", confidence=1.0, reasoning="Instant stop screen recording.")
 
-        # Camera video recording (asynchronous, continuous by default unless duration given)
+        # 2. Camera video recording (asynchronous, continuous by default unless duration given)
         cam_rec_match = re.search(
             r"\b(?:record\s+(?:the\s+|a\s+)?(?:camera|webcam|webcam\s+video|camera\s+video)|start\s+(?:a\s+)?(?:camera|webcam)\s+recording|record\s+video\s+(?:with|using|from)\s+(?:the\s+)?(?:camera|webcam))\b(?:\s+(?:for\s+)?(\d+)\s*(?:seconds?|secs?))?",
             text,
@@ -434,20 +437,27 @@ class IntentRouter:
         )
         if cam_rec_match:
             cam_dur = int(cam_rec_match.group(1)) if cam_rec_match.group(1) else 0
-            return RouteDecision(path=ExecutionPath.FAST_PATH, action="record_camera_video", params={"duration": cam_dur})
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="start_camera_recording", params={"duration": cam_dur}, confidence=1.0, reasoning="Instant camera recording.")
 
         if text in ["record video", "take video", "take a video", "record camera", "record a video", "video record"]:
-            return RouteDecision(path=ExecutionPath.FAST_PATH, action="record_camera_video", params={"duration": 0})
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="start_camera_recording", params={"duration": 0}, confidence=1.0, reasoning="Instant camera recording.")
 
-        # Screen recording (asynchronous, continuous by default unless duration given)
+        # 3. Timed / Start Screen recording
+        rec_dur_m = re.search(r"\b(?:record|capture)\s+(?:the\s+|my\s+)?screen(?:\s+video)?\s+for\s+(\d+)\s*(seconds?|secs?|minutes?|mins?)\b", text, re.I)
+        if rec_dur_m:
+            num = int(rec_dur_m.group(1))
+            unit = rec_dur_m.group(2).lower()
+            dur_sec = num * 60 if "min" in unit else num
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="start_screen_recording", params={"duration": dur_sec}, confidence=1.0, reasoning="Instant timed screen recording.")
+
         screen_rec_match = re.search(
-            r"\b(?:record\s+(?:the\s+|my\s+)?screen|start\s+(?:a\s+)?screen\s+recording|start\s+(?:a\s+)?recording|screen\s+record|toggle\s+screen\s+recording)\b(?:\s+(?:for\s+)?(\d+)\s*(?:seconds?|secs?))?",
+            r"\b(?:record\s+(?:the\s+|my\s+)?screen|start\s+(?:a\s+)?screen\s+recording|start\s+(?:a\s+)?recording|screen\s+record|toggle\s+screen\s+recording|capture\s+(?:the\s+|my\s+)?screen\s+recording|begin\s+(?:screen\s+recording|recording\s+screen))\b(?:\s+(?:for\s+)?(\d+)\s*(?:seconds?|secs?))?",
             text,
             re.I
         )
         if screen_rec_match:
             rec_dur = int(screen_rec_match.group(1)) if screen_rec_match.group(1) else 0
-            return RouteDecision(path=ExecutionPath.FAST_PATH, action="record_screen", params={"duration": rec_dur})
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="start_screen_recording", params={"duration": rec_dur}, confidence=1.0, reasoning="Instant start screen recording.")
 
         # ---------------------------------------------------------
         # User Profile, Facts & Durable Memory Fast Paths (<0.0ms)
@@ -1724,7 +1734,12 @@ class IntentRouter:
             "wake screen", "wake up screen", "wake display"
         ]:
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="turn_screen_on", safety_tier="GREEN", confidence=1.0, reasoning="Instant screen turn-on.")
-        if any(w in text for w in ["take a screenshot", "screenshot", "capture screen"]):
+
+        # Static Screenshots:
+        if (
+            re.search(r"\b(?:take\s+(?:a\s+)?(?:screenshot|screen\s*shot)|capture\s+(?:the\s+|my\s+)?(?:screen|desktop)|screenshot\s+(?:the\s+|my\s+)?(?:screen|desktop)|screenshot|screengrab|screen\s+grab|screen\s+capture)\b", text, re.I)
+            or any(w in text for w in ["take a screenshot", "screenshot", "screengrab", "screen grab", "screen capture", "capture screen", "capture the screen"])
+        ) and not any(w in text for w in ["record", "recording", "video"]):
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="take_screenshot")
 
         # Screen Eyes: On-Demand Zero-GPU Visual Inspection (<0.0ms)

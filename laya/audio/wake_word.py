@@ -71,12 +71,11 @@ def is_echo_of_assistant(user_text: str, assistant_text: str = "") -> bool:
     """Detect if transcribed text matches the assistant's own spoken response or known assistant output patterns."""
     if not user_text:
         return False
-    u_low = user_text.lower().strip()
-    u_clean = re.sub(r"[^\w\s]", "", u_low).strip()
+    u_clean = " ".join(re.sub(r"[^\w\s]", " ", user_text.lower()).split())
     if not u_clean:
         return False
 
-    # 1. Signature prefixes and phrases spoken exclusively by the assistant
+    # 1. Signature prefixes spoken exclusively by the assistant
     assistant_signatures = [
         "created folder", "created file", "the file is located", "the folder is located",
         "reminder set for", "timer set for", "from our history", "active contact set to",
@@ -90,24 +89,31 @@ def is_echo_of_assistant(user_text: str, assistant_text: str = "") -> bool:
         "i have set a reminder", "i have created", "here is what i remember"
     ]
     for sig in assistant_signatures:
-        if u_clean.startswith(sig) or sig in u_clean:
+        if u_clean.startswith(sig):
             return True
 
     # 2. Direct comparison with assistant's last spoken text
     if assistant_text:
-        a_low = assistant_text.lower().strip()
-        a_clean = re.sub(r"[^\w\s]", "", a_low).strip()
+        a_clean = " ".join(re.sub(r"[^\w\s]", " ", assistant_text.lower()).split())
         if a_clean:
-            # Substring containment
-            if u_clean in a_clean or a_clean in u_clean:
+            # Exact match (assistant speech repeated verbatim)
+            if u_clean == a_clean:
                 return True
-            u_words = set(u_clean.split())
-            a_words = set(a_clean.split())
-            if u_words and a_words:
-                overlap = len(u_words & a_words)
-                # If 40% or more of user words overlap with assistant's speech
-                if overlap / len(u_words) >= 0.4:
-                    return True
+            # The entire assistant utterance is embedded in the transcript
+            if a_clean in u_clean and len(a_clean) >= 15:
+                return True
+
+            u_words = u_clean.split()
+            a_words_set = set(a_clean.split())
+            new_words = [w for w in u_words if w not in a_words_set]
+
+            # If all words in user text were spoken by assistant (0 new words) and >= 3 words
+            if not new_words and len(u_words) >= 3:
+                return True
+
+            # If user text is contiguous substring of assistant speech with 0 new words
+            if u_clean in a_clean and not new_words and len(u_words) >= 2:
+                return True
 
     return False
 
@@ -168,17 +174,17 @@ class WakeWordDetector:
                 cls._instance.on_interrupt = on_interrupt
         return cls._instance
 
-    def open_follow_up(self, duration_sec: float = 5.0, prompt_text: str = ""):
+    def open_follow_up(self, duration_sec: float = 7.5, prompt_text: str = ""):
         """Open a conversational follow-up window where speech is accepted without wake phrases."""
         now = time.time()
-        self.follow_up_settle_until = now + 0.60  # 600ms acoustic reverberation settling delay
-        follow_dur = min(duration_sec, 5.0)
+        self.follow_up_settle_until = now + 0.35  # 350ms acoustic reverberation settling delay
+        follow_dur = max(duration_sec, 7.5)
         self.follow_up_until = now + follow_dur
         self._flush_buffer_flag = True
         if prompt_text:
             self.last_assistant_speech = prompt_text.strip()
         self.resume()
-        print(f"[WakeWord] Follow-up listening window open for {follow_dur}s (acoustic guard: 600ms).")
+        print(f"[WakeWord] Follow-up listening window open for {follow_dur:.1f}s (acoustic guard: 350ms).")
 
     def is_in_follow_up(self) -> bool:
         """Check if currently within the conversational follow-up window."""
@@ -218,6 +224,7 @@ class WakeWordDetector:
             speech_buffer: List[np.ndarray] = []
             is_in_speech = False
             silence_count = 0
+            speech_started_in_followup = False
 
             try:
                 with sd.InputStream(
@@ -237,6 +244,7 @@ class WakeWordDetector:
                             speech_buffer = []
                             is_in_speech = False
                             silence_count = 0
+                            speech_started_in_followup = False
                             self._flush_buffer_flag = False
 
                         audio_chunk = data.flatten()
@@ -253,6 +261,7 @@ class WakeWordDetector:
                             speech_buffer = []
                             is_in_speech = False
                             silence_count = 0
+                            speech_started_in_followup = False
 
                             # Detect vocal barge-in ONLY if energy is loud enough to pierce through playback
                             if energy > (VAD_ENERGY_THRESHOLD * 2.2):
@@ -268,10 +277,13 @@ class WakeWordDetector:
                             speech_buffer = []
                             is_in_speech = False
                             silence_count = 0
+                            speech_started_in_followup = False
                             continue
 
                         if energy > VAD_ENERGY_THRESHOLD:
-                            is_in_speech = True
+                            if not is_in_speech:
+                                is_in_speech = True
+                                speech_started_in_followup = (now < self.follow_up_until)
                             silence_count = 0
                             speech_buffer.append(audio_chunk)
 
@@ -281,23 +293,25 @@ class WakeWordDetector:
                                 if self.is_listening_active:
                                     self._process_interruption(speech_buffer)
                                 else:
-                                    self._process_speech(speech_buffer)
+                                    self._process_speech(speech_buffer, was_in_followup=speech_started_in_followup)
                                 speech_buffer = []
                                 is_in_speech = False
+                                speech_started_in_followup = False
                         else:
                             if is_in_speech:
                                 silence_count += 1
                                 speech_buffer.append(audio_chunk)
-                                # ~0.5s trailing silence for ultra-low latency response
-                                limit_silence = 2
+                                # ~0.75s trailing silence (3 chunks * 250ms) for natural speech pauses
+                                limit_silence = 3
                                 if silence_count >= limit_silence:
                                     if self.is_listening_active:
                                         self._process_interruption(speech_buffer)
                                     else:
-                                        self._process_speech(speech_buffer)
+                                        self._process_speech(speech_buffer, was_in_followup=speech_started_in_followup)
                                     speech_buffer = []
                                     is_in_speech = False
                                     silence_count = 0
+                                    speech_started_in_followup = False
                             else:
                                 # Rolling pre-roll buffer (~500ms)
                                 speech_buffer = speech_buffer[-1:] + [audio_chunk] if speech_buffer else [audio_chunk]
@@ -313,13 +327,13 @@ class WakeWordDetector:
         cleaned = re.sub(r"^(?:call|hey|hi|hello|please)?[\s,]+", "", cleaned, flags=re.IGNORECASE).strip()
         return cleaned.strip(".!? ")
 
-    def _process_speech(self, chunks: List[np.ndarray]):
+    def _process_speech(self, chunks: List[np.ndarray], was_in_followup: bool = False):
         """Transcribe speech clip on CUDA and check for single-pass wake word & command."""
         if not chunks or len(chunks) < 2:
             return
 
         full_clip = np.concatenate(chunks)
-        if len(full_clip) < int(AUDIO_SAMPLE_RATE * 0.35):
+        if len(full_clip) < int(AUDIO_SAMPLE_RATE * 0.28):
             return
 
         try:
@@ -377,7 +391,8 @@ class WakeWordDetector:
                 return
 
             # 3. Conversational Follow-Up Mode: accept natural follow-ups without repeating wake word
-            if time.time() < self.follow_up_until:
+            is_follow_up_active = was_in_followup or (time.time() < self.follow_up_until)
+            if is_follow_up_active:
                 clean_cmd = self._clean_command(text)
 
                 # Rejection 1: Acoustic self-echo of assistant's own speech
@@ -385,23 +400,41 @@ class WakeWordDetector:
                     print(f"[WakeWord] Rejected acoustic self-echo from assistant speech: '{clean_cmd}'")
                     return
 
-                # Rejection 2: User dismissals ("no", "stop", "nevermind", "we are not going to do that")
+                # Rejection 2: User dismissals
+                # Match standalone dismissals or explicit cancel/dismiss phrases
+                # (Do NOT match action commands with targets like "stop recording", "stop music", "cancel timer")
                 clean_low = clean_cmd.lower().strip()
-                dismiss_phrases = [
-                    "no", "nope", "nevermind", "never mind", "cancel", "stop", "nothing",
-                    "forget it", "leave it", "don't do that", "dont do that",
-                    "we are not going to do that", "not that", "not now", "ignore", "shut up"
-                ]
-                if any(clean_low == dp or clean_low.startswith(dp + " ") or clean_low.startswith(dp + ",") for dp in dismiss_phrases):
+                standalone_dismissals = {
+                    "no", "nope", "nevermind", "never mind", "nothing", "forget it",
+                    "leave it", "don't do that", "dont do that", "we are not going to do that",
+                    "not that", "not now", "ignore", "shut up", "stop it", "stop that",
+                    "stop now", "cancel it", "cancel that", "stop", "cancel", "halt"
+                }
+                if clean_low in standalone_dismissals:
                     print(f"[WakeWord] Follow-up dismissed: '{clean_cmd}'")
                     self.follow_up_until = 0.0
                     return
 
                 # Rejection 3: Conversational acknowledgments / noise words
-                if clean_low in [
+                # BUT if a confirmation is pending in PermissionGate, dispatch "yes", "proceed", "sure", "ok"
+                conversational_noises = {
                     "yeah", "yes", "yep", "uh", "um", "ah", "okay", "ok", "so", "and", "the", "a",
                     "thanks", "thank you", "cool", "nice", "alright", "got it", "sure", "yup"
-                ]:
+                }
+                if clean_low in conversational_noises:
+                    try:
+                        from laya.orchestrator.permission import PermissionGate
+                        gate = PermissionGate.get_instance()
+                        if getattr(gate, "pending_action", None) and clean_low in ["yes", "yeah", "yep", "sure", "ok", "okay", "proceed"]:
+                            print(f"[WakeWord] Follow-up confirmation heard: '{clean_cmd}'")
+                            self.follow_up_until = 0.0
+                            self.pause()
+                            if self.on_command:
+                                self.on_command(clean_cmd)
+                            return
+                    except Exception:
+                        pass
+
                     print(f"[WakeWord] Ignored conversational acknowledgment in follow-up: '{clean_cmd}'")
                     return
 

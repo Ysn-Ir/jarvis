@@ -226,8 +226,23 @@ class LayaDecisionEngine:
                     reasoning=f"Laya neural router classified telegram_launch ({dt:.1f}ms, p={prob:.2f})."
                 )
 
-            # 7. Take Screenshot
+            # 7. Take Screenshot or Screen Recording
             if choice == "take_screenshot":
+                if any(w in clean for w in ["record", "recording", "video"]):
+                    if any(w in clean for w in ["stop", "end", "finish", "halt", "cancel"]):
+                        return RouteDecision(
+                            path=ExecutionPath.FAST_PATH,
+                            action="stop_screen_recording",
+                            confidence=prob,
+                            reasoning=f"Laya neural router classified stop_screen_recording ({dt:.1f}ms)."
+                        )
+                    return RouteDecision(
+                        path=ExecutionPath.FAST_PATH,
+                        action="start_screen_recording",
+                        params={"duration": 0},
+                        confidence=prob,
+                        reasoning=f"Laya neural router classified start_screen_recording ({dt:.1f}ms)."
+                    )
                 if not any(w in clean for w in ["screenshot", "screen", "capture"]):
                     return None
                 return RouteDecision(

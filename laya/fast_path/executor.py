@@ -457,39 +457,36 @@ class FastPathExecutor:
 
         def _record_worker():
             try:
-                import mss
+                from laya.tools.win32_utils import ensure_desktop_access
+                ensure_desktop_access()
                 import cv2
                 import numpy as np
-                with mss.mss() as sct:
-                    monitor = sct.monitors[1]
-                    width = monitor["width"]
-                    height = monitor["height"]
-                    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-                    fps = 15.0
-                    out = cv2.VideoWriter(str(filepath), fourcc, fps, (width, height))
-                    start_time = time.time()
-                    frame_delay = 1.0 / fps
+                from PIL import ImageGrab
 
-                    while not self._screen_recorder_stop.is_set():
-                        t0 = time.time()
-                        img = np.array(sct.grab(monitor))
-                        frame = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
-                        out.write(frame)
+                img0 = ImageGrab.grab()
+                width, height = img0.size
+                fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                fps = 15.0
+                out = cv2.VideoWriter(str(filepath), fourcc, fps, (width, height))
+                start_time = time.time()
+                frame_delay = 1.0 / fps
 
-                        if duration > 0 and (time.time() - start_time) >= duration:
-                            break
+                while not self._screen_recorder_stop.is_set():
+                    t0 = time.time()
+                    img = ImageGrab.grab()
+                    frame = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+                    out.write(frame)
 
-                        elapsed = time.time() - t0
-                        if elapsed < frame_delay:
-                            time.sleep(frame_delay - elapsed)
+                    if duration > 0 and (time.time() - start_time) >= duration:
+                        break
 
-                    out.release()
+                    elapsed = time.time() - t0
+                    if elapsed < frame_delay:
+                        time.sleep(frame_delay - elapsed)
+
+                out.release()
             except Exception as e:
-                # Fallback to Xbox Game Bar hotkey
-                try:
-                    pyautogui.hotkey('win', 'alt', 'r')
-                except Exception:
-                    pass
+                print(f"[Screen Recorder Error] {e}", file=sys.stderr)
 
         self._screen_recorder_thread = threading.Thread(target=_record_worker, daemon=True, name="ScreenRecorderThread")
         self._screen_recorder_thread.start()
@@ -501,17 +498,12 @@ class FastPathExecutor:
     def stop_screen_recording(self) -> str:
         """Stop active screen recording."""
         if not (self._screen_recorder_thread and self._screen_recorder_thread.is_alive()):
-            # Also send win+alt+r in case Xbox Game Bar was running
-            try:
-                pyautogui.hotkey('win', 'alt', 'r')
-            except Exception:
-                pass
-            return "No active screen recording was running (or toggled Windows Game Bar)."
+            return "No active screen recording was running."
 
         self._screen_recorder_stop.set()
-        self._screen_recorder_thread.join(timeout=3.0)
+        self._screen_recorder_thread.join(timeout=4.0)
         saved_file = self._screen_recorder_file
-        if saved_file and saved_file.exists():
+        if saved_file and saved_file.exists() and saved_file.stat().st_size > 1000:
             return f"Screen recording stopped. Saved to {saved_file.name} in Videos/Captures."
         return "Screen recording stopped."
 
