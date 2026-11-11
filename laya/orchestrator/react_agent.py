@@ -203,6 +203,7 @@ class ReActAgent:
         from laya.runtime_manager import get_runtime_manager
         rt = get_runtime_manager()
         rt.log_event("LLM", f"Query received (mode={rt.inference_mode}): '{query[:100]}'")
+        self.mcp_hub.reset_sticky_tools()
 
         messages: List[Dict[str, Any]] = [
             {"role": "system", "content": build_react_system_prompt()}
@@ -335,7 +336,8 @@ class ReActAgent:
 
             response = None
             last_err = None
-            mcp_tools = self.mcp_hub.get_core_tools_schema()
+            user_q = next((str(m.get("content", "")) for m in reversed(messages) if m.get("role") == "user"), "")
+            mcp_tools = self.mcp_hub.get_core_tools_schema(query=user_q)
 
             # Try candidate models in order until one succeeds
             while active_idx < len(candidate_models):
@@ -462,6 +464,98 @@ class ReActAgent:
             return "I completed the requested operations on your desktop.", provider
         return "I completed the requested operations.", provider
 
+    def _run_external_loop(
+        self,
+        messages: List[Dict[str, Any]],
+        tool_dispatcher: Any,
+        max_steps: int,
+        step_callback: Optional[Callable[[str], None]] = None,
+    ) -> Tuple[str, str]:
+        """Run ReAct loop against any user-configured external OpenAI-compatible API endpoint."""
+        from laya.runtime_manager import get_runtime_manager
+        rt = get_runtime_manager()
+        ext_model = (rt.external_model or "gpt-4o-mini").strip()
+        provider = f"External ({ext_model})"
+        step_count = 0
+        executed_observations = []
+
+        while step_count < max_steps:
+            if is_interrupt_requested():
+                return "Operation was interrupted by user.", "Interrupted"
+            step_count += 1
+            if step_callback:
+                step_callback(f"Thinking with External {ext_model} (step {step_count})...")
+
+            user_q = next((str(m.get("content", "")) for m in reversed(messages) if m.get("role") == "user"), "")
+            mcp_tools = self.mcp_hub.get_core_tools_schema(query=user_q)
+            response = self.external_client.chat.completions.create(
+                model=ext_model,
+                messages=messages,
+                tools=mcp_tools if mcp_tools else CORE_TOOLS_SCHEMA,
+                tool_choice="auto",
+                temperature=0.1,
+                timeout=20.0,
+            )
+
+            msg = response.choices[0].message
+            if msg.tool_calls:
+                messages.append({
+                    "role": "assistant",
+                    "content": msg.content or "",
+                    "tool_calls": [
+                        {
+                            "id": tc.id,
+                            "type": "function",
+                            "function": {
+                                "name": tc.function.name,
+                                "arguments": tc.function.arguments,
+                            }
+                        }
+                        for tc in msg.tool_calls
+                    ]
+                })
+
+                for tc in msg.tool_calls:
+                    func_name = tc.function.name
+                    try:
+                        args = json.loads(tc.function.arguments) if tc.function.arguments else {}
+                    except Exception:
+                        args = {}
+                    if isinstance(args, dict):
+                        args = {k: v for k, v in args.items() if v is not None}
+
+                    rt.log_event("TOOL", f"[External] Calling {func_name}({list(args.keys())})")
+                    if step_callback:
+                        step_callback(f"Executing: {func_name}({list(args.values())[:2]})")
+
+                    obs = tool_dispatcher(func_name, args)
+                    executed_observations.append(obs)
+
+                    if func_name == "answer_question":
+                        return str(obs).strip(), provider
+                    if is_interrupt_requested():
+                        return "Stopped.", "Interrupted"
+
+                    obs_text = str(obs)
+                    if len(obs_text) > 1200:
+                        obs_text = obs_text[:1200] + "\n...[truncated]"
+                    if step_callback:
+                        step_callback(f"Result: {obs_text[:65]}...")
+
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc.id,
+                        "name": func_name,
+                        "content": obs_text,
+                    })
+            else:
+                final_text = (msg.content or "").strip()
+                if not final_text and executed_observations:
+                    final_text = "I completed the requested action on your desktop."
+                return final_text, provider
+
+        return "I completed the requested operations.", provider
+
     def _run_openrouter_loop(
         self,
         messages: List[Dict[str, Any]],
@@ -480,7 +574,8 @@ class ReActAgent:
             if step_callback:
                 step_callback(f"Thinking with 70B ({OPENROUTER_MODEL.split('/')[-1]} step {step_count})...")
 
-            mcp_tools = self.mcp_hub.get_core_tools_schema()
+            user_q = next((str(m.get("content", "")) for m in reversed(messages) if m.get("role") == "user"), "")
+            mcp_tools = self.mcp_hub.get_core_tools_schema(query=user_q)
             response = self.openrouter_client.chat.completions.create(
                 model=OPENROUTER_MODEL,
                 messages=messages,
@@ -558,6 +653,43 @@ class ReActAgent:
             return "I completed the requested operations on your desktop.", provider
         return "I completed the requested operations.", provider
 
+    def _extract_fallback_tool_calls(self, content: str) -> Optional[List[Dict[str, Any]]]:
+        """Extract tool calls if a local model (like Mistral 7B) emits [TOOL_CALLS] JSON in message content."""
+        if not content:
+            return None
+        txt = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
+
+        # Pattern 1: Mistral [TOOL_CALLS] [{"name": ..., "arguments": {...}}]
+        m_tag = re.search(r"\[TOOL_CALLS\]\s*(\[.*\]|\{.*\})", txt, re.DOTALL)
+        raw_json = m_tag.group(1) if m_tag else None
+
+        # Pattern 2: fenced ```json {"name": ..., "arguments": {...}} ```
+        if not raw_json:
+            m_fence = re.search(r"```(?:json)?\s*(\{.*?\}|\[.*?\])\s*```", txt, re.DOTALL)
+            if m_fence:
+                raw_json = m_fence.group(1)
+
+        if not raw_json:
+            return None
+
+        try:
+            parsed = json.loads(raw_json)
+            items = parsed if isinstance(parsed, list) else [parsed]
+            tcs = []
+            for idx, item in enumerate(items):
+                if isinstance(item, dict) and "name" in item:
+                    tcs.append({
+                        "id": f"local_call_{int(time.time())}_{idx}",
+                        "type": "function",
+                        "function": {
+                            "name": item["name"],
+                            "arguments": item.get("arguments", {}),
+                        }
+                    })
+            return tcs or None
+        except Exception:
+            return None
+
     def _run_ollama_loop(
         self,
         messages: List[Dict[str, Any]],
@@ -565,55 +697,65 @@ class ReActAgent:
         max_steps: int,
         step_callback: Optional[Callable[[str], None]] = None,
     ) -> Tuple[str, str]:
-        provider = f"Local Ollama ({OLLAMA_MODEL})"
+        from laya.runtime_manager import get_runtime_manager
+        rt = get_runtime_manager()
+        local_model = (rt.local_model or OLLAMA_MODEL or "mistral:7b").strip()
+        ollama_url = (rt.ollama_base_url or OLLAMA_BASE_URL or "http://localhost:11434/v1").strip().rstrip("/")
+        provider = f"Local Ollama ({local_model})"
         step_count = 0
         executed_observations = []
 
-        # Convert tools to Ollama format
         while step_count < max_steps:
             if is_interrupt_requested():
                 return "Operation was interrupted by user.", "Interrupted"
             step_count += 1
             if step_callback:
-                step_callback(f"Local GPU thinking (step {step_count})...")
+                step_callback(f"Local {local_model} thinking (step {step_count})...")
 
-            mcp_tools = self.mcp_hub.get_core_tools_schema()
+            user_q = next((str(m.get("content", "")) for m in reversed(messages) if m.get("role") == "user"), "")
+            mcp_tools = self.mcp_hub.get_core_tools_schema(query=user_q)
             payload = {
-                "model": OLLAMA_MODEL,
+                "model": local_model,
                 "messages": messages,
-                "tools": mcp_tools if mcp_tools else TOOLS_SCHEMA,
+                "tools": mcp_tools if mcp_tools else CORE_TOOLS_SCHEMA,
                 "stream": False,
                 "temperature": 0.1,
-                "options": {
-                    "num_gpu": 99,
-                    "num_thread": 8,
-                }
             }
             req = urllib.request.Request(
-                f"{OLLAMA_BASE_URL}/chat/completions",
+                f"{ollama_url}/chat/completions",
                 data=json.dumps(payload).encode("utf-8"),
                 headers={"Content-Type": "application/json"},
             )
 
             try:
-                with urllib.request.urlopen(req, timeout=OLLAMA_TIMEOUT_SEC) as resp:
+                ollama_timeout = max(float(OLLAMA_TIMEOUT_SEC), 60.0)
+                with urllib.request.urlopen(req, timeout=ollama_timeout) as resp:
                     data = json.loads(resp.read().decode("utf-8"))
                     msg = data["choices"][0]["message"]
             except Exception as e:
+                rt.log_event("LLM", f"Local Ollama ({local_model}) error: {e}", level="ERROR")
                 print(f"[ReActAgent] Local Ollama request failed: {e}")
                 if executed_observations:
                     return " | ".join(executed_observations), provider
-                return f"I encountered an issue connecting to the local reasoning engine: {e}. Please ensure Ollama is running.", provider
+                return f"I encountered an issue connecting to local {local_model}: {e}. Please ensure Ollama is running.", provider
 
-            tool_calls = msg.get("tool_calls")
+            tool_calls = msg.get("tool_calls") or self._extract_fallback_tool_calls(msg.get("content", ""))
             if tool_calls:
-                messages.append(msg)
+                messages.append({
+                    "role": "assistant",
+                    "content": msg.get("content") or "",
+                    "tool_calls": tool_calls,
+                })
                 for tc in tool_calls:
                     fn = tc["function"]["name"]
                     raw_args = tc["function"]["arguments"]
                     args = json.loads(raw_args) if isinstance(raw_args, str) else (raw_args or {})
+                    if isinstance(args, dict):
+                        args = {k: v for k, v in args.items() if v is not None}
+
+                    rt.log_event("TOOL", f"[Local {local_model}] Calling {fn}({list(args.keys())})")
                     try:
-                        print(f"  -> [ReAct Step {step_count} (Ollama)] Tool Call: '{fn}' with args {args}")
+                        print(f"  -> [ReAct Step {step_count} ({local_model})] Tool Call: '{fn}' with args {args}")
                     except Exception:
                         pass
                     if step_callback:
@@ -622,31 +764,32 @@ class ReActAgent:
                     obs = tool_dispatcher(fn, args)
                     executed_observations.append(obs)
 
+                    if fn == "answer_question":
+                        return str(obs).strip(), provider
+                    if is_interrupt_requested():
+                        return "Stopped.", "Interrupted"
+
+                    obs_text = str(obs)
+                    if len(obs_text) > 1200:
+                        obs_text = obs_text[:1200] + "\n...[output truncated for brevity]"
+
                     if step_callback:
-                        obs_str = str(obs).strip()
-                        summary_obs = (obs_str[:65] + "...") if len(obs_str) > 65 else obs_str
-                        step_callback(f"Result: {summary_obs}")
+                        step_callback(f"Result: {obs_text[:65]}...")
 
                     messages.append({
                         "role": "tool",
                         "tool_call_id": tc.get("id", f"call_{int(time.time())}"),
                         "name": fn,
-                        "content": str(obs),
+                        "content": obs_text,
                     })
             else:
-                final_text = (msg.get("content") or "").strip()
+                final_text = re.sub(r"<think>.*?</think>", "", (msg.get("content") or ""), flags=re.DOTALL).strip()
                 if not final_text and executed_observations:
                     last_obs = str(executed_observations[-1])
-                    if "Launched" in last_obs or "notepad" in last_obs:
-                        final_text = "I located and opened your requested file."
-                    else:
-                        final_text = "I completed the requested action on your desktop."
+                    final_text = last_obs if len(last_obs) < 280 else "I completed the requested action on your desktop."
                 return final_text, provider
 
         if executed_observations:
-            last_obs = str(executed_observations[-1])
-            if "Launched" in last_obs or "notepad" in last_obs:
-                return "I located your note and opened it on your desktop.", provider
             return "I completed the requested operations on your desktop.", provider
         return "I completed the requested operations.", provider
 

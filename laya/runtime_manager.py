@@ -377,6 +377,10 @@ class RuntimeManager:
                 env_updates["DISCORD_WEBHOOK_URL"] = credentials["webhook_url"].strip()
 
         elif p in ["instagram", "insta", "ig"]:
+            if credentials.get("access_token"):
+                env_updates["INSTAGRAM_ACCESS_TOKEN"] = credentials["access_token"].strip()
+            if credentials.get("account_id"):
+                env_updates["INSTAGRAM_ACCOUNT_ID"] = credentials["account_id"].strip()
             if credentials.get("username"):
                 env_updates["INSTAGRAM_USERNAME"] = credentials["username"].strip()
             if credentials.get("password"):
@@ -403,20 +407,24 @@ class RuntimeManager:
             os.environ.update(env_updates)
             self._save_persisted_state(env_updates)
 
-        # Reload dependent live managers dynamically
-        if p in ["gmail", "email", "mail"]:
+        # Hot-reload target MCP server if already running in MCPHub
+        srv_map = {
+            "gmail": "email", "email": "email", "mail": "email",
+            "telegram": "telegram", "tg": "telegram",
+            "discord": "discord",
+            "instagram": "instagram", "insta": "instagram", "ig": "instagram",
+        }
+        target_srv = srv_map.get(p)
+        if target_srv:
             try:
-                from laya.tools.email_reader import get_email_manager
-                get_email_manager().reload_credentials()
+                from laya.mcp import get_mcp_hub
+                hub = get_mcp_hub()
+                if getattr(hub, "_initialized", False):
+                    threading.Thread(target=hub.reload_server, args=(target_srv,), daemon=True).start()
             except Exception:
                 pass
-        elif p in ["telegram", "tg"]:
-            try:
-                from laya.tools.telegram_client import get_telegram_manager
-                get_telegram_manager().reload_credentials()
-            except Exception:
-                pass
-        elif p in ["groq", "openrouter"]:
+
+        if p in ["groq", "openrouter"]:
             try:
                 from laya.orchestrator.react_agent import get_react_agent
                 get_react_agent().reload_clients()
@@ -445,8 +453,8 @@ class RuntimeManager:
             "platforms": {
                 "gmail": {"configured": bool(os.getenv("EMAIL_USER") and os.getenv("EMAIL_PASSWORD")), "user": os.getenv("EMAIL_USER", "")},
                 "telegram": {"configured": bool(os.getenv("TELEGRAM_API_ID") and os.getenv("TELEGRAM_API_HASH")), "api_id": os.getenv("TELEGRAM_API_ID", "")},
-                "discord": {"configured": bool(os.getenv("DISCORD_TOKEN") or os.getenv("DISCORD_WEBHOOK_URL")), "mode": "token/webhook" if (os.getenv("DISCORD_TOKEN") or os.getenv("DISCORD_WEBHOOK_URL")) else "persistent_browser"},
-                "instagram": {"configured": bool(os.getenv("INSTAGRAM_USERNAME")), "user": os.getenv("INSTAGRAM_USERNAME", "")},
+                "discord": {"configured": bool(os.getenv("DISCORD_TOKEN")), "mode": "mcp_token" if os.getenv("DISCORD_TOKEN") else "persistent_browser"},
+                "instagram": {"configured": bool(os.getenv("INSTAGRAM_ACCESS_TOKEN") or os.getenv("INSTAGRAM_USERNAME")), "account_id": os.getenv("INSTAGRAM_ACCOUNT_ID", os.getenv("INSTAGRAM_USERNAME", ""))},
                 "browser_profile": str(BROWSER_PROFILE_DIR),
             },
         }

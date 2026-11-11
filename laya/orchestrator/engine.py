@@ -113,13 +113,6 @@ class OrchestratorEngine:
         if self.mcp_hub.has_tool(tool):
             return self.mcp_hub.execute_tool_sync(tool, args)
 
-        # 1b. Native Office & Executive Productivity Tools
-        if norm_tool in ["create_powerpoint_presentation", "create_word_document", "create_excel_sheet", "create_notepad_note", "check_emails"]:
-            try:
-                return str(self.tool_registry.execute(norm_tool, **args))
-            except Exception as e:
-                return f"Error executing native tool '{norm_tool}': {e}"
-
         # 2. Local Durable Memory, Reminders & Timers
         if norm_tool in ["set_reminder", "add_reminder", "set_timer", "add_timer"]:
             return self.memory.add_reminder(

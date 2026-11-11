@@ -301,6 +301,21 @@ class LayaHUD(ctk.CTk):
         )
         self.collapse_btn.pack(side="right", padx=2)
 
+        # Runtime Settings, API Key, Mistral & Logs Button
+        self.settings_btn = ctk.CTkButton(
+            self.island_frame,
+            text="⚙",
+            width=26,
+            height=26,
+            fg_color="#16161c",
+            hover_color="#2b2b34",
+            text_color=self.CLR_SILVER,
+            font=ctk.CTkFont(size=12, weight="bold"),
+            corner_radius=13,
+            command=self._open_runtime_settings,
+        )
+        self.settings_btn.pack(side="right", padx=2)
+
         # Stop / Shut Up Button (Immediate Barge-In)
         self.stop_btn = ctk.CTkButton(
             self.island_frame,
