@@ -23,6 +23,15 @@ load_dotenv()
 
 class EmailManager:
     def __init__(self):
+        self.user = ""
+        self.password = ""
+        self.imap_server = ""
+        self.imap_port = 993
+        self.last_emails: List[Dict[str, Any]] = []
+        self.reload_credentials()
+
+    def reload_credentials(self):
+        """Reload email credentials from live os.environ at runtime."""
         self.user = os.getenv("EMAIL_USER", "").strip()
         self.password = os.getenv("EMAIL_PASSWORD", "").strip()
         self.imap_server = os.getenv("EMAIL_IMAP_SERVER", "").strip()
@@ -40,9 +49,8 @@ class EmailManager:
             elif "icloud.com" in lower:
                 self.imap_server = "imap.mail.me.com"
 
-        self.last_emails: List[Dict[str, Any]] = []
-
     def is_configured(self) -> bool:
+        self.reload_credentials()
         return bool(self.user and self.password)
 
     def _decode_mime_words(self, s: str) -> str:

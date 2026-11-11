@@ -46,22 +46,8 @@ class TTSEngine:
         except Exception as e:
             print(f"[TTS Audio] Pygame mixer init note: {e}")
 
-        # Initialize SAPI5 fallback
+        # SAPI5 offline fallback is created on-demand per thread with proper COM initialization
         self._sapi_engine = None
-        try:
-            self._sapi_engine = pyttsx3.init("sapi5")
-            self._sapi_engine.setProperty("rate", self.rate)
-            self._sapi_engine.setProperty("volume", self.volume)
-            # Explicitly choose male voice (e.g. Microsoft David)
-            voices = self._sapi_engine.getProperty("voices")
-            for v in voices:
-                v_name = (getattr(v, "name", "") or "").lower()
-                v_gender = str(getattr(v, "gender", "") or "").lower()
-                if "david" in v_name or "male" in v_gender or "male" in v_name:
-                    self._sapi_engine.setProperty("voice", v.id)
-                    break
-        except Exception:
-            pass
 
         # Start non-blocking background worker
         self._worker_thread = threading.Thread(target=self._speech_worker, daemon=True)
@@ -156,19 +142,27 @@ class TTSEngine:
         return False
 
     def _speak_sapi5(self, text: str):
-        """Emergency offline fallback (only if network is completely down)."""
-        if self._sapi_engine:
+        """Emergency offline fallback (only if network is completely down). Thread-safe COM invocation."""
+        try:
+            import pythoncom
+            pythoncom.CoInitialize()
             try:
-                import pythoncom
-                pythoncom.CoInitialize()
-            except Exception:
-                pass
-            try:
+                local_engine = pyttsx3.init("sapi5")
+                local_engine.setProperty("rate", self.rate)
+                local_engine.setProperty("volume", self.volume)
+                voices = local_engine.getProperty("voices")
+                for v in voices:
+                    v_name = (getattr(v, "name", "") or "").lower()
+                    if "david" in v_name or "male" in v_name:
+                        local_engine.setProperty("voice", v.id)
+                        break
                 clean_text = re.sub(r"[*_#`~\[\]]", "", text).strip()
-                self._sapi_engine.say(clean_text)
-                self._sapi_engine.runAndWait()
-            except Exception as ex:
-                print(f"[SAPI5 Error] {ex}", file=sys.stderr)
+                local_engine.say(clean_text)
+                local_engine.runAndWait()
+            finally:
+                pythoncom.CoUninitialize()
+        except Exception as ex:
+            print(f"[SAPI5 Error] {ex}", file=sys.stderr)
 
     def _speech_worker(self):
         """Worker thread processing spoken output from queue."""

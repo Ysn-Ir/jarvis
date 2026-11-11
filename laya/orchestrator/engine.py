@@ -1,7 +1,7 @@
 """
 Laya Orchestrator & State-of-the-Art Autonomous Execution Engine
 Integrates the Autonomous ReAct Agent Loop, Native Tool Calling,
-Computer Use GUI automation, System Pro diagnostics, and Durable Memory.
+and Model Context Protocol (MCP) servers for desktop and OS control.
 """
 
 import os
@@ -18,15 +18,8 @@ from laya.orchestrator.permission import get_permission_gate, PermissionTier
 from laya.orchestrator.planner import get_agent_planner
 from laya.orchestrator.react_agent import get_react_agent
 from laya.orchestrator.memory import get_memory_store
+from laya.mcp import get_mcp_hub
 from laya.tools.registry import get_tool_registry
-from laya.tools.tier2_os_mcp import get_tier2_tools
-from laya.tools.computer_use import get_computer_use_tools
-from laya.tools.system_pro import get_system_pro_tools
-from laya.tools.code_interpreter import get_code_interpreter
-from laya.tools.web_intelligence import get_web_intelligence
-from laya.tools.ufo_controller import get_ufo_controller
-from laya.tools.filesystem_pro import get_filesystem_pro
-from laya.tools.notebook_tools import get_notebook_tools
 from laya.fast_path.executor import get_fast_path_executor
 
 
@@ -35,19 +28,12 @@ class OrchestratorEngine:
 
     def __init__(self):
         self.permission_gate = get_permission_gate()
+        self.mcp_hub = get_mcp_hub()
         self.tool_registry = get_tool_registry()
-        self.tier2_tools = get_tier2_tools()
         self.fast_path = get_fast_path_executor()
         self.planner = get_agent_planner()
         self.react_agent = get_react_agent()
         self.memory = get_memory_store()
-        self.computer_use = get_computer_use_tools()
-        self.system_pro = get_system_pro_tools()
-        self.code_interpreter = get_code_interpreter()
-        self.web_intelligence = get_web_intelligence()
-        self.ufo_controller = get_ufo_controller()
-        self.filesystem_pro = get_filesystem_pro()
-        self.notebook_tools = get_notebook_tools()
 
     @classmethod
     def get_instance(cls) -> "OrchestratorEngine":
@@ -86,7 +72,6 @@ class OrchestratorEngine:
                 return f"I've noted that in memory: '{fact_text}'."
 
         # 1. State-of-the-Art Autonomous ReAct Agent Loop
-        # If action is open-ended or not a recognized direct tool, run autonomous ReAct loop
         direct_single_tools = ["list_processes", "kill_process", "get_gpu_vram_status", "get_disk_space"]
         if action not in direct_single_tools or action in ["plan_and_execute", "general_reasoning", "autonomous_task"]:
             res, provider = self.react_agent.run(
@@ -110,476 +95,74 @@ class OrchestratorEngine:
             return f"Error executing task '{action}': {e}"
 
     def _dispatch_tool(self, raw_tool_name: str, args: Dict[str, Any], is_confirmed: bool = False) -> str:
-        """Unified dispatch for all Laya tools with safety gating and real execution."""
-        tool = re.sub(r"^(?:tool\.|functions\.|laya\.)", "", raw_tool_name.strip().lower())
+        """Unified dispatch exclusively powered by standard Model Context Protocol (MCP) servers."""
+        tool = re.sub(r"^(?:tool\.|functions\.|laya\.)", "", raw_tool_name.strip())
+        norm_tool = tool.lower()
 
-        has_params = bool(args.get("contact") and args.get("message")) or bool(args.get("recipient") and args.get("body"))
-        allowed, reason = self.permission_gate.check(tool, is_confirmed=is_confirmed, has_params=has_params)
+        # Conversational answer passthrough
+        if norm_tool == "answer_question":
+            return args.get("text", "")
+
+        # Permission & Safety Gate check
+        has_params = bool(args)
+        allowed, reason = self.permission_gate.check(norm_tool, is_confirmed=is_confirmed, has_params=has_params)
         if not allowed:
             return f"[Permission Gate Blocked] {reason}"
 
-        try:
-            # File and Folder Operations
-            if tool == "create_folder":
-                return self.tier2_tools.create_folder(
-                    args.get("folder_name", "NewFolder"),
-                    location=args.get("location", "")
-                )
-            elif tool == "create_file":
-                return self.tier2_tools.create_file(
-                    args.get("filename", "script.py"),
-                    content=args.get("content", ""),
-                    location=args.get("location", "")
-                )
-            elif tool == "get_file_info":
-                return self.tier2_tools.get_file_info(args.get("query", ""))
-            elif tool in ["open_folder", "explore"]:
-                folder_target = args.get("folder_name") or args.get("name") or args.get("location", "desktop")
-                return self.fast_path.open_folder(folder_target)
+        # 1. Primary Execution: Model Context Protocol (MCP) Hub
+        if self.mcp_hub.has_tool(tool):
+            return self.mcp_hub.execute_tool_sync(tool, args)
 
-            # Application & Window Management
-            elif tool in ["open_app", "open_app_or_game", "launch_app"]:
-                name = args.get("name") or args.get("app_name", "")
-                return self.fast_path.open_app(name)
-            elif tool == "close_app":
-                return self.fast_path.close_app(args.get("name", ""))
+        # 1b. Native Office & Executive Productivity Tools
+        if norm_tool in ["create_powerpoint_presentation", "create_word_document", "create_excel_sheet", "create_notepad_note", "check_emails"]:
+            try:
+                return str(self.tool_registry.execute(norm_tool, **args))
+            except Exception as e:
+                return f"Error executing native tool '{norm_tool}': {e}"
 
-            # Display & Volume
-            elif tool in ["set_brightness", "set_luminosity"]:
-                return self.fast_path.set_brightness(int(args.get("level", 70)))
-            elif tool == "set_volume":
-                return self.fast_path.set_volume(int(args.get("level", 50)))
-            elif tool == "volume_up":
-                return self.fast_path.volume_up(int(args.get("steps", 5)))
-            elif tool == "volume_down":
-                return self.fast_path.volume_down(int(args.get("steps", 5)))
-            elif tool == "mute":
-                return self.fast_path.mute()
-            elif tool == "play_media":
-                return self.fast_path.play_media()
-            elif tool == "next_track":
-                return self.fast_path.next_track()
-            elif tool == "prev_track":
-                return self.fast_path.prev_track()
-            elif tool in ["lock_workstation", "lock_pc", "lock"]:
-                delay = int(args.get("delay_sec", 0))
-                return self.fast_path.lock_workstation(delay_sec=delay)
-            elif tool in ["take_screenshot", "screenshot"]:
-                return self.fast_path.take_screenshot()
+        # 2. Local Durable Memory, Reminders & Timers
+        if norm_tool in ["set_reminder", "add_reminder", "set_timer", "add_timer"]:
+            return self.memory.add_reminder(
+                message=args.get("message", "Reminder"),
+                minutes=float(args.get("minutes", 0)),
+                hours=float(args.get("hours", 0)),
+                seconds=float(args.get("seconds", 0))
+            )
+        elif norm_tool in ["list_reminders", "get_reminders", "list_timers"]:
+            return self.memory.list_reminders()
+        elif norm_tool in ["cancel_reminders", "cancel_timer", "clear_reminders"]:
+            return self.memory.cancel_reminders(query=args.get("query", ""))
+        elif norm_tool in ["add_task", "create_task"]:
+            return self.memory.add_task(
+                title=args.get("title", ""),
+                due_date=args.get("due_date", ""),
+                priority=int(args.get("priority", 1))
+            )
+        elif norm_tool in ["list_tasks", "get_tasks"]:
+            return self.memory.list_tasks(status=args.get("status", "all"))
+        elif norm_tool in ["complete_task", "finish_task"]:
+            return self.memory.complete_task(query=args.get("query", ""))
+        elif norm_tool in ["delete_task", "remove_task"]:
+            return self.memory.delete_task(query=args.get("query", ""))
+        elif norm_tool in ["save_user_fact", "remember_fact", "remember"]:
+            return self.memory.add_fact(args.get("fact", "") or args.get("text", ""))
+        elif norm_tool in ["update_user_profile", "set_profile"]:
+            return self.memory.set_profile(args.get("key", ""), args.get("value", ""))
+        elif norm_tool in ["who_am_i", "get_user_profile"]:
+            return self.fast_path.who_am_i()
+        elif norm_tool in ["clear_memory", "reset_memory"]:
+            return self.memory.clear_memory()
 
-            # Web & Search Intelligence
-            elif tool in ["web_search", "live_web_search", "google_search"]:
-                return self.web_intelligence.live_web_search(args.get("query", ""), max_results=4)
-            elif tool in ["youtube_search", "search_youtube"]:
-                return self.web_intelligence.live_web_search(f"{args.get('query', '')} YouTube", max_results=4)
-            elif tool == "open_url":
-                return self.tool_registry.execute("open_url", url=args.get("url", ""))
+        # 3. Direct Fast Path Hardware Controls (Volume, Screen, Power)
+        handler = getattr(self.fast_path, norm_tool, None)
+        if handler and callable(handler):
+            try:
+                return str(handler(**args))
+            except TypeError:
+                return str(handler())
 
-            # Native Office & Documents
-            elif tool == "create_word_document":
-                return self.tool_registry.execute(
-                    "create_word_document",
-                    topic=args.get("topic", "Report"),
-                    content=args.get("content")
-                )
-            elif tool == "create_excel_sheet":
-                return self.tool_registry.execute(
-                    "create_excel_sheet",
-                    topic=args.get("topic", "Spreadsheet")
-                )
-            elif tool == "create_note":
-                return self.tool_registry.execute(
-                    "create_notepad_note",
-                    content=args.get("content", "")
-                )
-
-            # Messaging & Comms
-            elif tool in ["send_message", "message"]:
-                return self.fast_path.send_message(
-                    recipient=args.get("recipient", "") or args.get("contact", ""),
-                    message=args.get("message", "")
-                )
-            elif tool in ["send_telegram", "telegram_send_message"]:
-                return self.fast_path.telegram_send_message(
-                    recipient=args.get("recipient", "") or args.get("contact", ""),
-                    message=args.get("message", "")
-                )
-            elif tool in ["telegram_broadcast", "broadcast_message"]:
-                return self.fast_path.telegram_broadcast(
-                    message=args.get("message", ""),
-                    limit=int(args.get("limit", 30))
-                )
-            elif tool == "telegram_sync_contacts":
-                return self.fast_path.telegram_sync_contacts()
-            elif tool == "telegram_list_contacts":
-                return self.fast_path.telegram_list_contacts()
-            elif tool == "send_whatsapp":
-                return self.tool_registry.execute(
-                    "send_whatsapp",
-                    contact=args.get("contact", "") or args.get("recipient", ""),
-                    message=args.get("message", "")
-                )
-            elif tool == "send_email":
-                return self.tool_registry.execute(
-                    "send_email",
-                    recipient=args.get("recipient", ""),
-                    subject=args.get("subject", "Message from Laya"),
-                    body=args.get("body", "")
-                )
-
-            # Durable Memory
-            elif tool == "add_memory":
-                return self.memory.add_fact(args.get("fact", ""))
-            elif tool == "query_memory":
-                return self.memory.search_facts(args.get("query", ""))
-            elif tool == "set_reminder":
-                return self.memory.add_reminder(
-                    message=args.get("message", ""),
-                    minutes=float(args.get("minutes", 0)),
-                    hours=float(args.get("hours", 0)),
-                    seconds=float(args.get("seconds", 0)),
-                )
-            elif tool == "list_reminders":
-                return self.memory.list_reminders()
-            elif tool in ["cancel_reminders", "clear_reminders", "cancel_timer", "stop_timer"]:
-                return self.memory.cancel_reminders(query=args.get("query", ""))
-            elif tool in ["add_task", "create_task"]:
-                return self.memory.add_task(
-                    title=args.get("title", ""),
-                    due_date=args.get("due_date", ""),
-                    priority=int(args.get("priority", 1))
-                )
-            elif tool in ["list_tasks", "get_tasks"]:
-                return self.memory.list_tasks(status=args.get("status", "all"))
-            elif tool in ["complete_task", "finish_task"]:
-                return self.memory.complete_task(query=args.get("query", ""))
-            elif tool in ["delete_task", "remove_task"]:
-                return self.memory.delete_task(query=args.get("query", ""))
-            elif tool in ["clear_memory", "wipe_memory", "reset_memory"]:
-                return self.memory.clear_memory()
-            elif tool == "jump_to_line":
-                return self.fast_path.jump_to_line(
-                    line_number=int(args.get("line_number", 1)),
-                    title_keyword=args.get("title_keyword", "")
-                )
-            elif tool == "append_to_file":
-                return self.fast_path.append_to_file(
-                    filename_or_path=args.get("filename_or_path", ""),
-                    content=args.get("content", ""),
-                    location=args.get("location", "")
-                )
-
-            # Screen Recording & Media Capture
-            elif tool in ["record_screen", "start_screen_recording", "screen_record"]:
-                return self.fast_path.record_screen(duration=int(args.get("duration", 0)))
-            elif tool in ["stop_screen_recording"]:
-                return self.fast_path.stop_screen_recording()
-            elif tool in ["record_camera_video", "start_camera_recording", "record_camera", "record_video"]:
-                return self.fast_path.record_camera_video(duration=int(args.get("duration", 0)))
-            elif tool in ["stop_camera_recording"]:
-                return self.fast_path.stop_camera_recording()
-            elif tool in ["stop_recording", "stop_all_recordings"]:
-                return self.fast_path.stop_all_recordings()
-            elif tool in ["take_screenshot", "screenshot"]:
-                return self.fast_path.take_screenshot()
-            elif tool in ["take_photo", "capture_photo"]:
-                return self.fast_path.take_photo()
-            elif tool in ["turn_screen_off", "screen_off", "display_off"]:
-                return self.fast_path.turn_screen_off()
-            elif tool in ["turn_screen_on", "screen_on", "display_on"]:
-                return self.fast_path.turn_screen_on()
-            elif tool in ["sleep_system", "sleep_pc", "system_sleep"]:
-                return self.fast_path.sleep_system()
-            elif tool in ["lock_workstation", "lock_pc", "lock_screen"]:
-                return self.fast_path.lock_workstation(delay_sec=int(args.get("delay_sec", 0)))
-            elif tool in ["save_user_fact", "remember_fact"]:
-                return self.memory.add_fact(args.get("fact", ""))
-            elif tool in ["update_user_profile", "set_user_profile"]:
-                return self.memory.set_profile(args.get("key", ""), args.get("value", ""))
-            elif tool in ["who_am_i", "user_profile"]:
-                return self.fast_path.who_am_i()
-            elif tool in ["inspect_screen", "look_at_screen", "read_screen"]:
-                return self.fast_path.inspect_screen(query=args.get("query", ""))
-            elif tool in ["get_daily_briefing", "daily_briefing", "morning_briefing", "brief_me"]:
-                return self.fast_path.get_daily_briefing()
-            elif tool in ["toggle_hud_mode", "toggle_hud", "compact_mode", "mini_hud"]:
-                return self.fast_path.toggle_hud_mode(mode=args.get("mode", ""))
-
-            # Telemetry & Diagnostics
-            elif tool in ["check_system", "check_battery", "battery"]:
-                metric = str(args.get("metric", "battery")).lower()
-                if "ram" in metric or "memory" in metric:
-                    return self.fast_path.check_ram()
-                elif "cpu" in metric:
-                    return self.fast_path.check_cpu()
-                elif "ip" in metric:
-                    return self.fast_path.check_ip()
-                else:
-                    return self.fast_path.check_battery()
-            elif tool in ["check_ram", "ram"]:
-                return self.fast_path.check_ram()
-            elif tool in ["check_cpu", "cpu"]:
-                return self.fast_path.check_cpu()
-            elif tool in ["check_ip", "ip"]:
-                return self.fast_path.check_ip()
-            elif tool in ["query_time", "get_time", "time"]:
-                return self.fast_path.query_time()
-            elif tool in ["query_date", "get_date", "date"]:
-                return self.fast_path.query_date()
-            elif tool == "search_tools":
-                from laya.tools.registry import ToolRegistry
-                tools = ToolRegistry.get_instance().search_tools(args.get("query", ""))
-                return f"Discovered tools matching '{args.get('query')}': {tools}"
-
-            # Computer Use (GUI Automation)
-            elif tool == "mouse_click":
-                return self.computer_use.mouse_click(
-                    x=args.get("x"),
-                    y=args.get("y"),
-                    button=args.get("button", "left"),
-                    clicks=args.get("clicks", 1)
-                )
-            elif tool == "mouse_move":
-                return self.computer_use.mouse_move(x=args.get("x", 0), y=args.get("y", 0))
-            elif tool == "mouse_scroll":
-                return self.computer_use.mouse_scroll(clicks=args.get("clicks", 3))
-            elif tool in ["scroll_window", "scroll", "scroll_active", "scroll_in_window"]:
-                return self.computer_use.scroll_window(
-                    direction=args.get("direction", "down"),
-                    amount=int(args.get("amount", 5)),
-                    title_keyword=args.get("title_keyword", "") or args.get("window", "")
-                )
-            elif tool in ["zoom_window_region", "zoom", "zoom_region", "magnify", "magnify_region"]:
-                return self.computer_use.zoom_window_region(
-                    region=args.get("region", "center"),
-                    title_keyword=args.get("title_keyword", "") or args.get("window", ""),
-                    zoom_factor=float(args.get("zoom_factor", 2.5)),
-                    rel_x=float(args.get("rel_x", 0.5)),
-                    rel_y=float(args.get("rel_y", 0.5)),
-                    rel_w=float(args.get("rel_w", 0.4)),
-                    rel_h=float(args.get("rel_h", 0.4)),
-                )
-            elif tool == "keyboard_type":
-                return self.computer_use.keyboard_type(text=args.get("text", ""))
-            elif tool == "keyboard_hotkey":
-                keys = args.get("keys", [])
-                if isinstance(keys, str):
-                    keys = [k.strip() for k in keys.split("+")]
-                return self.computer_use.keyboard_hotkey(keys=keys)
-            elif tool == "press_key":
-                return self.computer_use.press_key(key=args.get("key", "enter"))
-            elif tool == "window_action":
-                return self.computer_use.window_action(action=args.get("action", "maximize"))
-            elif tool == "clipboard_copy":
-                return self.computer_use.clipboard_copy(text=args.get("text", ""))
-            elif tool == "clipboard_read":
-                return self.computer_use.clipboard_read()
-            elif tool == "draw_shape":
-                return self.computer_use.draw_shape(
-                    shape_type=args.get("shape_type", "circle"),
-                    center_x=args.get("center_x"),
-                    center_y=args.get("center_y"),
-                    radius=args.get("radius", 80),
-                    custom_points=args.get("custom_points")
-                )
-            elif tool in ["organize_windows", "tile_windows", "arrange_windows"]:
-                return self.fast_path.organize_windows(
-                    layout=args.get("layout", "grid"),
-                    target_apps=args.get("apps")
-                )
-            elif tool in ["browser_search", "web_browser_search"]:
-                q = args.get("query", "")
-                engine = args.get("engine", "google")
-                return self.fast_path.browser_search(query=q, engine=engine)
-            elif tool in ["browser_open_url", "open_url"]:
-                url = args.get("url", "")
-                return self.fast_path.browser_open_url(url=url)
-            elif tool in ["play_youtube", "youtube_play"]:
-                return self.fast_path.play_youtube(query=args.get("query", ""))
-
-            # Timers, Alarms, Reminders & Tasks
-            elif tool in ["set_reminder", "add_reminder", "set_timer", "add_timer"]:
-                return self.fast_path.set_reminder(
-                    message=args.get("message", "Timer"),
-                    minutes=float(args.get("minutes", 0)),
-                    hours=float(args.get("hours", 0)),
-                    seconds=float(args.get("seconds", 0))
-                )
-            elif tool in ["list_reminders", "get_reminders", "list_timers"]:
-                return self.fast_path.list_reminders()
-            elif tool in ["cancel_reminders", "cancel_timer", "clear_reminders"]:
-                return self.fast_path.cancel_reminders(query=args.get("query", ""))
-            elif tool in ["add_task", "create_task"]:
-                return self.fast_path.add_task(
-                    title=args.get("title", ""),
-                    due_date=args.get("due_date", ""),
-                    priority=args.get("priority", "normal")
-                )
-            elif tool in ["list_tasks", "get_tasks"]:
-                return self.fast_path.list_tasks(status=args.get("status", "all"))
-            elif tool in ["complete_task", "finish_task"]:
-                return self.fast_path.complete_task(query=args.get("query", ""))
-            elif tool in ["delete_task", "remove_task"]:
-                return self.fast_path.delete_task(query=args.get("query", ""))
-            elif tool in ["save_user_fact", "remember_fact", "remember"]:
-                return self.fast_path.save_user_fact(fact=args.get("fact", "") or args.get("text", ""))
-            elif tool in ["update_user_profile", "set_profile"]:
-                return self.fast_path.update_user_profile(key=args.get("key", ""), value=args.get("value", ""))
-            elif tool in ["who_am_i", "get_user_profile"]:
-                return self.fast_path.who_am_i()
-            elif tool in ["clear_memory", "reset_memory"]:
-                return self.fast_path.clear_memory()
-
-            # Write to file / notepad tools
-            elif tool in ["write_to_file", "write_file"]:
-                return self.fast_path.write_to_file(
-                    filename=args.get("filename", "") or args.get("path", ""),
-                    content=args.get("content", "")
-                )
-            elif tool in ["write_to_notepad", "notepad_write", "type_to_notepad"]:
-                return self.fast_path.write_to_notepad(
-                    text=args.get("text", ""),
-                    filename=args.get("filename")
-                )
-            elif tool == "get_window_geometry":
-                from laya.tools.window_geometry import get_window_geometry_manager
-                return str(get_window_geometry_manager().get_window_geometry(args.get("title_keyword", "")))
-            elif tool == "click_window_relative":
-                from laya.tools.window_geometry import get_window_geometry_manager
-                return get_window_geometry_manager().click_window_relative(
-                    title_keyword=args.get("title_keyword", ""),
-                    rel_x=float(args.get("rel_x", 0.5)),
-                    rel_y=float(args.get("rel_y", 0.5))
-                )
-            elif tool == "drag_window_relative":
-                from laya.tools.window_geometry import get_window_geometry_manager
-                return get_window_geometry_manager().drag_window_relative(
-                    title_keyword=args.get("title_keyword", ""),
-                    start_rel_x=float(args.get("start_rel_x", 0.5)),
-                    start_rel_y=float(args.get("start_rel_y", 0.5)),
-                    end_rel_x=float(args.get("end_rel_x", 0.5)),
-                    end_rel_y=float(args.get("end_rel_y", 0.5)),
-                    duration=float(args.get("duration", 0.4)),
-                )
-            elif tool in ["draw_relative_shape", "draw_shape_relative"]:
-                from laya.tools.window_geometry import get_window_geometry_manager
-                return get_window_geometry_manager().draw_relative_shape(
-                    title_keyword=args.get("title_keyword", "Paint"),
-                    shape=args.get("shape", "square"),
-                    center_rel_x=float(args.get("center_rel_x", 0.5)),
-                    center_rel_y=float(args.get("center_rel_y", 0.5)),
-                    size_rel=float(args.get("size_rel", 0.25)),
-                )
-
-            # Jupyter Notebook Autonomy
-            elif tool in ["write_notebook_cell", "write_notebook"]:
-                return self.notebook_tools.write_notebook_cell(
-                    notebook_path=args.get("notebook_path", "Untitled.ipynb"),
-                    code=args.get("code", ""),
-                    cell_type=args.get("cell_type", "code"),
-                    position=args.get("position")
-                )
-            elif tool in ["read_notebook_cells", "read_notebook"]:
-                return self.notebook_tools.read_notebook_cells(
-                    notebook_path=args.get("notebook_path", "Untitled.ipynb")
-                )
-            elif tool in ["create_notebook", "new_notebook"]:
-                return self.notebook_tools.create_notebook(
-                    notebook_path=args.get("notebook_path", "Untitled.ipynb")
-                )
-
-            # System Pro
-            elif tool == "list_processes":
-                return self.system_pro.list_processes(
-                    sort_by=args.get("sort_by", "memory"),
-                    top_n=args.get("top_n", 8)
-                )
-            elif tool == "kill_process":
-                return self.system_pro.kill_process(name_or_pid=args.get("name_or_pid", ""))
-            elif tool == "get_gpu_vram_status":
-                return self.system_pro.get_gpu_vram_status()
-            elif tool == "get_disk_space":
-                return self.system_pro.get_disk_space()
-            elif tool == "empty_recycle_bin":
-                return self.system_pro.empty_recycle_bin()
-
-            # Advanced Universal Code Execution (Open-Interpreter Paradigm)
-            elif tool in ["run_python", "execute_python", "python"]:
-                return self.code_interpreter.run_python(args.get("code", ""))
-            elif tool in ["run_powershell", "execute_command", "shell", "powershell"]:
-                cmd_str = args.get("command", "") or args.get("cmd", "")
-                return self.code_interpreter.run_powershell(cmd_str)
-
-            # Web Intelligence & Live Search
-            elif tool in ["live_web_search", "web_search_live", "google_search"]:
-                q = args.get("query", "")
-                max_res = int(args.get("max_results", 4))
-                return self.web_intelligence.live_web_search(q, max_results=max_res)
-            elif tool in ["fetch_webpage_content", "read_webpage", "scrape_url"]:
-                return self.web_intelligence.fetch_webpage_content(args.get("url", ""))
-
-            # Microsoft UFO Windows UI Automation
-            elif tool in ["inspect_window_controls", "inspect_active_window", "uia_tree"]:
-                return self.ufo_controller.inspect_window_controls()
-            elif tool in ["click_window_control", "click_uia_control"]:
-                return self.ufo_controller.click_window_control(args.get("name", ""))
-            elif tool in ["set_window_control_text", "type_into_control"]:
-                return self.ufo_controller.set_window_control_text(args.get("name", ""), args.get("text", ""))
-            elif tool in ["list_open_windows", "get_open_windows"]:
-                return self.ufo_controller.list_open_windows()
-            elif tool in ["focus_window", "switch_to_window", "bring_to_front"]:
-                target = args.get("title", "") or args.get("name", "") or args.get("app", "")
-                return self.fast_path.bring_to_front(target)
-
-            # Deep Filesystem Intelligence
-            elif tool in ["read_file_content", "read_file", "view_file"]:
-                return self.filesystem_pro.read_file_content(
-                    args.get("filepath", "") or args.get("path", ""),
-                    max_lines=int(args.get("max_lines", 150))
-                )
-            elif tool in ["list_directory", "list_dir", "ls", "dir"]:
-                return self.filesystem_pro.list_directory(args.get("path", "desktop"))
-            elif tool in ["search_filesystem", "find_files", "search_files"]:
-                return self.filesystem_pro.search_filesystem(
-                    args.get("pattern", ""),
-                    root_dir=args.get("root_dir", "desktop")
-                )
-            elif tool in ["open_file", "launch_file"]:
-                return self.filesystem_pro.open_file(args.get("filepath", "") or args.get("path", ""))
-            elif tool in ["delete_file", "remove_file", "trash_file"]:
-                return self.filesystem_pro.delete_file(
-                    filepath=args.get("filepath", "") or args.get("path", ""),
-                    permanent=bool(args.get("permanent", False))
-                )
-            elif tool in ["move_file", "relocate_file"]:
-                return self.filesystem_pro.move_file(
-                    source=args.get("source", ""),
-                    destination=args.get("destination", "")
-                )
-            elif tool in ["copy_file", "duplicate_file"]:
-                return self.filesystem_pro.copy_file(
-                    source=args.get("source", ""),
-                    destination=args.get("destination", "")
-                )
-            elif tool in ["rename_file"]:
-                return self.filesystem_pro.rename_file(
-                    filepath=args.get("filepath", "") or args.get("path", ""),
-                    new_name=args.get("new_name", "")
-                )
-            elif tool in ["organize_directory", "organize_files"]:
-                return self.filesystem_pro.organize_directory(
-                    args.get("directory", "downloads"),
-                    by=args.get("by", "extension")
-                )
-
-            elif tool == "answer_question":
-                return args.get("text", "")
-
-            else:
-                return f"Tool '{tool}' executed with parameters {args}."
-
-        except Exception as e:
-            return f"Error executing tool '{tool}': {e}"
+        # 4. Fallback execution directly on MCP Hub
+        return self.mcp_hub.execute_tool_sync(tool, args)
 
 
 def get_orchestrator() -> OrchestratorEngine:

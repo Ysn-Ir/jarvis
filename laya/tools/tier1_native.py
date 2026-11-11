@@ -170,6 +170,85 @@ class Tier1NativeTools:
         return f"Created Microsoft Excel workbook '{filepath.name}' and opened it."
 
     # -------------------------------------------------------------
+    # 2b. Microsoft PowerPoint Generation (.pptx)
+    # -------------------------------------------------------------
+    def create_powerpoint_presentation(self, topic: str = "Presentation", slides_data: Optional[List[Dict[str, Any]]] = None) -> str:
+        """Create a professional Microsoft PowerPoint presentation (.pptx) with structured slides and open it."""
+        try:
+            from pptx import Presentation
+            from pptx.util import Inches, Pt
+            from pptx.dml.color import RGBColor
+
+            prs = Presentation()
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            safe_topic = "".join(c if c.isalnum() else "_" for c in topic)[:40].strip("_") or "Presentation"
+            filepath = DOCS_DIR / f"{safe_topic}_{timestamp}.pptx"
+
+            # Slide 1: Title Slide
+            title_layout = prs.slide_layouts[0]
+            slide1 = prs.slides.add_slide(title_layout)
+            title = slide1.shapes.title
+            subtitle = slide1.placeholders[1]
+            title.text = topic.title()
+            subtitle.text = f"Prepared by Laya Autonomous Assistant — {datetime.datetime.now().strftime('%B %d, %Y')}"
+
+            # Slides Data
+            if not slides_data:
+                slides_data = [
+                    {
+                        "title": "Executive Summary & Objectives",
+                        "bullets": [
+                            f"Strategic initiative overview for {topic}",
+                            "Key opportunities, operational priorities, and measurable KPIs",
+                            "Current status and alignment with target outcomes"
+                        ]
+                    },
+                    {
+                        "title": "Core Analysis & Key Findings",
+                        "bullets": [
+                            "Comprehensive review of workflows and operational trends",
+                            "Identification of key leverage points and risk mitigations",
+                            "Benchmarking and optimization strategies"
+                        ]
+                    },
+                    {
+                        "title": "Action Plan & Next Milestones",
+                        "bullets": [
+                            "Immediate deployment of primary deliverables",
+                            "Milestone tracking and team alignment",
+                            "Review retrospective and scalability validation"
+                        ]
+                    }
+                ]
+
+            for s_data in slides_data:
+                bullet_layout = prs.slide_layouts[1]
+                slide = prs.slides.add_slide(bullet_layout)
+                shapes = slide.shapes
+                title_shape = shapes.title
+                body_shape = shapes.placeholders[1]
+
+                title_shape.text = s_data.get("title", "Overview")
+                tf = body_shape.text_frame
+                tf.clear()
+
+                bullets = s_data.get("bullets", [])
+                for idx, b_text in enumerate(bullets):
+                    p = tf.add_paragraph() if idx > 0 else tf.paragraphs[0]
+                    p.text = b_text
+                    p.level = 0
+
+            prs.save(str(filepath))
+            try:
+                os.startfile(str(filepath))
+            except Exception:
+                pass
+
+            return f"Created Microsoft PowerPoint presentation '{filepath.name}' with {len(prs.slides)} slides and opened it."
+        except Exception as e:
+            return f"Failed to create PowerPoint presentation: {e}"
+
+    # -------------------------------------------------------------
     # 3. Notepad Note Generation (.txt)
     # -------------------------------------------------------------
     def create_notepad_note(self, content: str, filename: Optional[str] = None) -> str:

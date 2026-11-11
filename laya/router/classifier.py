@@ -159,39 +159,32 @@ class IntentRouter:
                     reasoning="Prevented catastrophic destructive system action.",
                 )
 
-        # 3. Fast Compound Command Splitter (e.g. "open paint and draw a circle", "raise volume and mute")
-        compound_decision = self._try_compound_fast_path(text)
-        if compound_decision:
-            return compound_decision
+        # 3. Pure Deterministic Hardware & System Reflexes (<1ms)
+        # Volume, mute, screen lock/sleep, timer scheduling, and identity
+        single_decision = self._route_single_deterministic(text, utterance)
+        if single_decision:
+            return single_decision
 
         # 4. Local Neural Intent Classifier: Official Laya ModernBERT (<40ms Local)
-        # Evaluates natural colloquial speech FIRST via non-autoregressive decision model
+        # Evaluates natural colloquial volume adjustments (<40ms)
         try:
             from laya.router.laya_engine import get_laya_engine
             laya_decision = get_laya_engine().predict_intent(text, utterance)
             if laya_decision:
                 return laya_decision
-        except Exception as e:
+        except Exception:
             pass
 
-        # 5. Deterministic OS Fast-Path Patterns (<1ms)
-        # Rock-solid zero-LLM dispatch evaluated right afterwards to guarantee full coverage and precision
-        single_decision = self._route_single_deterministic(text, utterance)
-        if single_decision:
-            return single_decision
-
-        # 6. Ultra-Fast LLM Intent Classifier Layer (<250ms on Groq)
-        llm_decision = self._classify_with_fast_llm(utterance)
-        if llm_decision:
-            return llm_decision
-
-        # 7. Fallback to Autonomous ReAct Agent Loop for genuinely open-ended tasks
+        # 5. ALL OTHER DESKTOP, APPLICATION, BROWSER, FILE & OS TASKS:
+        # Route directly to the Autonomous ReAct Agent Loop powered by 71 Model Context Protocol (MCP) servers
+        # (Windows OS MCP, Playwright Browser MCP, Filesystem MCP, Memory MCP, Fetch MCP)
         return RouteDecision(
             path=ExecutionPath.REASONING_PATH,
             action="plan_and_execute",
             params={"raw_query": utterance},
             safety_tier="GREEN",
-            confidence=0.90,
+            confidence=1.0,
+            reasoning="Dispatched to Autonomous ReAct Agent Loop with 71 Model Context Protocol (MCP) tools."
         )
 
     # -------------------------------------------------------------
@@ -726,6 +719,66 @@ class IntentRouter:
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="next_track")
         if text in ["previous song", "previous track"]:
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="prev_track")
+
+        # Single Standalone App Launch (Sub-300ms reflex ONLY if strictly standalone without compound tasks)
+        if " and " not in text and " then " not in text and not any(k in text for k in ["search", "write", "type", "click", "play", "send", "find", "read", "do", "make", "create"]):
+            open_match = re.match(
+                r"^(?:can\s+you\s+please\s+|could\s+you\s+please\s+|can\s+you\s+|could\s+you\s+|please\s+)?(?:open\s+up|bring\s+up|open|launch|start|run)\s+(?:the\s+)?([a-zA-Z0-9\s_\-\.]+?)(?:\s+app|\s+application|\s+program)?$",
+                text,
+                flags=re.IGNORECASE
+            )
+            if open_match:
+                raw_target = open_match.group(1).strip()
+                raw_target = re.sub(r"^up\s+", "", raw_target).strip()
+                if raw_target not in [
+                    "a", "the", "it", "this", "new folder", "something", "an app", "file", "folder",
+                    "browser", "youtube", "discord", "whatsapp", "telegram", "spotify", "instagram", "insta",
+                    "gmail", "webmail", "reddit", "twitter", "x", "facebook", "tiktok", "netflix", "chatgpt"
+                ]:
+                    return RouteDecision(path=ExecutionPath.FAST_PATH, action="open_app", params={"app_name": raw_target})
+
+        # Close Window / App (<0.0ms)
+        close_match = re.match(
+            r"^(?:can\s+you\s+|could\s+you\s+|please\s+)?(?:close\s+down|shut\s+down|close|quit|exit|kill)\s+(?:the\s+)?([a-zA-Z0-9\s_\-\.]+?)(?:\s+app|\s+application|\s+program)?$",
+            text,
+            flags=re.IGNORECASE
+        )
+        if close_match:
+            raw_close = close_match.group(1).strip()
+            raw_close = re.sub(r"^down\s+", "", raw_close).strip()
+            if raw_close not in ["this", "it", "window", "active window", "the window", "computer", "pc"]:
+                return RouteDecision(path=ExecutionPath.FAST_PATH, action="close_window", params={"title_keyword": raw_close})
+
+        # Local Time, Date, Jokes & Personal Banter (<0.0ms)
+        if any(w in text for w in ["what time is it", "tell me the time", "current time", "the time"]):
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="query_time")
+        if any(w in text for w in ["what is today's date", "what is the date", "today's date", "what day is it"]):
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="query_date")
+        if any(w in text for w in ["tell me a joke", "tell a joke", "say a joke"]):
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="tell_joke")
+        if any(w in text for w in ["tell me a meme", "share a meme", "give me a meme"]):
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="share_meme")
+        if any(w in text for w in ["suggest songs", "recommend music", "suggest music"]):
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="suggest_songs")
+        if any(w in text for w in ["who am i", "what is my name", "do you know me"]):
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="who_am_i")
+        if any(w in text for w in ["who are you", "what is your name", "who made you"]):
+            return RouteDecision(path=ExecutionPath.FAST_PATH, action="query_identity")
+
+        # System Power (Red Tier) (<0.0ms)
+        if any(w in text for w in ["shut down the computer", "shutdown computer", "turn off the pc", "turn off computer", "shut down pc", "restart computer", "reboot pc", "reboot computer"]):
+            return RouteDecision(
+                path=ExecutionPath.FAST_PATH,
+                action="shutdown_system" if any(w in text for w in ["shut", "off"]) else "restart_system",
+                params={},
+                safety_tier="RED",
+                confidence=1.0,
+                reasoning="Requires user confirmation before power action."
+            )
+
+        # All other desktop, file, browser, social media, and manipulation tasks return None
+        # so they route directly to the Autonomous ReAct Agent with 71 MCP tools!
+        return None
 
         if text in ["play music", "launch music", "open music", "start music", "play some music", "listen to music"]:
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="play_youtube", params={"query": "synthwave lofi chillhop mix"})

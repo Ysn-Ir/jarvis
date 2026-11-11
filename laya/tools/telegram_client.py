@@ -33,9 +33,17 @@ class TelegramManager:
         # Optional API keys from environment
         self.api_id = os.getenv("TELEGRAM_API_ID")
         self.api_hash = os.getenv("TELEGRAM_API_HASH")
+        self.bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
 
         self._client = None
         self._loop = None
+
+    def reload_credentials(self):
+        """Reload Telegram credentials dynamically at runtime."""
+        self.api_id = os.getenv("TELEGRAM_API_ID")
+        self.api_hash = os.getenv("TELEGRAM_API_HASH")
+        self.bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
+        self._client = None
 
     @classmethod
     def get_instance(cls) -> "TelegramManager":

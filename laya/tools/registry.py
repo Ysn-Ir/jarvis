@@ -47,6 +47,13 @@ class ToolRegistry:
             parameters={"topic": "string"},
         )
         self.register(
+            name="create_powerpoint_presentation",
+            description="Create a structured Microsoft PowerPoint presentation (.pptx) with formatted slides and open it.",
+            tier=1,
+            handler=t1.create_powerpoint_presentation,
+            parameters={"topic": "string", "slides_data": "optional list of slide objects"},
+        )
+        self.register(
             name="create_notepad_note",
             description="Create a text note with timestamp and open it in Notepad.",
             tier=1,
@@ -404,9 +411,28 @@ class ToolRegistry:
         )
 
     def search_tools(self, query: str) -> List[Dict[str, Any]]:
-        """Dynamic tool discovery to avoid over-tooling prompt degradation."""
+        """Dynamic tool discovery across both native registry and live MCP servers."""
         q = query.lower()
         results = []
+
+        # Search live MCP tools first
+        try:
+            from laya.mcp import get_mcp_hub
+            mcp_schemas = get_mcp_hub().get_openai_tools_schema()
+            for s in mcp_schemas:
+                fn = s.get("function", {})
+                name = fn.get("name", "")
+                desc = fn.get("description", "")
+                if q in name.lower() or any(word in desc.lower() for word in q.split()):
+                    results.append({
+                        "name": name,
+                        "description": desc,
+                        "tier": 2,
+                        "parameters": fn.get("parameters", {}),
+                    })
+        except Exception:
+            pass
+
         for name, meta in self._tools.items():
             if q in name or any(word in meta["description"].lower() for word in q.split()):
                 results.append({
@@ -418,8 +444,16 @@ class ToolRegistry:
         return results if results else list(self._tools.values())[:5]
 
     def execute(self, tool_name: str, **kwargs) -> Any:
+        try:
+            from laya.mcp import get_mcp_hub
+            hub = get_mcp_hub()
+            if hub.has_tool(tool_name):
+                return hub.execute_tool_sync(tool_name, kwargs)
+        except Exception:
+            pass
+
         if tool_name not in self._tools:
-            raise ValueError(f"Tool '{tool_name}' not found in registry.")
+            raise ValueError(f"Tool '{tool_name}' not found in registry or MCP servers.")
         handler = self._tools[tool_name]["handler"]
         return handler(**kwargs)
 

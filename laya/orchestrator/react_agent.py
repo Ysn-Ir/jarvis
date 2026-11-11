@@ -7,6 +7,7 @@ Supports Groq (openai/gpt-oss-20b) with automatic fallback to local Ollama (mist
 
 import os
 import sys
+import re
 import json
 import time
 import urllib.request
@@ -37,6 +38,7 @@ OLLAMA_MODEL = getattr(cfg, "OLLAMA_MODEL", "mistral:7b")
 OLLAMA_TIMEOUT_SEC = float(getattr(cfg, "OLLAMA_TIMEOUT_SEC", 10.0))
 
 from laya.orchestrator.tools_schema import TOOLS_SCHEMA, CORE_TOOLS_SCHEMA
+from laya.mcp import get_mcp_hub
 import datetime
 import win32gui
 from laya.orchestrator.memory import get_memory_store
@@ -98,21 +100,17 @@ def recover_failed_generation(err_obj: Exception) -> Optional[Tuple[str, Dict[st
 def build_react_system_prompt() -> str:
     memory_summary = get_memory_store().get_all_summary()
     desktop_env = get_active_desktop_environment()
-    return f"""You are Laya — an ultra-intelligent, charismatic, and witty autonomous desktop AI companion modeled after JARVIS with modern internet and meme culture literacy.
-You possess complete, real control over the Windows OS, filesystem, applications, browser, and hardware via your provided tools.
+    return f"""You are Laya — an autonomous desktop AI assistant with complete control over Windows, applications, browsers, files, and system hardware via Model Context Protocol (MCP) tools.
 
-Persona & Delivery:
-- Sharp, confident, articulate, and subtly witty (classic JARVIS banter).
-- Deliver 1-2 punchy spoken sentences. Never dump raw tables, stack traces, or tool logs into speech.
-- Always DO the task immediately — never just describe what you would do.
-- Speed & Decisiveness: Complete tasks in 1-2 steps maximum. If you know the answer, use `answer_question`.
-- For creative/generative writing in Notepad (essays, poems, articles), call `write_to_notepad(text=...)` with the full generated text.
-- If you need a specialized tool not in your core list (e.g. Excel, PowerPoint, cameras, window layout), call `search_tools(query=...)`.
+Persona:
+- JARVIS-style witty, confident, articulate, and punchy.
+- Always execute requested actions immediately using the tools provided.
+- Keep spoken replies to 1-2 articulate sentences. Do not read raw JSON or code in speech.
 
-Current Desktop State:
+Desktop State:
 {desktop_env}
 
-User Profile & Long-Term Memory:
+User Context:
 {memory_summary}
 """
 
@@ -121,21 +119,47 @@ class ReActAgent:
     _instance: Optional["ReActAgent"] = None
 
     def __init__(self):
+        self.mcp_hub = get_mcp_hub()
         self.groq_client = None
-        if GROQ_API_KEY:
+        self.openrouter_client = None
+        self.external_client = None
+        self.reload_clients()
+
+    def reload_clients(self):
+        """Hot-reload API clients dynamically from runtime environment/RuntimeManager."""
+        from laya.runtime_manager import get_runtime_manager
+        rt = get_runtime_manager()
+
+        g_key = os.getenv("GROQ_API_KEY", GROQ_API_KEY or "").strip()
+        if g_key:
             try:
                 from groq import Groq
-                self.groq_client = Groq(api_key=GROQ_API_KEY)
+                self.groq_client = Groq(api_key=g_key)
             except Exception as e:
                 print(f"[ReActAgent] Groq init note: {e}")
+        else:
+            self.groq_client = None
 
-        self.openrouter_client = None
-        if OPENROUTER_API_KEY:
+        or_key = os.getenv("OPENROUTER_API_KEY", OPENROUTER_API_KEY or "").strip()
+        if or_key:
             try:
                 from openai import OpenAI
-                self.openrouter_client = OpenAI(base_url=OPENROUTER_BASE_URL, api_key=OPENROUTER_API_KEY)
+                self.openrouter_client = OpenAI(base_url=OPENROUTER_BASE_URL, api_key=or_key)
             except Exception as e:
                 print(f"[ReActAgent] OpenRouter init note: {e}")
+        else:
+            self.openrouter_client = None
+
+        ext_key = (rt.external_api_key or os.getenv("EXTERNAL_API_KEY", "")).strip()
+        ext_url = (rt.external_base_url or os.getenv("EXTERNAL_BASE_URL", "https://api.openai.com/v1")).strip()
+        if ext_key:
+            try:
+                from openai import OpenAI
+                self.external_client = OpenAI(base_url=ext_url, api_key=ext_key)
+            except Exception as e:
+                print(f"[ReActAgent] External client init note: {e}")
+        else:
+            self.external_client = None
 
     @classmethod
     def get_instance(cls) -> "ReActAgent":
@@ -144,17 +168,15 @@ class ReActAgent:
         return cls._instance
 
     def _is_network_available(self) -> bool:
-        """Fast 250ms socket probe to prevent hanging if offline or DNS fails."""
+        """Fast socket probe to check connectivity to cloud APIs."""
         import socket
-        try:
-            with socket.create_connection(("1.1.1.1", 53), timeout=0.25):
-                return True
-        except Exception:
+        for host in ["api.groq.com", "openrouter.ai", "1.1.1.1"]:
             try:
-                with socket.create_connection(("8.8.8.8", 53), timeout=0.25):
+                with socket.create_connection((host, 443), timeout=1.5):
                     return True
             except Exception:
-                return False
+                continue
+        return False
 
     def _is_ollama_online(self) -> bool:
         """Fast 200ms socket probe to prevent hanging if local Ollama daemon is down."""
@@ -170,13 +192,18 @@ class ReActAgent:
         query: str,
         tool_dispatcher: Any,
         history: Optional[List[Dict[str, str]]] = None,
-        max_steps: int = 2,
+        max_steps: int = 6,
         step_callback: Optional[Callable[[str], None]] = None,
     ) -> Tuple[str, str]:
         """
         Execute the autonomous ReAct perception-action loop.
+        Respects runtime inference_mode ('auto' | 'local_mistral' | 'external_api').
         Returns: (final_speech_text, provider_name)
         """
+        from laya.runtime_manager import get_runtime_manager
+        rt = get_runtime_manager()
+        rt.log_event("LLM", f"Query received (mode={rt.inference_mode}): '{query[:100]}'")
+
         messages: List[Dict[str, Any]] = [
             {"role": "system", "content": build_react_system_prompt()}
         ]
@@ -202,35 +229,59 @@ class ReActAgent:
         except Exception:
             pass
 
-        # Check network availability before attempting cloud APIs to prevent hanging
+        mode = rt.inference_mode
+
+        # MODE A: Dedicated Local Mistral / Ollama
+        if mode == "local_mistral":
+            rt.ensure_ollama_running(wait_sec=6.0)
+            if self._is_ollama_online():
+                try:
+                    ans, prov = self._run_ollama_loop(messages, tool_dispatcher, max_steps, step_callback=step_callback)
+                    return self._sanitize_response(ans, query, tool_dispatcher), prov
+                except Exception as e:
+                    rt.log_event("LLM", f"Local Ollama loop error: {e}", level="ERROR")
+            return f"Local model '{rt.local_model}' is unavailable. Please ensure Ollama is installed and running.", "Local Ollama"
+
         net_ok = self._is_network_available()
 
-        # 1. Try Groq LPUs first for lightning speed (sub-second turns)
+        # MODE B: Dedicated External API Key / Custom Endpoint
+        if mode == "external_api" and net_ok and self.external_client:
+            try:
+                ans, prov = self._run_external_loop(messages, tool_dispatcher, max_steps, step_callback=step_callback)
+                return self._sanitize_response(ans, query, tool_dispatcher), prov
+            except Exception as e:
+                rt.log_event("LLM", f"External API attempt failed ({e}), trying fallbacks...", level="WARN")
+
+        # MODE C (Auto) or Fallback Chain: Groq -> External API -> OpenRouter -> Local Mistral
         if net_ok and self.groq_client:
             try:
                 ans, prov = self._run_groq_loop(messages, tool_dispatcher, max_steps, step_callback=step_callback)
                 return self._sanitize_response(ans, query, tool_dispatcher), prov
             except Exception as e:
-                print(f"[ReActAgent] Groq attempt failed ({e})...")
+                rt.log_event("LLM", f"Groq attempt failed ({e})...", level="WARN")
 
-        # 2. Try OpenRouter (Llama 3.3 70B) only if valid key is set
-        if net_ok and self.openrouter_client and OPENROUTER_API_KEY and len(OPENROUTER_API_KEY) > 10:
+        if net_ok and self.external_client:
+            try:
+                ans, prov = self._run_external_loop(messages, tool_dispatcher, max_steps, step_callback=step_callback)
+                return self._sanitize_response(ans, query, tool_dispatcher), prov
+            except Exception as e:
+                rt.log_event("LLM", f"External fallback failed ({e})...", level="WARN")
+
+        if net_ok and self.openrouter_client and os.getenv("OPENROUTER_API_KEY", "").strip():
             try:
                 ans, prov = self._run_openrouter_loop(messages, tool_dispatcher, max_steps, step_callback=step_callback)
                 return self._sanitize_response(ans, query, tool_dispatcher), prov
             except Exception as e:
-                print(f"[ReActAgent] OpenRouter fallback failed ({e})...")
+                rt.log_event("LLM", f"OpenRouter fallback failed ({e})...", level="WARN")
 
-        # 3. Try Local GPU Ollama if running (no 40s freeze if port is closed)
-        if self._is_ollama_online():
+        if rt.ensure_ollama_running(wait_sec=4.0) or self._is_ollama_online():
             try:
                 ans, prov = self._run_ollama_loop(messages, tool_dispatcher, max_steps, step_callback=step_callback)
                 return self._sanitize_response(ans, query, tool_dispatcher), prov
             except Exception as e:
-                print(f"[ReActAgent] Local Ollama failed: {e}")
+                rt.log_event("LLM", f"Local Ollama fallback failed: {e}", level="ERROR")
 
-        # If network is offline and Ollama is offline, provide a clear and truthful message
-        return "I apologize, my reasoning engine is currently unavailable. All deterministic system controls (apps, volume, windows, files, Telegram, Gmail) are operational.", "System"
+        return "I apologize, my reasoning engine is currently unavailable. Please configure an API key or switch to Local Mistral in Settings.", "System"
 
     def _sanitize_response(self, final_text: str, query: str, tool_dispatcher: Any) -> str:
         """Prevent generic chat LLM refusals regarding timers, alarms, and OS automation."""
@@ -284,6 +335,7 @@ class ReActAgent:
 
             response = None
             last_err = None
+            mcp_tools = self.mcp_hub.get_core_tools_schema()
 
             # Try candidate models in order until one succeeds
             while active_idx < len(candidate_models):
@@ -292,7 +344,7 @@ class ReActAgent:
                     response = self.groq_client.chat.completions.create(
                         model=active_model,
                         messages=messages,
-                        tools=CORE_TOOLS_SCHEMA,
+                        tools=mcp_tools if mcp_tools else CORE_TOOLS_SCHEMA,
                         tool_choice="auto",
                         temperature=0.1,
                         timeout=GROQ_TIMEOUT_SEC,
@@ -367,15 +419,8 @@ class ReActAgent:
                     obs = tool_dispatcher(func_name, args)
                     executed_observations.append(obs)
 
-                    # Immediate zero-latency return for terminal single-turn tools — no redundant second LLM hop
+                    # Immediate zero-latency return for conversational answer_question
                     if func_name == "answer_question":
-                        return str(obs).strip(), provider
-
-                    if func_name in [
-                        "write_to_notepad", "create_file", "write_to_file",
-                        "create_word_document", "create_notebook", "write_notebook_cell",
-                        "set_reminder", "cancel_reminders", "play_youtube"
-                    ]:
                         return str(obs).strip(), provider
 
                     # Check for stop/interrupt after EACH tool call so we halt mid-sequence
@@ -387,12 +432,16 @@ class ReActAgent:
                         summary_obs = (obs_str[:65] + "...") if len(obs_str) > 65 else obs_str
                         step_callback(f"Result: {summary_obs}")
 
-                    # Feed observation back into conversation
+                    # Feed observation back into conversation (truncated to prevent token bloat)
+                    obs_text = str(obs)
+                    if len(obs_text) > 1200:
+                        obs_text = obs_text[:1200] + "\n...[output truncated for brevity]"
+
                     messages.append({
                         "role": "tool",
                         "tool_call_id": tc.id,
                         "name": func_name,
-                        "content": str(obs),
+                        "content": obs_text,
                     })
             else:
                 # Model finished planning and provided final answer
@@ -431,10 +480,11 @@ class ReActAgent:
             if step_callback:
                 step_callback(f"Thinking with 70B ({OPENROUTER_MODEL.split('/')[-1]} step {step_count})...")
 
+            mcp_tools = self.mcp_hub.get_core_tools_schema()
             response = self.openrouter_client.chat.completions.create(
                 model=OPENROUTER_MODEL,
                 messages=messages,
-                tools=TOOLS_SCHEMA,
+                tools=mcp_tools if mcp_tools else TOOLS_SCHEMA,
                 tool_choice="auto",
                 temperature=0.1,
                 timeout=OPENROUTER_TIMEOUT_SEC,
@@ -527,10 +577,11 @@ class ReActAgent:
             if step_callback:
                 step_callback(f"Local GPU thinking (step {step_count})...")
 
+            mcp_tools = self.mcp_hub.get_core_tools_schema()
             payload = {
                 "model": OLLAMA_MODEL,
                 "messages": messages,
-                "tools": TOOLS_SCHEMA,
+                "tools": mcp_tools if mcp_tools else TOOLS_SCHEMA,
                 "stream": False,
                 "temperature": 0.1,
                 "options": {

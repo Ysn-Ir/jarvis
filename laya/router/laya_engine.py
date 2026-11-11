@@ -115,7 +115,7 @@ class LayaDecisionEngine:
             if choice == "other" or prob < 0.38:
                 return None
 
-            # 1. Volume Up
+            # Volume Up (Sub-300ms hardware control)
             if choice == "volume_up":
                 if any(w in clean for w in ["set volume to", "volume to", "set sound to", "set audio to", "mute", "unmute"]):
                     return None
@@ -131,7 +131,7 @@ class LayaDecisionEngine:
                     reasoning=f"Laya neural router classified volume_up ({dt:.1f}ms, p={prob:.2f})."
                 )
 
-            # 2. Volume Down
+            # Volume Down (Sub-300ms hardware control)
             if choice == "volume_down":
                 if any(w in clean for w in ["set volume to", "volume to", "set sound to", "set audio to", "mute", "unmute"]):
                     return None
@@ -147,77 +147,9 @@ class LayaDecisionEngine:
                     reasoning=f"Laya neural router classified volume_down ({dt:.1f}ms, p={prob:.2f})."
                 )
 
-            # 3. Open Folder (Guard: never intercept folder creation or compound commands)
-            if choice == "open_folder":
-                if any(w in clean for w in ["create", "make", "new", "generate", "build", "and open", "and explore"]):
-                    return None
-                if not any(w in clean for w in ["folder", "desktop", "directory", "files", "explore", "browse"]):
-                    return None
-                # Check for target folder name
-                folder = "desktop"
-                folder_m = re.search(r"\b(?:open|explore|view)\s+(?:the\s+|a\s+)?folder\s+([a-zA-Z0-9_\-\.\s]+)", clean)
-                if folder_m:
-                    f_cand = folder_m.group(1).strip()
-                    if f_cand not in ["this", "it", "that", "them", "an app", "in desktop", "on desktop"]:
-                        folder = f_cand
-                elif "downloads" in clean:
-                    folder = "downloads"
-                elif "documents" in clean:
-                    folder = "documents"
-                elif "pictures" in clean:
-                    folder = "pictures"
-
-                return RouteDecision(
-                    path=ExecutionPath.FAST_PATH,
-                    action="open_folder",
-                    params={"folder_name": folder},
-                    confidence=prob,
-                    reasoning=f"Laya neural router classified open_folder ({dt:.1f}ms, p={prob:.2f})."
-                )
-
-            # 4. Close All Applications
-            if choice == "close_all_apps":
-                if any(w in clean for w in ["shut down the computer", "shutdown", "turn off", "power off", "reboot", "restart", "computer", "pc"]):
-                    return None
-                if not any(w in clean for w in ["close", "quit", "exit", "kill", "close all", "terminate"]):
-                    return None
-                return RouteDecision(
-                    path=ExecutionPath.FAST_PATH,
-                    action="close_all_apps",
-                    params={},
-                    confidence=prob,
-                    reasoning=f"Laya neural router classified close_all_apps ({dt:.1f}ms, p={prob:.2f})."
-                )
-
-            # 5. Open Gmail
-            if choice == "open_gmail":
-                if not any(w in clean for w in ["gmail", "email", "emails", "mail", "inbox", "webmail"]):
-                    return None
-                if any(w in clean for w in ["check", "read", "fetch", "summarize", "any new"]):
-                    return RouteDecision(
-                        path=ExecutionPath.FAST_PATH,
-                        action="check_emails",
-                        params={},
-                        confidence=prob,
-                        reasoning=f"Laya neural router classified check_emails ({dt:.1f}ms, p={prob:.2f})."
-                    )
-                return RouteDecision(
-                    path=ExecutionPath.FAST_PATH,
-                    action="open_webmail",
-                    params={},
-                    confidence=prob,
-                    reasoning=f"Laya neural router classified open_webmail ({dt:.1f}ms, p={prob:.2f})."
-                )
-
-            # 6. Telegram Launch (Guard: never intercept messaging or calling commands)
-            if choice == "telegram_launch":
-                if any(w in clean for w in ["send", "message", "saying", "text", "tell", "write", "call", "voice", "video", ":"]):
-                    return None
-                after_tg = re.sub(r"\b(?:open|launch|start|run|bring\s+up|show)?\s*telegram(?:\s+desktop|\s+app)?\b", "", clean).strip()
-                if after_tg:
-                    return None
-                if "telegram" not in clean:
-                    return None
+            # All other tasks (apps, files, folders, social media, web, communications, manipulation)
+            # are dispatched to the Autonomous ReAct Agent powered by Model Context Protocol (MCP) servers
+            return None
                 return RouteDecision(
                     path=ExecutionPath.FAST_PATH,
                     action="telegram_launch",

@@ -13,3 +13,5 @@ screenshots/
 data/
 scratch/
 @AutomationLog.txt
+.playwright-mcp/
+*.session
