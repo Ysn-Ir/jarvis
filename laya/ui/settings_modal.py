@@ -355,3 +355,4 @@ class RuntimeSettingsWindow(ctk.CTkToplevel):
             self.logs_box.configure(state="disabled")
         except Exception:
             pass
+

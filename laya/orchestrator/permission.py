@@ -31,9 +31,12 @@ class PermissionGate:
 
     def get_tier(self, action: str) -> PermissionTier:
         act = action.lower()
-        if act in RED_ACTIONS or "shutdown" in act or "format" in act or "diskpart" in act:
+        if act in RED_ACTIONS or any(w in act for w in ["shutdown", "format", "diskpart", "delete_emails"]):
             return PermissionTier.RED
-        if act in YELLOW_ACTIONS or "email" in act or "whatsapp" in act:
+        # Read-only email/social queries are always GREEN (never block inbox reads!)
+        if any(act.startswith(p) or p in act for p in ["list_", "get_", "read_", "search_"]):
+            return PermissionTier.GREEN
+        if act in YELLOW_ACTIONS or act in ["send_email", "forward_email", "whatsapp_message", "discord_send_dm"]:
             return PermissionTier.YELLOW
         return PermissionTier.GREEN
 

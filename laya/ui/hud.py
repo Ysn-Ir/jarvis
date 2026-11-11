@@ -485,11 +485,11 @@ class LayaHUD(ctk.CTk):
             )
 
         make_chip("Emails", "✉️", self._on_check_emails_clicked).pack(side="left", padx=(0, 4))
-        make_chip("Screenshot", "📸", lambda: self._trigger_fast("take_screenshot")).pack(side="left", padx=(0, 4))
-        make_chip("Zoom", "🔍", lambda: self._trigger_fast("zoom_window_region", {"region": "center", "zoom_factor": 2.5})).pack(side="left", padx=(0, 4))
-        make_chip("Paint", "🎨", lambda: self._trigger_fast("draw_shape", {"shape": "heart", "title_keyword": "Paint"})).pack(side="left", padx=(0, 4))
-        make_chip("Telegram", "✈️", lambda: self._trigger_fast("telegram_launch")).pack(side="left", padx=(0, 4))
-        make_chip("Lofi", "🎵", lambda: self._trigger_fast("play_youtube", {"query": "synthwave lofi chillhop mix"})).pack(side="left", padx=(0, 4))
+        make_chip("Telegram", "✈️", lambda: self._start_command_execution("check my telegram status and recent chats")).pack(side="left", padx=(0, 4))
+        make_chip("Discord", "🎮", lambda: self._start_command_execution("open discord")).pack(side="left", padx=(0, 4))
+        make_chip("Paint", "🎨", lambda: self._start_command_execution("open paint")).pack(side="left", padx=(0, 4))
+        make_chip("Screen", "📸", lambda: self._start_command_execution("take a screenshot")).pack(side="left", padx=(0, 4))
+        make_chip("Logs", "📋", self._open_runtime_settings).pack(side="left", padx=(0, 4))
 
         # F. Input Bar (Pill Entry, Mic Button, Pure White Send Button)
         self.input_pill = ctk.CTkFrame(
@@ -683,15 +683,29 @@ class LayaHUD(ctk.CTk):
     # -------------------------------------------------------------
     # 5. Email Checking Handler
     # -------------------------------------------------------------
+    def _open_runtime_settings(self):
+        try:
+            win = getattr(self, "_settings_win", None)
+            if win and win.winfo_exists():
+                win.focus()
+                win.lift()
+                return
+            from laya.ui.settings_modal import RuntimeSettingsWindow
+            self._settings_win = RuntimeSettingsWindow(self)
+        except Exception as e:
+            print(f"[HUD Settings Error] {e}")
+
     def _on_check_emails_clicked(self):
         self.tts.stop()
-        self._start_command_execution("check my emails")
+        self._start_command_execution("check my latest unread emails")
 
     # -------------------------------------------------------------
     # 6. Continuous Single-Pass Wake Word & Neural Bootstrap
     # -------------------------------------------------------------
     def _async_bootstrap_neural_core(self):
         try:
+            from laya.runtime_manager import get_runtime_manager
+            get_runtime_manager()
             if not self.assistant:
                 self.msg_queue.put(("boot_status", "Initializing Orchestrator..."))
                 from laya.main import LayaAssistant
