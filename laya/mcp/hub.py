@@ -90,6 +90,13 @@ class MCPHub:
         print(f"[MCPHub] All MCP servers initialized in {dt:.0f}ms. Total tools aggregated: {total}")
         self._log("MCP", f"All MCP servers initialized in {dt:.0f}ms. Total tools: {total}")
 
+    def _sanitize_schema(self, obj: Any) -> Any:
+        if isinstance(obj, dict):
+            return {k: self._sanitize_schema(v) for k, v in obj.items() if k not in ("$schema", "additionalProperties", "exclusiveMinimum", "exclusiveMaximum")}
+        if isinstance(obj, list):
+            return [self._sanitize_schema(x) for x in obj]
+        return obj
+
     def _rebuild_flat_schemas(self):
         with self._data_lock:
             flat: List[Dict[str, Any]] = []
@@ -160,6 +167,7 @@ class MCPHub:
                                 schema = schema.model_dump()
                             elif not isinstance(schema, dict):
                                 schema = {"type": "object", "properties": {}}
+                            schema = self._sanitize_schema(schema)
 
                             desc = (t.description or "").strip()
                             if len(desc) > 220:
@@ -317,9 +325,9 @@ class MCPHub:
             },
         ]
 
-    def get_core_tools_schema(self, query: str = "") -> List[Dict[str, Any]]:
+    def get_core_tools_schema(self, query: str = "", compact_local: bool = False) -> List[Dict[str, Any]]:
         """
-        Return lean universal core tools (~16 tools) PLUS domain-specific MCP tools matching `query`
+        Return lean universal core tools PLUS domain-specific MCP tools matching `query`
         and any tools unlocked via `search_tools`, staying safely inside token limits for Groq and local Mistral 7B.
         """
         if not self._initialized:
@@ -327,16 +335,23 @@ class MCPHub:
 
         q = (query or "").lower()
 
-        universal_core = {
-            # Windows OS
-            "powershell", "app", "snapshot", "click", "type", "shortcut", "process",
-            # Browser
-            "browser_navigate", "browser_click", "browser_type", "browser_snapshot",
-            # Filesystem
-            "create_directory", "write_file", "read_file", "list_directory",
-            # Memory & Fetch
-            "create_entities", "read_graph", "fetch",
-        }
+        if compact_local:
+            # Ultra-compact schema set (~7-10 tools) optimized for 7B/8B local models
+            universal_core = {
+                "powershell", "app", "browser_navigate",
+                "read_file", "write_file", "create_entities", "fetch"
+            }
+        else:
+            universal_core = {
+                # Windows OS
+                "powershell", "app", "snapshot", "click", "type", "shortcut", "process",
+                # Browser
+                "browser_navigate", "browser_click", "browser_type", "browser_snapshot",
+                # Filesystem
+                "create_directory", "write_file", "read_file", "list_directory",
+                # Memory & Fetch
+                "create_entities", "read_graph", "fetch",
+            }
 
         domain_servers: List[str] = []
         if any(w in q for w in ["email", "mail", "gmail", "inbox", "outlook", "imap", "smtp", "unread"]):
@@ -408,9 +423,11 @@ class MCPHub:
                             seen_names.add(low)
                             added_for_srv += 1
 
-        # 3. Always expose runtime + discovery meta-tools
+        # 3. Expose runtime + discovery meta-tools (for local models, expose search_tools + runtime_switch_model)
         for meta in self._runtime_meta_schemas():
             mlow = meta["function"]["name"].lower()
+            if compact_local and mlow not in ("search_tools", "runtime_switch_model"):
+                continue
             if mlow not in seen_names:
                 selected.append(meta)
                 seen_names.add(mlow)

@@ -17,6 +17,14 @@ import os
 from pathlib import Path
 from typing import Dict, Any
 
+try:
+    import dotenv
+    _root_env = Path(__file__).resolve().parent.parent.parent / ".env"
+    if _root_env.exists():
+        dotenv.load_dotenv(_root_env, override=False)
+except Exception:
+    pass
+
 HOME_DIR = str(Path.home())
 LAYA_HOME_DIR = Path.home() / ".laya"
 LAYA_HOME_DIR.mkdir(parents=True, exist_ok=True)

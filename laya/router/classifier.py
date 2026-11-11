@@ -721,9 +721,9 @@ class IntentRouter:
             return RouteDecision(path=ExecutionPath.FAST_PATH, action="prev_track")
 
         # Single Standalone App Launch (Sub-300ms reflex ONLY if strictly standalone without compound tasks)
-        if " and " not in text and " then " not in text and not any(k in text for k in ["search", "write", "type", "click", "play", "send", "find", "read", "do", "make", "create"]):
+        if " and " not in text and " then " not in text and not any(k in text for k in ["search", "write", "type", "click", "play", "send", "find", "read", "do", "make", "create", "powershell", "script", "command", " to ", " for ", " with "]):
             open_match = re.match(
-                r"^(?:can\s+you\s+please\s+|could\s+you\s+please\s+|can\s+you\s+|could\s+you\s+|please\s+)?(?:open\s+up|bring\s+up|open|launch|start|run)\s+(?:the\s+)?([a-zA-Z0-9\s_\-\.]+?)(?:\s+app|\s+application|\s+program)?$",
+                r"^(?:can\s+you\s+please\s+|could\s+you\s+please\s+|can\s+you\s+|could\s+you\s+|please\s+)?(?:open\s+up|bring\s+up|open|launch|start)\s+(?:the\s+)?([a-zA-Z0-9\s_\-\.]+?)(?:\s+app|\s+application|\s+program)?$",
                 text,
                 flags=re.IGNORECASE
             )

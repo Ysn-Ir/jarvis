@@ -653,8 +653,8 @@ class ReActAgent:
             return "I completed the requested operations on your desktop.", provider
         return "I completed the requested operations.", provider
 
-    def _extract_fallback_tool_calls(self, content: str) -> Optional[List[Dict[str, Any]]]:
-        """Extract tool calls if a local model (like Mistral 7B) emits [TOOL_CALLS] JSON in message content."""
+    def _extract_fallback_tool_calls(self, content: str, valid_names: Optional[List[str]] = None, allow_ps_fence: bool = False) -> Optional[List[Dict[str, Any]]]:
+        """Extract tool calls if a local model (like Mistral 7B) emits JSON or function-call syntax in content."""
         if not content:
             return None
         txt = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
@@ -669,26 +669,93 @@ class ReActAgent:
             if m_fence:
                 raw_json = m_fence.group(1)
 
-        if not raw_json:
-            return None
+        if raw_json:
+            try:
+                parsed = json.loads(raw_json)
+                items = parsed if isinstance(parsed, list) else [parsed]
+                tcs = []
+                for idx, item in enumerate(items):
+                    if isinstance(item, dict) and "name" in item:
+                        tcs.append({
+                            "id": f"local_call_{int(time.time())}_{idx}",
+                            "type": "function",
+                            "function": {
+                                "name": item["name"],
+                                "arguments": item.get("arguments", {}),
+                            }
+                        })
+                if tcs:
+                    return tcs
+            except Exception:
+                pass
 
-        try:
-            parsed = json.loads(raw_json)
-            items = parsed if isinstance(parsed, list) else [parsed]
-            tcs = []
-            for idx, item in enumerate(items):
-                if isinstance(item, dict) and "name" in item:
-                    tcs.append({
-                        "id": f"local_call_{int(time.time())}_{idx}",
-                        "type": "function",
-                        "function": {
-                            "name": item["name"],
-                            "arguments": item.get("arguments", {}),
-                        }
-                    })
-            return tcs or None
-        except Exception:
-            return None
+        # Pattern 3: Function call expression or colon syntax emitted by local models:
+        #   - PowerShell(command="...")
+        #   - PowerShell({ command: "..." })
+        #   - PowerShell: command="..."
+        if valid_names:
+            import ast
+            names_pat = "|".join(re.escape(n) for n in sorted(valid_names, key=len, reverse=True))
+
+            # 3a. Parentheses style: ToolName(...)
+            call_m = re.search(rf"\b({names_pat})\s*\((.*?)\)", txt, re.DOTALL)
+            if call_m:
+                fn_name = call_m.group(1)
+                inner = call_m.group(2).strip()
+                expr_str = f"{fn_name}({inner})"
+                try:
+                    node = ast.parse(expr_str, mode="eval").body
+                    if isinstance(node, ast.Call):
+                        kwargs = {}
+                        for kw in node.keywords:
+                            if kw.arg:
+                                kwargs[kw.arg] = ast.literal_eval(kw.value)
+                        if not kwargs and len(node.args) == 1:
+                            val = ast.literal_eval(node.args[0])
+                            if isinstance(val, dict):
+                                kwargs = val
+                            else:
+                                key_guess = "command" if fn_name == "PowerShell" else "url" if fn_name in ("browser_navigate", "fetch") else "query"
+                                kwargs[key_guess] = val
+                        return [{
+                            "id": f"local_call_{int(time.time())}",
+                            "type": "function",
+                            "function": {"name": fn_name, "arguments": kwargs}
+                        }]
+                except Exception:
+                    # Fallback for unquoted JS object keys like ToolName({ command: "..." })
+                    kv_m = re.findall(r'([a-zA-Z_][a-zA-Z0-9_]*)\s*:\s*["\'](.+?)["\']', inner)
+                    if kv_m:
+                        return [{
+                            "id": f"local_call_{int(time.time())}",
+                            "type": "function",
+                            "function": {"name": fn_name, "arguments": {k: v for k, v in kv_m}}
+                        }]
+
+            # 3b. Colon style: PowerShell: command="..."
+            colon_m = re.search(rf"\b({names_pat})\s*:\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*([\"'])(.+?)\3", txt, re.DOTALL)
+            if colon_m:
+                fn_name = colon_m.group(1)
+                arg_k = colon_m.group(2)
+                arg_v = colon_m.group(4)
+                return [{
+                    "id": f"local_call_{int(time.time())}",
+                    "type": "function",
+                    "function": {"name": fn_name, "arguments": {arg_k: arg_v}}
+                }]
+
+            # 3c. Fenced PowerShell script emitted instead of tool call on initial step by local 7B models
+            if allow_ps_fence and "PowerShell" in valid_names:
+                ps_m = re.search(r"```(?:powershell|ps1)\s*\n(.*?)```", txt, re.DOTALL | re.IGNORECASE)
+                if ps_m:
+                    cmd_txt = ps_m.group(1).strip()
+                    if cmd_txt:
+                        return [{
+                            "id": f"local_ps_{int(time.time())}",
+                            "type": "function",
+                            "function": {"name": "PowerShell", "arguments": {"command": cmd_txt}}
+                        }]
+        return None
 
     def _run_ollama_loop(
         self,
@@ -700,10 +767,22 @@ class ReActAgent:
         from laya.runtime_manager import get_runtime_manager
         rt = get_runtime_manager()
         local_model = (rt.local_model or OLLAMA_MODEL or "mistral:7b").strip()
-        ollama_url = (rt.ollama_base_url or OLLAMA_BASE_URL or "http://localhost:11434/v1").strip().rstrip("/")
+        base = (rt.ollama_base_url or OLLAMA_BASE_URL or "http://localhost:11434").strip().rstrip("/")
+        ollama_root = base[:-3] if base.endswith("/v1") else base
         provider = f"Local Ollama ({local_model})"
         step_count = 0
         executed_observations = []
+
+        # Keep concise context for 7B local models (system + latest turns) so history never crowds out tool calls
+        if len(messages) > 4:
+            local_messages = [messages[0]] + list(messages[-2:])
+        else:
+            local_messages = list(messages)
+        if local_messages and local_messages[0].get("role") == "system":
+            local_messages[0] = {
+                "role": "system",
+                "content": local_messages[0]["content"] + "\nCRITICAL: Always call the provided MCP function tools instead of guessing outputs or printing commands as prose."
+            }
 
         while step_count < max_steps:
             if is_interrupt_requested():
@@ -712,17 +791,21 @@ class ReActAgent:
             if step_callback:
                 step_callback(f"Local {local_model} thinking (step {step_count})...")
 
-            user_q = next((str(m.get("content", "")) for m in reversed(messages) if m.get("role") == "user"), "")
-            mcp_tools = self.mcp_hub.get_core_tools_schema(query=user_q)
+            user_q = next((str(m.get("content", "")) for m in reversed(local_messages) if m.get("role") == "user"), "")
+            mcp_tools = self.mcp_hub.get_core_tools_schema(query=user_q, compact_local=True)
             payload = {
                 "model": local_model,
-                "messages": messages,
+                "messages": local_messages,
                 "tools": mcp_tools if mcp_tools else CORE_TOOLS_SCHEMA,
                 "stream": False,
-                "temperature": 0.1,
+                "keep_alive": "10m",
+                "options": {
+                    "num_ctx": 8192,
+                    "temperature": 0.0,
+                }
             }
             req = urllib.request.Request(
-                f"{ollama_url}/chat/completions",
+                f"{ollama_root}/api/chat",
                 data=json.dumps(payload).encode("utf-8"),
                 headers={"Content-Type": "application/json"},
             )
@@ -731,7 +814,7 @@ class ReActAgent:
                 ollama_timeout = max(float(OLLAMA_TIMEOUT_SEC), 60.0)
                 with urllib.request.urlopen(req, timeout=ollama_timeout) as resp:
                     data = json.loads(resp.read().decode("utf-8"))
-                    msg = data["choices"][0]["message"]
+                    msg = data.get("message") or data.get("choices", [{}])[0].get("message", {})
             except Exception as e:
                 rt.log_event("LLM", f"Local Ollama ({local_model}) error: {e}", level="ERROR")
                 print(f"[ReActAgent] Local Ollama request failed: {e}")
@@ -739,9 +822,14 @@ class ReActAgent:
                     return " | ".join(executed_observations), provider
                 return f"I encountered an issue connecting to local {local_model}: {e}. Please ensure Ollama is running.", provider
 
-            tool_calls = msg.get("tool_calls") or self._extract_fallback_tool_calls(msg.get("content", ""))
+            valid_tool_names = [t["function"]["name"] for t in (mcp_tools if mcp_tools else CORE_TOOLS_SCHEMA)]
+            tool_calls = msg.get("tool_calls") or self._extract_fallback_tool_calls(
+                msg.get("content", ""),
+                valid_names=valid_tool_names,
+                allow_ps_fence=(len(executed_observations) == 0),
+            )
             if tool_calls:
-                messages.append({
+                local_messages.append({
                     "role": "assistant",
                     "content": msg.get("content") or "",
                     "tool_calls": tool_calls,
@@ -776,10 +864,8 @@ class ReActAgent:
                     if step_callback:
                         step_callback(f"Result: {obs_text[:65]}...")
 
-                    messages.append({
+                    local_messages.append({
                         "role": "tool",
-                        "tool_call_id": tc.get("id", f"call_{int(time.time())}"),
-                        "name": fn,
                         "content": obs_text,
                     })
             else:
